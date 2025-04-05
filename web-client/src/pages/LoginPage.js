@@ -4,32 +4,60 @@ import { useAuth } from '../hooks/useAuth';
 import { authService } from '../services/api';
 
 const LoginPage = () => {
-  const [formData, setFormData] = useState({
-    email: '',
-    password: ''
-  });
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   
   const { login } = useAuth();
   const navigate = useNavigate();
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData({ ...formData, [name]: value });
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    
+    if (!email || !password) {
+      setError('Lütfen e-posta ve şifre giriniz.');
+      return;
+    }
+    
     setLoading(true);
-
+    
     try {
-      const response = await authService.login(formData);
-      login(response.data);
-      navigate('/');
+      console.log('Login attempt with:', { email, password });
+      const response = await authService.login(email, password);
+      console.log('Login response:', response);
+      
+      if (response && response.data) {
+        // Login fonksiyonuna response.data'yı gönder
+        await login(response.data);
+        navigate('/');
+      } else {
+        throw new Error('Giriş başarılı ancak kullanıcı bilgileri alınamadı');
+      }
     } catch (err) {
-      setError(err.response?.data?.message || 'Giriş yapılırken bir hata oluştu.');
+      console.error('Login error:', err);
+      setError(err.response?.data?.message || err.message || 'Giriş başarısız. Lütfen tekrar deneyin.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDemoLogin = async () => {
+    setEmail('demo@example.com');
+    setPassword('password123');
+    
+    setLoading(true);
+    
+    try {
+      const response = await authService.login('demo@example.com', 'password123');
+      if (response && response.data) {
+        await login(response.data);
+        navigate('/');
+      }
+    } catch (err) {
+      setError('Demo hesabı ile giriş başarısız oldu.');
+      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -56,8 +84,8 @@ const LoginPage = () => {
             type="email"
             name="email"
             placeholder="E-posta adresiniz"
-            value={formData.email}
-            onChange={handleChange}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
             required
           />
         </div>
@@ -72,8 +100,8 @@ const LoginPage = () => {
             type="password"
             name="password"
             placeholder="Şifreniz"
-            value={formData.password}
-            onChange={handleChange}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
             required
           />
         </div>

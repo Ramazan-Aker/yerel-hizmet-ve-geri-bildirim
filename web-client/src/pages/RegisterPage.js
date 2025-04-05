@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { authService } from '../services/api';
+import { cities } from '../data/cities';
+import { allDistricts } from '../data/allDistricts';
 
 const RegisterPage = () => {
   const [formData, setFormData] = useState({
@@ -10,23 +12,31 @@ const RegisterPage = () => {
     password: '',
     confirmPassword: '',
     phone: '',
+    city: '',
     district: ''
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [availableDistricts, setAvailableDistricts] = useState([]);
   
   const { login } = useAuth();
   const navigate = useNavigate();
 
-  const districts = [
-    'Adalar', 'Arnavutköy', 'Ataşehir', 'Avcılar', 'Bağcılar', 'Bahçelievler',
-    'Bakırköy', 'Başakşehir', 'Bayrampaşa', 'Beşiktaş', 'Beykoz', 'Beylikdüzü',
-    'Beyoğlu', 'Büyükçekmece', 'Çatalca', 'Çekmeköy', 'Esenler', 'Esenyurt',
-    'Eyüpsultan', 'Fatih', 'Gaziosmanpaşa', 'Güngören', 'Kadıköy', 'Kağıthane',
-    'Kartal', 'Küçükçekmece', 'Maltepe', 'Pendik', 'Sancaktepe', 'Sarıyer',
-    'Silivri', 'Sultanbeyli', 'Sultangazi', 'Şile', 'Şişli', 'Tuzla', 'Ümraniye',
-    'Üsküdar', 'Zeytinburnu'
-  ];
+  // İlçeleri şehire göre güncelle
+  useEffect(() => {
+    if (formData.city) {
+      const districtsList = allDistricts[formData.city] || ['Merkez'];
+      setAvailableDistricts(districtsList);
+      
+      // Eğer önceden seçili bir ilçe varsa ve yeni şehirde bu ilçe yoksa, ilçeyi sıfırla
+      if (formData.district && !districtsList.includes(formData.district)) {
+        setFormData(prev => ({ ...prev, district: '' }));
+      }
+    } else {
+      setAvailableDistricts([]);
+      setFormData(prev => ({ ...prev, district: '' }));
+    }
+  }, [formData.city]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -42,17 +52,40 @@ const RegisterPage = () => {
       setError('Şifreler eşleşmiyor.');
       return;
     }
+
+    if (!formData.city) {
+      setError('Lütfen şehir seçiniz.');
+      return;
+    }
+
+    if (!formData.district) {
+      setError('Lütfen ilçe seçiniz.');
+      return;
+    }
     
     setLoading(true);
 
     try {
       // Remove confirmPassword before sending to API
       const { confirmPassword, ...registrationData } = formData;
+      
+      // Log registration data to troubleshoot
+      console.log('Sending registration data:', registrationData);
+      
       const response = await authService.register(registrationData);
-      login(response.data);
-      navigate('/');
+      console.log('Registration response:', response);
+      
+      // Sunucudan dönen cevaptaki token ve kullanıcı bilgilerini login'e gönder
+      if (response && response.data) {
+        // Login fonksiyonuna doğru veriyi gönder
+        login(response.data);
+        navigate('/');
+      } else {
+        throw new Error('Kayıt başarılı ancak kullanıcı bilgileri alınamadı');
+      }
     } catch (err) {
-      setError(err.response?.data?.message || 'Kayıt olurken bir hata oluştu.');
+      console.error('Register error:', err);
+      setError(err.response?.data?.message || err.message || 'Kayıt olurken bir hata oluştu.');
     } finally {
       setLoading(false);
     }
@@ -94,7 +127,7 @@ const RegisterPage = () => {
             id="email"
             type="email"
             name="email"
-            placeholder="E-posta adresiniz"
+            placeholder="E-posta adresinizi girin"
             value={formData.email}
             onChange={handleChange}
             required
@@ -113,8 +146,26 @@ const RegisterPage = () => {
             placeholder="05XX XXX XX XX"
             value={formData.phone}
             onChange={handleChange}
-            required
           />
+        </div>
+        
+        <div className="mb-4">
+          <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="city">
+            Şehir
+          </label>
+          <select
+            className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+            id="city"
+            name="city"
+            value={formData.city}
+            onChange={handleChange}
+            required
+          >
+            <option value="">Şehir Seçin</option>
+            {cities.map(city => (
+              <option key={city} value={city}>{city}</option>
+            ))}
+          </select>
         </div>
         
         <div className="mb-4">
@@ -128,9 +179,10 @@ const RegisterPage = () => {
             value={formData.district}
             onChange={handleChange}
             required
+            disabled={!formData.city}
           >
             <option value="">İlçe Seçin</option>
-            {districts.map(district => (
+            {availableDistricts.map(district => (
               <option key={district} value={district}>{district}</option>
             ))}
           </select>

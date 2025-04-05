@@ -1,8 +1,15 @@
+require('dotenv').config({ path: __dirname + '/../.env' });
+
+console.log('Environment variables loaded:');
+console.log(`PORT: ${process.env.PORT}`);
+console.log(`MONGODB_URI: ${process.env.MONGODB_URI ? process.env.MONGODB_URI.substring(0, 20) + '...' : 'undefined'}`);
+console.log(`JWT_SECRET: ${process.env.JWT_SECRET ? '*****' : 'undefined'}`);
+console.log(`NODE_ENV: ${process.env.NODE_ENV}`);
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
-require('dotenv').config();
 const connectDB = require('./config/db');
 
 // Express app oluştur
@@ -31,6 +38,7 @@ app.get('/', (req, res) => {
 
 // Port dinleme
 const PORT = process.env.PORT || 5000;
+console.log(`PORT environment variable: ${process.env.PORT}`);
 app.listen(PORT, () => {
   console.log(`Sunucu ${PORT} portunda çalışıyor...`);
 });

@@ -1,52 +1,143 @@
-import { createContext, useReducer, useEffect } from 'react';
+import React, { createContext, useState, useEffect } from 'react';
+import { authService } from '../services/api';
 
-const AuthContext = createContext();
-
-const authReducer = (state, action) => {
-  switch (action.type) {
-    case 'LOGIN':
-      return { ...state, user: action.payload, isAuthenticated: true };
-    case 'LOGOUT':
-      return { ...state, user: null, isAuthenticated: false };
-    case 'AUTH_LOADING':
-      return { ...state, loading: true };
-    case 'AUTH_LOADED':
-      return { ...state, loading: false };
-    default:
-      return state;
-  }
-};
+// Auth Context
+export const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
-  const [state, dispatch] = useReducer(authReducer, {
-    user: null,
-    isAuthenticated: false,
-    loading: true
-  });
+  const [user, setUser] = useState(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
+  // Kullanıcı bilgilerini güncel tut
   useEffect(() => {
-    const user = localStorage.getItem('user');
-    if (user) {
-      dispatch({ type: 'LOGIN', payload: JSON.parse(user) });
-    }
-    dispatch({ type: 'AUTH_LOADED' });
+    // Token varsa kullanıcı bilgilerini kontrol et
+    const checkAuth = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        
+        if (token) {
+          try {
+            console.log('Token bulundu, kullanıcı bilgileri alınıyor...');
+            // Token varsa sunucudan kullanıcı bilgilerini al
+            const userData = await authService.getCurrentUser();
+            console.log('Kullanıcı verileri alındı:', userData);
+            
+            if (userData && userData.data) {
+              setUser(userData.data);
+              setIsAuthenticated(true);
+            } else {
+              // Token geçersiz veya süresi dolmuş
+              console.warn('Token var ama kullanıcı bilgileri alınamadı');
+              localStorage.removeItem('token');
+              setUser(null);
+              setIsAuthenticated(false);
+            }
+          } catch (err) {
+            console.error('Token doğrulama hatası:', err);
+            localStorage.removeItem('token');
+            setUser(null);
+            setIsAuthenticated(false);
+          }
+        } else {
+          console.log('Token bulunamadı, kullanıcı oturumu açık değil');
+          setUser(null);
+          setIsAuthenticated(false);
+        }
+      } catch (err) {
+        setError('Authentication check failed');
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkAuth();
   }, []);
 
-  const login = (userData) => {
-    localStorage.setItem('user', JSON.stringify(userData));
-    dispatch({ type: 'LOGIN', payload: userData });
+  // Login function - API bağlantılı
+  const login = async (userData) => {
+    try {
+      console.log('Login data received:', userData);
+      
+      // API'den gelen token'ı sakla
+      if (userData && userData.token) {
+        localStorage.setItem('token', userData.token);
+        
+        // Kullanıcı bilgilerini state'e kaydet
+        setUser({
+          id: userData.id,
+          name: userData.name,
+          email: userData.email,
+          role: userData.role,
+          phone: userData.phone,
+          district: userData.district
+        });
+        
+        setIsAuthenticated(true);
+        setError(null);
+        
+        console.log('Kullanıcı başarıyla giriş yaptı:', userData.name);
+        return true;
+      } else {
+        setError('Geçersiz kullanıcı verisi');
+        return false;
+      }
+    } catch (err) {
+      setError('Giriş başarısız');
+      console.error(err);
+      return false;
+    }
   };
 
+  // Logout function
   const logout = () => {
-    localStorage.removeItem('user');
-    dispatch({ type: 'LOGOUT' });
+    try {
+      // Tarayıcı depolama alanındaki token'ı kaldır
+      localStorage.removeItem('token');
+      
+      // Kullanıcı state'ini temizle
+      setUser(null);
+      setIsAuthenticated(false);
+      setError(null);
+      
+      console.log('Kullanıcı çıkış yaptı');
+      
+      // Sayfayı yenile
+      window.location.href = '/login';
+    } catch (err) {
+      console.error('Çıkış yapma hatası:', err);
+      setError('Çıkış yapılırken bir hata oluştu');
+    }
+  };
+
+  // Update user data
+  const updateUser = (updatedData) => {
+    setUser(prevUser => {
+      const newUser = {
+        ...prevUser,
+        ...updatedData
+      };
+      console.log('Kullanıcı bilgileri güncellendi:', newUser);
+      return newUser;
+    });
+  };
+
+  const contextValue = {
+    user,
+    isAuthenticated,
+    loading,
+    error,
+    login,
+    logout,
+    updateUser,
+    setError
   };
 
   return (
-    <AuthContext.Provider value={{ ...state, login, logout }}>
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   );
-};
-
-export default AuthContext; 
+}; 

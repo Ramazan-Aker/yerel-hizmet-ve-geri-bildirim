@@ -29,14 +29,20 @@ const UserSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
-    role: {
+    city: {
       type: String,
-      enum: ['user', 'municipal_worker', 'admin'],
-      default: 'user',
+      trim: true,
+      default: ''
     },
     district: {
       type: String,
       trim: true,
+      default: ''
+    },
+    role: {
+      type: String,
+      enum: ['user', 'municipal_worker', 'admin'],
+      default: 'user',
     },
     isActive: {
       type: Boolean,
