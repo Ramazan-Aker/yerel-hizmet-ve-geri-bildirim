@@ -90,6 +90,9 @@ export const authService = {
 export const issueService = {
   getAllIssues: async (filters = {}) => {
     try {
+      // Şehir için otomatik filtre ekleme kaldırıldı - kullanıcı tercihine bırakıldı
+      
+      console.log('Sorunlar için API isteği gönderiliyor, filtreler:', filters);
       const response = await apiClient.get('/issues', { params: filters });
       return response.data;
     } catch (error) {
@@ -108,24 +111,28 @@ export const issueService = {
 
   createIssue: async (issueData) => {
     try {
-      console.log('API - Issue yaratma, orijinal veri:', issueData);
+      // Gönderimden önce şehir bilgisinin location içinde olduğundan emin olalım
+      if (!issueData.location.city && issueData.city) {
+        issueData.location.city = issueData.city;
+      }
       
-      // Doğrudan JSON olarak gönder, multipart/form-data yerine
-      // Bu, backend tarafındaki JSON parsing sorunlarını çözecektir
-      const requestData = {
-        title: issueData.title,
-        description: issueData.description,
-        category: issueData.category,
-        severity: issueData.severity,
-        location: issueData.location
-      };
+      // Eğer şehir yoksa ve kullanıcı oturum açmışsa, profil bilgisinden alalım
+      if (!issueData.location.city && localStorage.getItem('token')) {
+        try {
+          const userResponse = await apiClient.get('/users/profile');
+          if (userResponse.data && userResponse.data.city) {
+            issueData.location.city = userResponse.data.city;
+            console.log('Şehir bilgisi kullanıcı profilinden alındı:', userResponse.data.city);
+          }
+        } catch (profileError) {
+          console.error('Şehir bilgisi alınamadı:', profileError);
+        }
+      }
       
-      console.log('API - İstek verisi hazırlandı:', requestData);
+      console.log('API\'ye gönderilecek sorun verisi:', issueData);
       
-      // JSON verisini doğrudan gönder
-      const response = await apiClient.post('/issues', requestData);
+      const response = await apiClient.post('/issues', issueData);
       
-      console.log('API - Yanıt alındı:', response.data);
       return response.data;
     } catch (error) {
       console.error('API - Issue oluşturma hatası:', error);

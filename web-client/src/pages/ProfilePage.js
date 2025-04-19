@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { authService } from '../services/api';
+import { authService, issueService } from '../services/api';
 
 const ProfilePage = () => {
   const { user, updateUser, logout } = useAuth();
@@ -31,6 +31,14 @@ const ProfilePage = () => {
   const [loading, setLoading] = useState(false);
   const [passwordLoading, setPasswordLoading] = useState(false);
   
+  // Aktivite istatistikleri
+  const [activityStats, setActivityStats] = useState({
+    totalIssues: 0,
+    resolvedIssues: 0,
+    loading: true,
+    error: null
+  });
+  
   // Dummy veriyi kaldır ve gerçek kullanıcı verisini kullan
   useEffect(() => {
     if (user) {
@@ -46,6 +54,47 @@ const ProfilePage = () => {
     } else {
       console.log("Kullanıcı verisi bulunamadı");
     }
+  }, [user]);
+
+  // Aktivite istatistiklerini getir
+  useEffect(() => {
+    const fetchUserIssues = async () => {
+      if (!user) return;
+      
+      try {
+        setActivityStats(prev => ({ ...prev, loading: true, error: null }));
+        const response = await issueService.getUserIssues();
+        
+        if (response && response.data) {
+          const issues = response.data;
+          const resolvedCount = issues.filter(issue => 
+            issue.status === 'resolved' || 
+            issue.status === 'Çözüldü'
+          ).length;
+          
+          setActivityStats({
+            totalIssues: issues.length,
+            resolvedIssues: resolvedCount,
+            loading: false,
+            error: null
+          });
+          
+          console.log('Kullanıcı aktivite istatistikleri yüklendi:', {
+            total: issues.length,
+            resolved: resolvedCount
+          });
+        }
+      } catch (error) {
+        console.error('Aktivite istatistikleri yüklenirken hata:', error);
+        setActivityStats(prev => ({
+          ...prev,
+          loading: false,
+          error: 'İstatistikler yüklenemedi'
+        }));
+      }
+    };
+    
+    fetchUserIssues();
   }, [user]);
 
   const handleChange = (e) => {
@@ -504,17 +553,27 @@ const ProfilePage = () => {
           <div className="bg-white shadow-md rounded-lg p-6 mb-8">
             <h2 className="text-xl font-semibold mb-4">Aktivite</h2>
             
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-gray-50 p-4 rounded-lg text-center">
-                <p className="text-3xl font-bold text-blue-600">0</p>
-                <p className="text-gray-600">Bildirilen Sorun</p>
+            {activityStats.loading ? (
+              <div className="flex justify-center p-4">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
               </div>
-              
-              <div className="bg-gray-50 p-4 rounded-lg text-center">
-                <p className="text-3xl font-bold text-green-600">0</p>
-                <p className="text-gray-600">Çözülen Sorun</p>
+            ) : activityStats.error ? (
+              <div className="text-center text-red-500 p-2">
+                {activityStats.error}
               </div>
-            </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-gray-50 p-4 rounded-lg text-center">
+                  <p className="text-3xl font-bold text-blue-600">{activityStats.totalIssues}</p>
+                  <p className="text-gray-600">Bildirilen Sorun</p>
+                </div>
+                
+                <div className="bg-gray-50 p-4 rounded-lg text-center">
+                  <p className="text-3xl font-bold text-green-600">{activityStats.resolvedIssues}</p>
+                  <p className="text-gray-600">Çözülen Sorun</p>
+                </div>
+              </div>
+            )}
           </div>
           
           {/* Hesap İşlemleri */}

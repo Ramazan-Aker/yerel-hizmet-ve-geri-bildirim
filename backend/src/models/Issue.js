@@ -46,16 +46,14 @@ const IssueSchema = mongoose.Schema(
         type: String,
         required: [true, 'İlçe gerekli']
       },
+      city: {
+        type: String,
+        required: [true, 'Şehir gerekli']
+      },
       coordinates: {
-        type: {
-          type: String,
-          enum: ['Point'],
-          default: 'Point'
-        },
-        coordinates: {
-          type: [Number],
-          index: '2dsphere'
-        }
+        type: [Number],
+        required: [true, 'Koordinatlar gerekli'],
+        index: '2dsphere'
       }
     },
     images: [

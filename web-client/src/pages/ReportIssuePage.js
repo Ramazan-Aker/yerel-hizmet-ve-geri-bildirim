@@ -1,13 +1,15 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { issueService } from '../services/api';
-import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import { toast } from 'react-hot-toast';
+import { cityCoordinates } from '../data/cityCoordinates';
+import { getAddressFromCoordinates, formatAddress, improveStreetInfo } from '../services/geocoding';
 
 // Leaflet default icon fix
 delete L.Icon.Default.prototype._getIconUrl;
@@ -34,12 +36,100 @@ const severities = [
   'Kritik'
 ];
 
-const LocationMarker = ({ position, setPosition }) => {
-  useMapEvents({
+// Haritanın merkez konumunu ayarlayan bileşen
+const MapCenter = ({ center }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (center) {
+      map.setView(center, 13);
+    }
+  }, [center, map]);
+  return null;
+};
+
+const LocationMarker = ({ position, setPosition, setFormData }) => {
+  const map = useMapEvents({
     click(e) {
-      setPosition([e.latlng.lat, e.latlng.lng]);
+      const newPosition = [e.latlng.lat, e.latlng.lng];
+      setPosition(newPosition);
+      
+      // Yeni geocoding servisi ile adres bilgisini al
+      fetchAddressInfo(newPosition[0], newPosition[1]);
     },
   });
+
+  // Koordinatlardan adres bilgisini getir
+  const fetchAddressInfo = async (lat, lng) => {
+    try {
+      console.log(`Koordinatlardan adres bilgisi getiriliyor: ${lat}, ${lng}`);
+      toast.loading('Adres bilgisi alınıyor...', { id: 'geocoding' });
+      
+      // Gelişmiş geocoding servisi kullan
+      const addressData = await getAddressFromCoordinates(lat, lng);
+      console.log('Adres bilgisi alındı:', addressData);
+      
+      // Adres bilgisini temizle ve sadeleştir
+      let simplifiedAddress = '';
+      
+      // 1. Önce mahalle bilgisi
+      if (addressData.neighbourhood) {
+        simplifiedAddress = addressData.neighbourhood;
+        // "Mahallesi" ekle eğer yoksa
+        if (!simplifiedAddress.includes('Mahal')) {
+          simplifiedAddress += ' Mahallesi';
+        }
+      }
+      
+      // 2. Sonra ilçe (eğer mahalle ile aynı değilse)
+      if (addressData.district && 
+          addressData.district !== addressData.neighbourhood && 
+          !simplifiedAddress.includes(addressData.district)) {
+        simplifiedAddress += simplifiedAddress ? ', ' + addressData.district : addressData.district;
+      }
+      
+      // 3. Son olarak şehir (eğer ilçe ile aynı değilse)
+      if (addressData.city && 
+          addressData.city !== addressData.district && 
+          !simplifiedAddress.includes(addressData.city)) {
+        simplifiedAddress += simplifiedAddress ? ', ' + addressData.city : addressData.city;
+      }
+      
+      // Adresin kısa ve öz olduğundan emin ol
+      simplifiedAddress = simplifiedAddress.replace(/,\s*,/g, ','); // Çift virgülleri temizle
+      simplifiedAddress = simplifiedAddress.replace(/Mah\.\s+Mahallesi/g, 'Mahallesi'); // "Mah. Mahallesi" -> "Mahallesi"
+      simplifiedAddress = simplifiedAddress.replace(/Mahallesi\s+Mahallesi/g, 'Mahallesi'); // "Mahallesi Mahallesi" -> "Mahallesi"
+      
+      // Eğer en az bir bilgi yoksa, daha basit bir şekilde ele al
+      if (!simplifiedAddress) {
+        const fullParts = (addressData.fullAddress || '').split(',');
+        if (fullParts.length > 0) {
+          // Sadece ilk iki kısmı al
+          simplifiedAddress = fullParts.slice(0, 2).join(',');
+        } else {
+          simplifiedAddress = 'Konum belirlendi';
+        }
+      }
+      
+      console.log('Basitleştirilmiş adres:', simplifiedAddress);
+      
+      // Form verilerini güncelle
+      setFormData(prev => ({
+        ...prev,
+        address: simplifiedAddress,
+        district: addressData.district || ''
+      }));
+      
+      console.log('Form verileri güncellendi:', {
+        address: simplifiedAddress,
+        district: addressData.district || ''
+      });
+      
+      toast.success('Adres bilgisi alındı', { id: 'geocoding' });
+    } catch (error) {
+      console.error('Adres bilgisi getirme hatası:', error);
+      toast.error('Adres bilgisi alınamadı. Lütfen manuel olarak girin.', { id: 'geocoding' });
+    }
+  };
 
   return position ? <Marker position={position} /> : null;
 };
@@ -48,6 +138,7 @@ const ReportIssuePage = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
+  const [mapCenter, setMapCenter] = useState([41.0082, 28.9784]); // Varsayılan: İstanbul
 
   const [formData, setFormData] = useState({
     title: '',
@@ -64,8 +155,34 @@ const ReportIssuePage = () => {
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Kullanıcının şehrine göre harita merkezini ayarla
+  useEffect(() => {
+    if (user && user.city) {
+      const cityName = user.city.charAt(0).toUpperCase() + user.city.slice(1);
+      if (cityCoordinates[cityName]) {
+        // [longitude, latitude] formatından [latitude, longitude] formatına dönüştür
+        const coords = cityCoordinates[cityName];
+        setMapCenter([coords[1], coords[0]]);
+        console.log(`Harita merkezi ${cityName} olarak ayarlandı:`, [coords[1], coords[0]]);
+      }
+    }
+  }, [user]);
+
+  // Form verilerini kullanıcı profil bilgileriyle başlat
+  useEffect(() => {
+    if (user) {
+      setFormData(prev => ({
+        ...prev,
+        city: user.city || ''
+      }));
+      console.log('Kullanıcı şehri form verisine atandı:', user.city);
+    }
+  }, [user]);
+
   const handleChange = (e) => {
     const { name, value } = e.target;
+    // Şehir alanını manuel olarak değiştirmeye izin verme
+    if (name === 'city') return;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
@@ -136,10 +253,15 @@ const ReportIssuePage = () => {
     try {
       setIsSubmitting(true);
       
+      // Kullanıcı bilgisinden şehir alınıyor, yoksa İstanbul varsayılan değer
+      const userCity = user?.city || 'İstanbul';
+      console.log('Kullanıcı şehri:', userCity);
+      
       // Lokasyon nesnesini düzgün formatta oluştur
       const locationData = {
         address: formData.address.trim(),
         district: formData.district.trim(),
+        city: userCity, // Kullanıcının profil bilgisinden şehir bilgisi
         coordinates: position ? [position[1], position[0]] : []
       };
       
@@ -328,16 +450,34 @@ const ReportIssuePage = () => {
             </div>
             
             <div className="mb-4">
+              <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="city">
+                Şehir (Otomatik)
+              </label>
+              <input
+                type="text"
+                id="city"
+                name="city"
+                value={formData.city || (user?.city || 'İstanbul')}
+                disabled
+                className="shadow appearance-none border border-gray-300 rounded w-full py-2 px-3 text-gray-500 leading-tight bg-gray-100"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Şehir bilgisi profilinizden otomatik olarak alınmaktadır.
+              </p>
+            </div>
+            
+            <div className="mb-4">
               <label className="block text-gray-700 text-sm font-bold mb-2">
                 Haritadan Konum Seçin*
               </label>
               <div className="h-[300px] w-full rounded-lg overflow-hidden border border-gray-300">
-                <MapContainer center={[41.0082, 28.9784]} zoom={13} style={{ height: '100%', width: '100%' }}>
+                <MapContainer center={mapCenter} zoom={13} style={{ height: '100%', width: '100%' }}>
                   <TileLayer
                     attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                   />
-                  <LocationMarker position={position} setPosition={setPosition} />
+                  <LocationMarker position={position} setPosition={setPosition} setFormData={setFormData} />
+                  <MapCenter center={mapCenter} />
                 </MapContainer>
               </div>
               {errors.location && <p className="text-red-500 text-xs mt-1">{errors.location}</p>}

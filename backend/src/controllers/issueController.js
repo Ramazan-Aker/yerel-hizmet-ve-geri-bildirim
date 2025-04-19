@@ -1,108 +1,104 @@
 ﻿const Issue = require('../models/Issue');
 const User = require('../models/User');
+const cloudinary = require('cloudinary');
 
 // @desc    Yeni sorun bildirimi oluşturma
 // @route   POST /api/issues
 // @access  Private
 exports.createIssue = async (req, res) => {
+  const logger = req.logger || console;
+  logger.info('Creating new issue with data:', {
+    ...req.body,
+    images: req.body.images ? `${req.body.images.length} images` : 'no images'
+  });
+
   try {
-    console.log('Issue oluşturma isteği alındı');
-    console.log('İstek body:', req.body);
-    
-    let {
-      title,
-      description,
-      category,
-      severity,
-      location,
-      images
-    } = req.body;
-    
-    console.log('Alınan konum verisi (ham):', location);
-    
-    // Konum bilgisi kontrolü ve dönüştürme
-    let locationData;
-    
-    if (typeof location === 'string') {
-      try {
-        // JSON string olarak gelmiş olabilir
-        locationData = JSON.parse(location);
-        console.log('Location JSON olarak ayrıştırıldı:', locationData);
-      } catch (err) {
-        console.error('Location JSON olarak ayrıştırılamadı:', err);
-        return res.status(400).json({
-          success: false,
-          message: 'Geçersiz konum bilgisi formatı'
-        });
-      }
-    } else if (location && typeof location === 'object') {
-      locationData = location;
-      console.log('Location nesne olarak alındı:', locationData);
-    } else {
-      console.error('Geçersiz location verisi:', location);
+    const { title, description, category, severity, location, images } = req.body;
+    const userId = req.user.id;
+
+    // Validate required fields
+    if (!title || !description || !category || !location) {
       return res.status(400).json({
         success: false,
-        message: 'Konum bilgisi gereklidir'
-      });
-    }
-    
-    // Tüm location verisini ayrıntılı logla
-    console.log('LocationData ayrıntılı inceleme:', JSON.stringify(locationData, null, 2));
-    
-    // Konum bilgisi için gerekli alanları doğrula
-    if (!locationData || !locationData.address || !locationData.district) {
-      console.error('Eksik konum bilgisi:', locationData);
-      return res.status(400).json({
-        success: false,
-        message: 'Konum bilgisinde adres ve ilçe alanları gereklidir'
+        message: 'Title, description, category, and location are required'
       });
     }
 
-    // Koordinatları doğrula ve ayarla
-    let coordinates = [];
-    
-    if (locationData.coordinates && Array.isArray(locationData.coordinates) && locationData.coordinates.length === 2) {
-      coordinates = locationData.coordinates;
-    } else if (locationData.type === 'Point' && locationData.coordinates && Array.isArray(locationData.coordinates)) {
-      coordinates = locationData.coordinates;
-    } else {
-      console.warn('Geçersiz koordinat bilgisi, varsayılan değer kullanılacak');
-      coordinates = [0, 0]; // Varsayılan koordinatlar
+    // Validate location data
+    if (!location.coordinates || !Array.isArray(location.coordinates) || location.coordinates.length !== 2) {
+      return res.status(400).json({
+        success: false,
+        message: 'Location coordinates must be an array with longitude and latitude'
+      });
     }
-    
-    console.log('Kullanılacak koordinatlar:', coordinates);
-    
-    // Yeni sorun oluştur
-    const newIssue = {
-      title,
-      description,
-      category,
-      severity,
-      location: {
-        address: locationData.address,
-        district: locationData.district,
-        coordinates: {
-          type: 'Point',
-          coordinates: coordinates
-        }
-      },
-      images: images || [],
-      user: req.user.id
+
+    // Add type to location if not provided
+    const formattedLocation = {
+      ...location,
+      type: location.type || 'Point'
     };
-    
-    console.log('Oluşturulacak issue:', JSON.stringify(newIssue, null, 2));
-    const issue = await Issue.create(newIssue);
-    console.log('Issue başarıyla oluşturuldu, ID:', issue._id);
 
-    res.status(201).json({
+    // Process images if provided
+    let uploadedImageUrls = [];
+    if (images && images.length > 0) {
+      try {
+        logger.info(`Processing ${images.length} images`);
+        
+        // Process each base64 image and upload to Cloudinary
+        const uploadPromises = images.map(async (imageData) => {
+          if (!imageData.startsWith('data:image')) {
+            logger.warn('Invalid image format, skipping');
+            return null;
+          }
+
+          const result = await cloudinary.uploader.upload(imageData, {
+            folder: 'issue_images',
+            resource_type: 'image'
+          });
+          
+          logger.info(`Uploaded image to Cloudinary: ${result.public_id}`);
+          return result.secure_url;
+        });
+
+        const uploadResults = await Promise.all(uploadPromises);
+        uploadedImageUrls = uploadResults.filter(url => url !== null);
+        logger.info(`Successfully uploaded ${uploadedImageUrls.length} images`);
+      } catch (imgError) {
+        logger.error('Error uploading images to Cloudinary:', imgError);
+        // Continue without images rather than failing the whole issue creation
+      }
+    }
+
+    // Create new issue with uploaded image URLs
+    const issue = new Issue({
+      title,
+      description,
+      category,
+      severity: severity || 'medium',
+      status: 'pending',
+      location: formattedLocation,
+      user: userId,
+      images: uploadedImageUrls,
+      assignedTo: null,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+
+    await issue.save();
+    logger.info(`Issue created successfully with ID: ${issue._id}`);
+
+    // Populate reporter information for response
+    const populatedIssue = await Issue.findById(issue._id).populate('user', 'name email');
+
+    return res.status(201).json({
       success: true,
-      data: issue
+      data: populatedIssue
     });
   } catch (error) {
-    console.error('Issue oluşturma hatası:', error);
-    res.status(500).json({
+    logger.error('Error creating issue:', error);
+    return res.status(500).json({
       success: false,
-      message: 'Sunucu hatası: ' + error.message
+      message: 'An error occurred while creating the issue'
     });
   }
 };
@@ -114,7 +110,7 @@ exports.getIssues = async (req, res) => {
   try {
     // Sayfalama ve filtreleme
     const page = parseInt(req.query.page, 10) || 1;
-    const limit = parseInt(req.query.limit, 10) || 10;
+    const limit = parseInt(req.query.limit, 10) || 100; // Limit artırıldı
     const startIndex = (page - 1) * limit;
 
     // Filtreleme parametreleri
@@ -132,9 +128,13 @@ exports.getIssues = async (req, res) => {
       filter['location.district'] = req.query.district;
     }
     
+    // Şehir filtresi kaldırıldı - tüm şehirler gösterilecek
+    
     if (req.query.severity) {
       filter.severity = req.query.severity;
     }
+
+    console.log('Uygulanan filtreler:', filter);
 
     // Toplam sayı hesaplama
     const total = await Issue.countDocuments(filter);
@@ -145,6 +145,8 @@ exports.getIssues = async (req, res) => {
       .sort({ createdAt: -1 })
       .skip(startIndex)
       .limit(limit);
+
+    console.log(`${issues.length} sorun bulundu.`);
 
     // Sayfalama bilgisi
     const pagination = {
@@ -389,16 +391,20 @@ exports.upvoteIssue = async (req, res) => {
 // @access  Private
 exports.getMyIssues = async (req, res) => {
   try {
+    console.log('Kullanıcı kendi sorunlarını görüntülüyor, ID:', req.user.id);
+    
     const issues = await Issue.find({ user: req.user.id })
       .sort({ createdAt: -1 });
 
+    console.log(`Kullanıcı için ${issues.length} sorun bulundu`);
+    
     res.status(200).json({
       success: true,
       count: issues.length,
       data: issues
     });
   } catch (error) {
-    console.error(error);
+    console.error('Kullanıcı sorunları alınırken hata:', error);
     res.status(500).json({
       success: false,
       message: 'Sunucu hatası'

@@ -5,6 +5,8 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
+import { useAuth } from '../hooks/useAuth';
+import { issueService } from '../services/api';
 
 // Leaflet default icon fix
 delete L.Icon.Default.prototype._getIconUrl;
@@ -17,73 +19,16 @@ L.Icon.Default.mergeOptions({
 // Placeholder resimleri için daha güvenilir bir kaynak kullan
 const placeholderImage = 'https://placehold.co/500x500/eee/999?text=Resim+Yok';
 
-// Dummy data for development, will be replaced with API call
-const dummyIssues = [
-  {
-    id: '1',
-    title: 'Kaldırım Çökmesi',
-    description: 'Sokağımızdaki kaldırım çökmüş durumda ve yürümek tehlikeli.',
-    category: 'Altyapı',
-    status: 'Yeni',
-    severity: 'Orta',
-    location: {
-      address: 'Atatürk Cad. No:15',
-      district: 'Kadıköy',
-      coordinates: [41.0082, 28.9784]
-    },
-    createdAt: '2023-05-15T10:30:00Z',
-    upvotes: 12,
-    user: {
-      name: 'Ahmet Yılmaz'
-    },
-    images: [placeholderImage, placeholderImage]
-  },
-  {
-    id: '2',
-    title: 'Sokak Lambası Arızası',
-    description: 'Sokağımızdaki 3 lamba yanmıyor ve geceleri çok karanlık oluyor.',
-    category: 'Altyapı',
-    status: 'İnceleniyor',
-    severity: 'Yüksek',
-    location: {
-      address: 'Bağdat Cad. No:42',
-      district: 'Maltepe',
-      coordinates: [41.0092, 28.9804]
-    },
-    createdAt: '2023-05-14T15:20:00Z',
-    upvotes: 8,
-    user: {
-      name: 'Ayşe Kaya'
-    },
-    images: []
-  },
-  {
-    id: '3',
-    title: 'Çöp Konteyneri Dolu',
-    description: 'Mahalledeki çöp konteyneri 3 gündür boşaltılmadı ve etrafa kötü koku yayılıyor.',
-    category: 'Temizlik',
-    status: 'Çözüldü',
-    severity: 'Düşük',
-    location: {
-      address: 'İstiklal Cad. No:78',
-      district: 'Beyoğlu',
-      coordinates: [41.0102, 28.9694]
-    },
-    createdAt: '2023-05-12T09:45:00Z',
-    upvotes: 5,
-    user: {
-      name: 'Mehmet Demir'
-    },
-    images: [placeholderImage, placeholderImage]
-  },
-];
-
 // Status Renk Kodları
 const statusColors = {
   'Yeni': 'bg-blue-100 text-blue-800',
   'İnceleniyor': 'bg-yellow-100 text-yellow-800',
   'Çözüldü': 'bg-green-100 text-green-800',
-  'Reddedildi': 'bg-red-100 text-red-800'
+  'Reddedildi': 'bg-red-100 text-red-800',
+  'pending': 'bg-blue-100 text-blue-800',
+  'in_progress': 'bg-yellow-100 text-yellow-800',
+  'resolved': 'bg-green-100 text-green-800',
+  'rejected': 'bg-red-100 text-red-800'
 };
 
 // Severity Renk Kodları
@@ -91,7 +36,27 @@ const severityColors = {
   'Düşük': 'bg-gray-100 text-gray-800',
   'Orta': 'bg-yellow-100 text-yellow-800',
   'Yüksek': 'bg-orange-100 text-orange-800',
-  'Kritik': 'bg-red-100 text-red-800'
+  'Kritik': 'bg-red-100 text-red-800',
+  'low': 'bg-gray-100 text-gray-800',
+  'medium': 'bg-yellow-100 text-yellow-800',
+  'high': 'bg-orange-100 text-orange-800',
+  'critical': 'bg-red-100 text-red-800'
+};
+
+// Status Translation
+const statusTranslation = {
+  'pending': 'Yeni',
+  'in_progress': 'İnceleniyor',
+  'resolved': 'Çözüldü',
+  'rejected': 'Reddedildi'
+};
+
+// Severity Translation
+const severityTranslation = {
+  'low': 'Düşük',
+  'medium': 'Orta',
+  'high': 'Yüksek',
+  'critical': 'Kritik'
 };
 
 const categories = [
@@ -114,6 +79,7 @@ const statuses = [
 ];
 
 const IssuesPage = () => {
+  const { user } = useAuth();
   const [issues, setIssues] = useState([]);
   const [filteredIssues, setFilteredIssues] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -131,20 +97,65 @@ const IssuesPage = () => {
   // Sort state
   const [sortBy, setSortBy] = useState('newest');
 
-  // Get issues from API (or dummy data for now)
+  // Kullanıcının şehri değiştiğinde artık filtre uygulamıyoruz
   useEffect(() => {
-    try {
-      // TODO: Replace with actual API call
-      setIssues(dummyIssues);
-      setFilteredIssues(dummyIssues);
-      setLoading(false);
-    } catch (err) {
-      setError('Sorunlar yüklenirken bir hata oluştu.');
-      setLoading(false);
-    }
+    console.log('Tüm şehirlerdeki sorunlar gösteriliyor');
+  }, [user]);
+
+  // Get issues from API
+  useEffect(() => {
+    const fetchIssues = async () => {
+      try {
+        setLoading(true);
+        
+        // Tüm sorunları getir, filtre yok
+        console.log('Tüm sorunlar getiriliyor, filtreleme yok');
+        const response = await issueService.getAllIssues();
+        
+        if (response && response.data) {
+          // Format issues data
+          const formattedIssues = response.data.map(issue => {
+            // Koordinatları düzgün formata getir
+            let formattedIssue = {
+              ...issue,
+              // Use default placeholder if no images
+              images: issue.images && issue.images.length > 0 ? issue.images : [placeholderImage]
+            };
+            
+            // Eğer location.coordinates yoksa boş bir array ekle
+            if (!formattedIssue.location || !formattedIssue.location.coordinates) {
+              console.warn(`Sorun ID: ${issue._id} - Koordinatlar eksik. Varsayılan koordinatlar atanıyor.`);
+              
+              // Location objesi yoksa oluştur
+              if (!formattedIssue.location) {
+                formattedIssue.location = {};
+              }
+              
+              // Varsayılan İstanbul koordinatları (dummy)
+              formattedIssue.location.coordinates = [28.9784, 41.0082]; // [lng, lat] formatı
+            }
+            
+            return formattedIssue;
+          });
+          
+          setIssues(formattedIssues);
+          setFilteredIssues(formattedIssues);
+          console.log('Sorunlar başarıyla yüklendi:', formattedIssues.length);
+        } else {
+          setError('Sorunlar yüklenemedi');
+        }
+      } catch (err) {
+        console.error('Sorunlar yüklenirken hata:', err);
+        setError('Sorunlar yüklenirken bir hata oluştu.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchIssues();
   }, []);
 
-  // Apply filters
+  // Apply filters - şehir filtresi kaldırıldı
   useEffect(() => {
     let result = [...issues];
     
@@ -154,23 +165,32 @@ const IssuesPage = () => {
       result = result.filter(issue => 
         issue.title.toLowerCase().includes(searchLower) ||
         issue.description.toLowerCase().includes(searchLower) ||
-        issue.location.address.toLowerCase().includes(searchLower)
+        (issue.location && issue.location.address && issue.location.address.toLowerCase().includes(searchLower))
       );
     }
     
     // Apply category filter
     if (filters.category !== 'Tümü') {
-      result = result.filter(issue => issue.category === filters.category);
+      result = result.filter(issue => {
+        const category = issue.category || '';
+        return category.toLowerCase() === filters.category.toLowerCase();
+      });
     }
     
     // Apply status filter
     if (filters.status !== 'Tümü') {
-      result = result.filter(issue => issue.status === filters.status);
+      result = result.filter(issue => {
+        const status = issue.status || '';
+        const translatedStatus = statusTranslation[status] || status;
+        return translatedStatus === filters.status;
+      });
     }
     
     // Apply district filter
     if (filters.district) {
       result = result.filter(issue => 
+        issue.location && 
+        issue.location.district && 
         issue.location.district.toLowerCase().includes(filters.district.toLowerCase())
       );
     }
@@ -178,6 +198,7 @@ const IssuesPage = () => {
     // Apply sorting
     result = sortIssues(result, sortBy);
     
+    console.log('Filtrelenmiş sonuç sayısı:', result.length);
     setFilteredIssues(result);
   }, [issues, filters, sortBy]);
 
@@ -205,10 +226,14 @@ const IssuesPage = () => {
       case 'oldest':
         return sorted.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
       case 'upvotes':
-        return sorted.sort((a, b) => b.upvotes - a.upvotes);
+        return sorted.sort((a, b) => (b.upvotes || 0) - (a.upvotes || 0));
       case 'severity':
-        const severityOrder = { 'Kritik': 3, 'Yüksek': 2, 'Orta': 1, 'Düşük': 0 };
-        return sorted.sort((a, b) => severityOrder[b.severity] - severityOrder[a.severity]);
+        const severityOrder = { 'critical': 3, 'high': 2, 'medium': 1, 'low': 0 };
+        return sorted.sort((a, b) => {
+          const severityA = a.severity || 'low';
+          const severityB = b.severity || 'low';
+          return severityOrder[severityB] - severityOrder[severityA];
+        });
       default:
         return sorted;
     }
@@ -222,6 +247,16 @@ const IssuesPage = () => {
       month: 'long', 
       year: 'numeric' 
     });
+  };
+
+  // Get status display text
+  const getStatusDisplayText = (status) => {
+    return statusTranslation[status] || status;
+  };
+
+  // Get severity display text
+  const getSeverityDisplayText = (severity) => {
+    return severityTranslation[severity] || severity;
   };
 
   if (loading) {
@@ -256,6 +291,8 @@ const IssuesPage = () => {
           + Yeni Sorun Bildir
         </Link>
       </div>
+
+      {/* Şehir filtresi kaldırıldı */}
 
       {/* Filtreler */}
       <div className="bg-white shadow-md rounded-lg p-4 mb-6">
@@ -380,8 +417,8 @@ const IssuesPage = () => {
       {viewMode === 'list' && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredIssues.map((issue) => (
-            <div key={issue.id} className="bg-white shadow-md rounded-lg overflow-hidden">
-              {issue.images.length > 0 && (
+            <div key={issue._id} className="bg-white shadow-md rounded-lg overflow-hidden">
+              {issue.images && issue.images.length > 0 && (
                 <div className="h-48 overflow-hidden">
                   <img
                     src={issue.images[0]}
@@ -395,10 +432,10 @@ const IssuesPage = () => {
                 <div className="flex justify-between items-start mb-2">
                   <div>
                     <span className={`inline-block px-2 py-1 text-xs font-semibold rounded-full ${statusColors[issue.status]}`}>
-                      {issue.status}
+                      {getStatusDisplayText(issue.status)}
                     </span>
                     <span className={`inline-block ml-2 px-2 py-1 text-xs font-semibold rounded-full ${severityColors[issue.severity]}`}>
-                      {issue.severity}
+                      {getSeverityDisplayText(issue.severity)}
                     </span>
                   </div>
                   <span className="text-gray-500 text-sm">
@@ -407,7 +444,7 @@ const IssuesPage = () => {
                 </div>
                 
                 <h2 className="text-xl font-semibold mb-2">
-                  <Link to={`/issues/${issue.id}`} className="text-blue-600 hover:text-blue-800">
+                  <Link to={`/issues/${issue._id}`} className="text-blue-600 hover:text-blue-800">
                     {issue.title}
                   </Link>
                 </h2>
@@ -421,7 +458,7 @@ const IssuesPage = () => {
                     <span className="inline-block px-2 py-1 bg-gray-100 rounded-full text-xs mr-2">
                       {issue.category}
                     </span>
-                    <span>{issue.location.district}</span>
+                    <span>{issue.location?.district}</span>
                   </div>
                   
                   <div className="flex items-center">
@@ -430,7 +467,7 @@ const IssuesPage = () => {
                         <path fillRule="evenodd" d="M3.293 9.707a1 1 0 010-1.414l6-6a1 1 0 011.414 0l6 6a1 1 0 01-1.414 1.414L11 5.414V17a1 1 0 11-2 0V5.414L4.707 9.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
                       </svg>
                     </button>
-                    <span className="text-gray-700 font-medium">{issue.upvotes}</span>
+                    <span className="text-gray-700 font-medium">{issue.upvotes || 0}</span>
                   </div>
                 </div>
               </div>
@@ -448,39 +485,74 @@ const IssuesPage = () => {
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
             
-            {filteredIssues.map((issue) => (
-              <Marker key={issue.id} position={issue.location.coordinates}>
-                <Popup>
-                  <div className="w-60">
-                    <div className="mb-2">
-                      <span className={`inline-block px-2 py-1 text-xs font-semibold rounded-full ${statusColors[issue.status]}`}>
-                        {issue.status}
-                      </span>
-                      <span className={`inline-block ml-1 px-2 py-1 text-xs font-semibold rounded-full ${severityColors[issue.severity]}`}>
-                        {issue.severity}
-                      </span>
-                    </div>
-                    
-                    <h3 className="text-lg font-semibold mb-1">{issue.title}</h3>
-                    
-                    <p className="text-gray-600 text-sm mb-2 line-clamp-2">
-                      {issue.description}
-                    </p>
-                    
-                    <div className="text-xs text-gray-500 mb-2">
-                      {issue.location.address}, {issue.location.district}
-                    </div>
-                    
-                    <Link 
-                      to={`/issues/${issue.id}`}
-                      className="block w-full text-center bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-1 px-2 rounded transition"
-                    >
-                      Detayları Gör
-                    </Link>
-                  </div>
-                </Popup>
-              </Marker>
-            ))}
+            {filteredIssues.length > 0 ? (
+              filteredIssues.map((issue) => {
+                // Debug - konumları log'la
+                console.log(`Haritada gösterilecek sorun: ${issue._id}`, issue.location.coordinates);
+                
+                // Her sorun için koordinatlar olduğunu garantiledik
+                if (issue.location && issue.location.coordinates && 
+                    Array.isArray(issue.location.coordinates) && 
+                    issue.location.coordinates.length === 2) {
+                  
+                  let position;
+                  
+                  // Check if coordinates are numbers
+                  const coord1 = parseFloat(issue.location.coordinates[0]);
+                  const coord2 = parseFloat(issue.location.coordinates[1]);
+                  
+                  if (isNaN(coord1) || isNaN(coord2)) {
+                    console.error(`Sorun ${issue._id} için geçersiz koordinatlar:`, issue.location.coordinates);
+                    return null;
+                  }
+                  
+                  // Leaflet [lat, lng] bekler, MongoDB [lng, lat] kullanır
+                  // MongoDB GeoJSON spesifikasyonu: https://docs.mongodb.com/manual/reference/geojson/
+                  position = [coord2, coord1];
+                  console.log(`Sorun ${issue._id} için haritada kullanılan koordinatlar:`, position);
+                  
+                  return (
+                    <Marker key={issue._id} position={position}>
+                      <Popup>
+                        <div className="w-60">
+                          <div className="mb-2">
+                            <span className={`inline-block px-2 py-1 text-xs font-semibold rounded-full ${statusColors[issue.status]}`}>
+                              {getStatusDisplayText(issue.status)}
+                            </span>
+                            <span className={`inline-block ml-1 px-2 py-1 text-xs font-semibold rounded-full ${severityColors[issue.severity]}`}>
+                              {getSeverityDisplayText(issue.severity)}
+                            </span>
+                          </div>
+                          
+                          <h3 className="text-lg font-semibold mb-1">{issue.title}</h3>
+                          
+                          <p className="text-gray-600 text-sm mb-2 line-clamp-2">
+                            {issue.description}
+                          </p>
+                          
+                          <div className="text-xs text-gray-500 mb-2">
+                            {issue.location.address}, {issue.location.district}
+                          </div>
+                          
+                          <Link 
+                            to={`/issues/${issue._id}`}
+                            className="block w-full text-center bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-1 px-2 rounded transition"
+                          >
+                            Detayları Gör
+                          </Link>
+                        </div>
+                      </Popup>
+                    </Marker>
+                  );
+                }
+                return null;
+              })
+            ) : (
+              // Filtrelenmiş sonuç yoksa mesaj göster
+              <div className="absolute z-[1000] top-4 left-0 right-0 mx-auto w-max bg-white p-3 shadow-md rounded-lg">
+                <p className="text-red-600">Filtreleme kriterlerine uygun sorun bulunamadı.</p>
+              </div>
+            )}
           </MapContainer>
         </div>
       )}
@@ -503,12 +575,14 @@ const IssuesPage = () => {
             Arama kriterlerinize uygun sorun bulunamadı. Lütfen farklı filtreler deneyin.
           </p>
           <button
-            onClick={() => setFilters({
-              search: '',
-              category: 'Tümü',
-              status: 'Tümü',
-              district: ''
-            })}
+            onClick={() => {
+              setFilters({
+                search: '',
+                category: 'Tümü',
+                status: 'Tümü',
+                district: ''
+              });
+            }}
             className="bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded-lg transition"
           >
             Filtreleri Temizle
