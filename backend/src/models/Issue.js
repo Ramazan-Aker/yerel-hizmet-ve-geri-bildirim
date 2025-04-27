@@ -29,7 +29,7 @@ const IssueSchema = mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['Yeni', 'İnceleniyor', 'Çözüldü', 'Reddedildi'],
+      enum: ['Yeni', 'İnceleniyor', 'Çözüldü', 'Reddedildi', 'pending', 'in_progress', 'resolved', 'rejected'],
       default: 'Yeni'
     },
     severity: {

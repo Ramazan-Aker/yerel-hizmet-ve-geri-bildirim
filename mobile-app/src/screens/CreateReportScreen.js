@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   StyleSheet,
   View,
@@ -23,13 +23,55 @@ import * as Location from 'expo-location';
 import { cityCoordinates } from '../data/cityCoordinates';
 import { cities } from '../data/cities';
 import { allDistricts } from '../data/allDistricts';
+import Geocoder from 'react-native-geocoder';
+
+// Resmi base64 formatına dönüştüren yardımcı fonksiyon
+const imageToBase64 = async (uri) => {
+  try {
+    if (!uri) {
+      console.warn('Image URI is empty or invalid');
+      return null;
+    }
+
+    const fileInfo = await FileSystem.getInfoAsync(uri);
+    if (!fileInfo.exists) {
+      console.error('Resim dosyası bulunamadı:', uri);
+      return null;
+    }
+    
+    // Dosya boyutu kontrolü (10MB limiti)
+    if (fileInfo.size > 10 * 1024 * 1024) {
+      console.warn('Resim boyutu çok büyük (>10MB):', fileInfo.size);
+      Alert.alert('Uyarı', 'Resim boyutu çok büyük. Lütfen daha küçük bir resim seçin (maksimum 10MB).');
+      return null;
+    }
+    
+    console.log('Resim dosya bilgisi:', { uri, size: fileInfo.size, exists: fileInfo.exists });
+    
+    // Dosyayı base64 formatında oku
+    const base64 = await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    
+    if (!base64 || base64.length === 0) {
+      console.warn('Base64 dönüştürme sonucu boş');
+      return null;
+    }
+    
+    console.log('Base64 dönüştürme başarılı, uzunluk:', base64.length);
+    return base64;
+  } catch (error) {
+    console.error('Base64 dönüştürme hatası:', error);
+    return null;
+  }
+};
 
 const CreateReportScreen = ({ navigation }) => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('');
-  const [severity, setSeverity] = useState('medium');
+  const [severity, setSeverity] = useState('Orta');
   const [description, setDescription] = useState('');
   const [address, setAddress] = useState('');
   const [district, setDistrict] = useState('');
@@ -65,7 +107,24 @@ const CreateReportScreen = ({ navigation }) => {
       
       // Şehir koordinatlarını al ve haritayı güncelle
       if (cityCoordinates[city]) {
-        const [longitude, latitude] = cityCoordinates[city];
+        let longitude, latitude;
+        
+        // Veri formatını kontrol et
+        if (Array.isArray(cityCoordinates[city])) {
+          [longitude, latitude] = cityCoordinates[city];
+        } 
+        // Obje formatında ise
+        else if (typeof cityCoordinates[city] === 'object') {
+          longitude = cityCoordinates[city].longitude || 0;
+          latitude = cityCoordinates[city].latitude || 0;
+        }
+        // Varsayılan değerler
+        else {
+          console.warn(`${city} için geçersiz koordinat formatı`);
+          longitude = 28.9784; // İstanbul için varsayılan değer
+          latitude = 41.0082;  // İstanbul için varsayılan değer
+        }
+        
         const newRegion = {
           latitude,
           longitude,
@@ -73,6 +132,7 @@ const CreateReportScreen = ({ navigation }) => {
           longitudeDelta: 0.2,
         };
         setInitialRegion(newRegion);
+        
         // Harita açıksa seçilen konumu da güncelle
         if (mapVisible) {
           setSelectedLocation({
@@ -87,21 +147,21 @@ const CreateReportScreen = ({ navigation }) => {
   // Kategori listesi
   const categories = [
     { label: 'Kategori Seçin', value: '' },
-    { label: 'Altyapı', value: 'altyapi' },
-    { label: 'Çevre', value: 'cevre' },
-    { label: 'Ulaşım', value: 'ulasim' },
-    { label: 'Güvenlik', value: 'guvenlik' },
-    { label: 'Temizlik', value: 'temizlik' },
-    { label: 'Park ve Bahçeler', value: 'park_bahce' },
-    { label: 'Diğer', value: 'diger' },
+    { label: 'Altyapı', value: 'Altyapı' },
+    { label: 'Çevre', value: 'Çevre' },
+    { label: 'Ulaşım', value: 'Ulaşım' },
+    { label: 'Güvenlik', value: 'Güvenlik' },
+    { label: 'Temizlik', value: 'Temizlik' },
+    { label: 'Park ve Bahçeler', value: 'Diğer' },
+    { label: 'Diğer', value: 'Diğer' },
   ];
   
   // Önem seviyesi listesi
   const severityLevels = [
-    { label: 'Düşük', value: 'low' },
-    { label: 'Orta', value: 'medium' },
-    { label: 'Yüksek', value: 'high' },
-    { label: 'Kritik', value: 'critical' },
+    { label: 'Düşük', value: 'Düşük' },
+    { label: 'Orta', value: 'Orta' },
+    { label: 'Yüksek', value: 'Yüksek' },
+    { label: 'Kritik', value: 'Kritik' },
   ];
 
   // İzin kontrolü ve galeriden resim seçme
@@ -158,114 +218,171 @@ const CreateReportScreen = ({ navigation }) => {
   // Form doğrulama ve gönderme
   const handleSubmit = async () => {
     try {
-      // Clear previous errors
       setErrors({});
-      
-      // Validate required fields
-      if (!title.trim()) {
-        setErrors(prev => ({ ...prev, title: 'Başlık alanı zorunludur' }));
-        return;
-      }
-      if (!category) {
-        setErrors(prev => ({ ...prev, category: 'Kategori seçimi zorunludur' }));
-        return;
-      }
-      if (!description.trim()) {
-        setErrors(prev => ({ ...prev, description: 'Açıklama alanı zorunludur' }));
-        return;
-      }
-      if (!address.trim()) {
-        setErrors(prev => ({ ...prev, address: 'Adres alanı zorunludur' }));
-        return;
-      }
-      if (!district) {
-        setErrors(prev => ({ ...prev, district: 'İlçe alanı zorunludur' }));
-        return;
-      }
-      if (!city) {
-        setErrors(prev => ({ ...prev, city: 'İl alanı zorunludur' }));
-        return;
-      }
-      if (!selectedLocation) {
-        setErrors(prev => ({ ...prev, location: 'Lütfen haritadan konum seçiniz' }));
-        return;
-      }
-
       setLoading(true);
 
-      // Format location data properly
-      const locationData = {
-        address: address.trim(),
-        district: district,
-        city: city,
-        coordinates: [selectedLocation.longitude, selectedLocation.latitude]
+      console.log('Submitting form with values:', {
+        title,
+        category,
+        description,
+        address,
+        district,
+        city,
+        selectedLocation: selectedLocation ? `${selectedLocation.latitude}, ${selectedLocation.longitude}` : 'Not selected'
+      });
+
+      // Validate required fields
+      const newErrors = {};
+      if (!title) newErrors.title = 'Başlık gerekli';
+      if (!category) newErrors.category = 'Kategori gerekli';
+      if (!description) newErrors.description = 'Açıklama gerekli';
+      if (!address) newErrors.address = 'Adres gerekli';
+      if (!district) newErrors.district = 'İlçe gerekli';
+      if (!city) newErrors.city = 'Şehir gerekli';
+      
+      // Only validate location if map is visible
+      if (mapVisible && !selectedLocation) {
+        newErrors.location = 'Lütfen haritadan bir konum seçin';
+      }
+
+      if (Object.keys(newErrors).length > 0) {
+        setErrors(newErrors);
+        Alert.alert('Hata', 'Lütfen tüm gerekli alanları doldurun');
+        setLoading(false);
+        return;
+      }
+
+      // Format location data
+      let locationData = {
+        address: address || '',
+        district: district || '',
+        city: city || '',
+        type: 'Point',
+        coordinates: []
       };
 
-      console.log('Prepared location data:', JSON.stringify(locationData, null, 2));
+      // Koordinatları belirleme
+      if (selectedLocation) {
+        locationData.coordinates = [selectedLocation.longitude, selectedLocation.latitude];
+      } 
+      // Koordinat yoksa şehrin varsayılan koordinatlarını kullan
+      else if (cityCoordinates[city]) {
+        let longitude, latitude;
+        
+        // Veri formatını kontrol et
+        if (Array.isArray(cityCoordinates[city])) {
+          [longitude, latitude] = cityCoordinates[city];
+        } 
+        // Obje formatında ise
+        else if (typeof cityCoordinates[city] === 'object') {
+          longitude = cityCoordinates[city].longitude || 0;
+          latitude = cityCoordinates[city].latitude || 0;
+        }
+        // Varsayılan değerler
+        else {
+          console.warn(`${city} için geçersiz koordinat formatı`);
+          longitude = 28.9784; // İstanbul için varsayılan değer
+          latitude = 41.0082;  // İstanbul için varsayılan değer
+        }
+        
+        locationData.coordinates = [longitude, latitude];
+        console.log('Şehir koordinatları kullanıldı:', locationData.coordinates);
+      } else {
+        // Hiçbir şehir seçilmemişse İstanbul koordinatlarını kullan
+        locationData.coordinates = [28.9784, 41.0082]; // İstanbul koordinatları
+        console.log('Varsayılan koordinatlar kullanıldı (İstanbul)');
+      }
+
+      console.log('Location data:', JSON.stringify(locationData, null, 2));
+      
+      // Final validation of coordinates
+      if (!Array.isArray(locationData.coordinates) || 
+          locationData.coordinates.length !== 2 || 
+          !isFinite(locationData.coordinates[0]) || 
+          !isFinite(locationData.coordinates[1])) {
+        console.warn('Koordinatlar geçersiz, varsayılan değerler kullanılıyor.');
+        locationData.coordinates = [28.9784, 41.0082]; // İstanbul için varsayılan koordinatlar
+      }
 
       // Process image if present
       let processedImage = null;
       if (image) {
         try {
-          console.log('Processing image:', image);
-          const imageInfo = await FileSystem.getInfoAsync(image);
-          
-          if (imageInfo.exists) {
-            console.log('Image exists, converting to base64');
-            const base64 = await FileSystem.readAsStringAsync(image, {
-              encoding: FileSystem.EncodingType.Base64,
-            });
-            processedImage = `data:image/jpeg;base64,${base64}`;
-            console.log('Image successfully converted to base64');
+          console.log('Processing image...', image);
+          // Use the imageToBase64 function to convert the image
+          const base64Image = await imageToBase64(image);
+          if (base64Image) {
+            processedImage = `data:image/jpeg;base64,${base64Image}`;
+            console.log('Image processed successfully, size:', base64Image.length);
           } else {
-            console.warn('Image file not found:', image);
+            console.warn('Image conversion returned null, skipping image');
           }
-        } catch (imageError) {
-          console.error('Error processing image:', imageError);
-          // Continue without image rather than failing the whole submission
+        } catch (error) {
+          console.error('Error processing image:', error);
+          Alert.alert('Uyarı', 'Resim işlenirken bir hata oluştu, ancak bildirimi gönderebilirsiniz.');
+          // Proceed without the image
         }
+      } else {
+        console.log('No image to process');
       }
 
-      // Prepare the issue data
+      // Prepare issue data
       const issueData = {
-        title: title.trim(),
-        description: description.trim(),
+        title,
+        description,
         category,
-        severity,
-        location: locationData,
-        images: processedImage ? [processedImage] : []
+        severity: severity || 'Orta',
+        status: 'Yeni',
+        location: locationData
       };
 
-      console.log('Submitting issue data:', { 
-        ...issueData, 
-        images: issueData.images.length > 0 ? ['[Image data present but not logged]'] : [] 
-      });
+      // Add image if processed successfully
+      if (processedImage) {
+        issueData.images = [processedImage];
+      }
 
-      // Submit the issue
-      const result = await api.issues.create(issueData);
+      console.log('Sending issue data:', JSON.stringify({
+        ...issueData,
+        images: processedImage ? ['Base64 image data (truncated)'] : []
+      }, null, 2));
 
-      if (result.success) {
-        console.log('Issue created successfully:', result.data);
-        Alert.alert(
-          'Başarılı',
-          'Sorununuz başarıyla kaydedildi. İlgili birimler tarafından incelenecektir.',
-          [{ text: 'Tamam', onPress: () => navigation.navigate('Home') }]
-        );
-      } else {
-        console.error('API error response:', result);
-        Alert.alert(
-          'Hata',
-          result.message || 'Bildirim gönderilirken bir hata oluştu. Lütfen tekrar deneyin.'
-        );
+      try {
+        // Submit the issue
+        const response = await api.issues.create(issueData);
+        
+        if (response.success) {
+          console.log('Issue created successfully:', response.data);
+          Alert.alert(
+            'Başarılı', 
+            'Bildiriminiz başarıyla oluşturuldu. Durumunu "Bildirimlerim" sayfasından takip edebilirsiniz.',
+            [
+              { 
+                text: 'Tamam', 
+                onPress: () => navigation.navigate('Home') 
+              }
+            ]
+          );
+        } else {
+          console.error('Error creating issue:', response.message);
+          // Hata detaylarını göster
+          let errorMessage = 'Bildirim oluşturulurken bir hata oluştu';
+          if (response.message) {
+            errorMessage += `: ${response.message}`;
+          }
+          if (response.error && response.error.message) {
+            errorMessage += `\n\nSunucu Hatası: ${response.error.message}`;
+          }
+          Alert.alert('Hata', errorMessage);
+        }
+      } catch (error) {
+        console.error('Unexpected error during submission:', error);
+        Alert.alert('Hata', 'Bildirim gönderilirken beklenmeyen bir hata oluştu');
+      } finally {
+        setLoading(false);
       }
     } catch (error) {
-      console.error('Error submitting issue:', error);
-      Alert.alert(
-        'Hata',
-        'Bildirim gönderilirken beklenmeyen bir hata oluştu. Lütfen internet bağlantınızı kontrol edip tekrar deneyin.'
-      );
-    } finally {
-      setLoading(false);
+      console.error('Unexpected error during submission:', error);
+      Alert.alert('Hata', 'Bildirim gönderilirken beklenmeyen bir hata oluştu');
     }
   };
 
@@ -275,121 +392,165 @@ const CreateReportScreen = ({ navigation }) => {
   };
 
   // Haritadan konum seçme
-  const handleLocationSelect = async (event) => {
-    const coordinate = event.nativeEvent.coordinate;
-    setSelectedLocation(coordinate);
-    
+  const handleLocationSelect = (event) => {
     try {
-      // Reverse geocoding to get address details
-      const reverseGeocode = await Location.reverseGeocodeAsync({
-        latitude: coordinate.latitude,
-        longitude: coordinate.longitude
-      });
+      const { coordinate } = event.nativeEvent;
+      console.log('Selected location:', coordinate);
       
-      if (reverseGeocode && reverseGeocode.length > 0) {
-        const addressData = reverseGeocode[0];
-        
-        // Build address string
-        const addressParts = [
-          addressData.name,
-          addressData.street,
-          addressData.district,
-          addressData.city,
-          addressData.region,
-          addressData.postalCode
-        ].filter(Boolean);
-        
-        // Update address field
-        setAddress(addressParts.join(' '));
-        
-        // Update city if available in our list
-        if (addressData.city && cities.includes(addressData.city)) {
-          setCity(addressData.city);
-        }
-        
-        // Update district if available in our list for the selected city
-        if (addressData.city && addressData.district && 
-            allDistricts[addressData.city] && 
-            allDistricts[addressData.city].includes(addressData.district)) {
-          setDistrict(addressData.district);
-        }
-        
-        console.log('Address found via reverse geocoding:', addressData);
+      if (!coordinate || typeof coordinate !== 'object' || !coordinate.latitude || !coordinate.longitude) {
+        console.error('Invalid coordinate format:', coordinate);
+        return;
       }
+
+      setSelectedLocation(coordinate);
+      
+      // Reverse geocode to get address details
+      Geocoder.from(coordinate.latitude, coordinate.longitude)
+        .then(response => {
+          if (!response || !response.results || response.results.length === 0) {
+            console.error('No geocoding results found');
+            return;
+          }
+          
+          console.log('Geocoding response:', response.results[0]);
+          const addressComponents = response.results[0].address_components;
+
+          let streetName = '';
+          let districtName = '';
+          let cityName = '';
+
+          for (let component of addressComponents) {
+            const types = component.types;
+            if (types.includes('route')) {
+              streetName = component.long_name;
+            } else if (types.includes('administrative_area_level_2')) {
+              districtName = component.long_name;
+            } else if (types.includes('administrative_area_level_1')) {
+              cityName = component.long_name;
+            }
+          }
+
+          // Combine street name with full address
+          const fullAddress = response.results[0].formatted_address;
+          const newAddress = streetName ? `${streetName}, ${fullAddress}` : fullAddress;
+
+          setAddress(newAddress || '');
+          setDistrict(districtName || '');
+          setCity(cityName || '');
+        })
+        .catch(error => {
+          console.error('Error during reverse geocoding:', error);
+          Alert.alert('Uyarı', 'Konum bilgileri alınırken bir hata oluştu. Lütfen adresi manuel olarak girin.');
+        });
     } catch (error) {
-      console.error('Adres getirme hatası:', error);
-      // Continue without address data rather than showing an error
+      console.error('Error in handleLocationSelect:', error);
+      Alert.alert('Hata', 'Konum seçilirken bir hata oluştu.');
     }
   };
 
-  const getCurrentLocation = async () => {
+  // Kullanıcının konumunu al
+  const getCurrentLocation = useCallback(async () => {
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
+      setLoading(true);
       
+      const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('İzin Gerekli', 'Konum izni vermeniz gerekiyor.');
+        Alert.alert('İzin Gerekli', 'Konum izni verilmedi. Lütfen konumunuzu manuel olarak seçin.');
+        setLoading(false);
         return;
       }
       
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High
-      });
+      const location = await Location.getCurrentPositionAsync({});
+      console.log('Current location:', location);
+      
+      if (!location || !location.coords) {
+        console.error('Invalid location data:', location);
+        Alert.alert('Hata', 'Konum bilgisi alınamadı. Lütfen konumunuzu manuel olarak seçin.');
+        setLoading(false);
+        return;
+      }
+
       const { latitude, longitude } = location.coords;
       
-      setSelectedLocation({ latitude, longitude });
-      setInitialRegion({
+      const coordinate = {
         latitude,
-        longitude,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-      });
+        longitude
+      };
       
+      setSelectedLocation(coordinate);
       setMapVisible(true);
       
-      // Reverse geocoding to get address details
-      try {
-        const reverseGeocode = await Location.reverseGeocodeAsync({
-          latitude,
-          longitude
+      // Reverse geocode the location
+      Geocoder.from(latitude, longitude)
+        .then(response => {
+          if (!response || !response.results || response.results.length === 0) {
+            throw new Error('No geocoding results found');
+          }
+          
+          console.log('Geocoding response:', response.results[0]);
+          const addressComponents = response.results[0].address_components;
+
+          let streetName = '';
+          let districtName = '';
+          let cityName = '';
+
+          for (let component of addressComponents) {
+            const types = component.types;
+            if (types.includes('route')) {
+              streetName = component.long_name;
+            } else if (types.includes('administrative_area_level_2')) {
+              districtName = component.long_name;
+            } else if (types.includes('administrative_area_level_1')) {
+              cityName = component.long_name;
+            }
+          }
+
+          // Combine street name with full address
+          const fullAddress = response.results[0].formatted_address;
+          const newAddress = streetName ? `${streetName}, ${fullAddress}` : fullAddress;
+
+          setAddress(newAddress || '');
+          setDistrict(districtName || '');
+          setCity(cityName || '');
+        })
+        .catch(error => {
+          console.error('Error during reverse geocoding:', error);
+          Alert.alert('Uyarı', 'Adres bilgileri alınamadı. Lütfen adres bilgilerini manuel olarak girin.');
+        })
+        .finally(() => {
+          setLoading(false);
         });
-        
-        if (reverseGeocode && reverseGeocode.length > 0) {
-          const addressData = reverseGeocode[0];
-          
-          // Build address string
-          const addressParts = [
-            addressData.name,
-            addressData.street,
-            addressData.district,
-            addressData.city,
-            addressData.region,
-            addressData.postalCode
-          ].filter(Boolean);
-          
-          // Update address field
-          setAddress(addressParts.join(' '));
-          
-          // Update city if available in our list
-          if (addressData.city && cities.includes(addressData.city)) {
-            setCity(addressData.city);
-          }
-          
-          // Update district if available in our list for the selected city
-          if (addressData.city && addressData.district && 
-              allDistricts[addressData.city] && 
-              allDistricts[addressData.city].includes(addressData.district)) {
-            setDistrict(addressData.district);
-          }
-          
-          console.log('Address found via reverse geocoding:', addressData);
-        }
-      } catch (geocodeError) {
-        console.error('Adres getirme hatası:', geocodeError);
-        // Continue without address data rather than showing an error
-      }
     } catch (error) {
-      console.error('Konum alma hatası:', error);
-      Alert.alert('Hata', 'Mevcut konumunuz alınamadı.');
+      console.error('Error getting current location:', error);
+      Alert.alert('Hata', 'Konum alınırken bir hata oluştu. Lütfen konumunuzu manuel olarak seçin.');
+      setLoading(false);
+    }
+  }, []);
+
+  const useSelectedCityLocation = () => {
+    if (city && cityCoordinates[city]) {
+      let longitude, latitude;
+      
+      // Veri formatını kontrol et
+      if (Array.isArray(cityCoordinates[city])) {
+        [longitude, latitude] = cityCoordinates[city];
+      } 
+      // Obje formatında ise
+      else if (typeof cityCoordinates[city] === 'object') {
+        longitude = cityCoordinates[city].longitude || 0;
+        latitude = cityCoordinates[city].latitude || 0;
+      }
+      // Varsayılan değerler
+      else {
+        console.warn(`${city} için geçersiz koordinat formatı`);
+        longitude = 28.9784; // İstanbul için varsayılan değer
+        latitude = 41.0082;  // İstanbul için varsayılan değer
+      }
+      
+      setCoordinates({
+        latitude,
+        longitude
+      });
     }
   };
 
@@ -538,21 +699,29 @@ const CreateReportScreen = ({ navigation }) => {
           />
           {errors.description && <Text style={styles.errorText}>{errors.description}</Text>}
 
-          {/* Resim Ekleme */}
-          <Text style={styles.label}>Resim Ekle</Text>
-          
+          {/* Görsel Ekleme */}
+          <Text style={styles.sectionTitle}>Görsel Ekle</Text>
           <View style={styles.imageButtonsContainer}>
-            <TouchableOpacity style={styles.imageButton} onPress={takePhoto}>
-              <Icon name="camera-alt" size={24} color="#3b82f6" />
-              <Text style={styles.imageButtonText}>Kamera</Text>
+            <TouchableOpacity 
+              style={[styles.imageButton, styles.galleryButton]} 
+              onPress={pickImage}
+              disabled={loading}
+            >
+              <Icon name="photo-library" size={24} color="#fff" />
+              <Text style={styles.buttonText}>Galeriden Seç</Text>
             </TouchableOpacity>
             
-            <TouchableOpacity style={styles.imageButton} onPress={pickImage}>
-              <Icon name="photo-library" size={24} color="#3b82f6" />
-              <Text style={styles.imageButtonText}>Galeri</Text>
+            <TouchableOpacity 
+              style={[styles.imageButton, styles.cameraButton]} 
+              onPress={takePhoto}
+              disabled={loading}
+            >
+              <Icon name="camera-alt" size={24} color="#fff" />
+              <Text style={styles.buttonText}>Fotoğraf Çek</Text>
             </TouchableOpacity>
           </View>
-
+          
+          {/* Görsel Önizleme */}
           {image && (
             <View style={styles.imagePreviewContainer}>
               <Image source={{ uri: image }} style={styles.imagePreview} />
@@ -563,6 +732,11 @@ const CreateReportScreen = ({ navigation }) => {
                 <Icon name="close" size={20} color="#fff" />
               </TouchableOpacity>
             </View>
+          )}
+          
+          {/* Görsel Hata Mesajı */}
+          {errors.image && (
+            <Text style={styles.errorText}>{errors.image}</Text>
           )}
 
           {/* Gönder Butonu */}
@@ -714,38 +888,36 @@ const styles = StyleSheet.create({
   },
   imageButtonsContainer: {
     flexDirection: 'row',
-    marginTop: 8,
-    marginBottom: 16,
+    justifyContent: 'space-between',
+    marginBottom: 10,
   },
   imageButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#e6f0ff',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    justifyContent: 'center',
+    padding: 12,
     borderRadius: 8,
-    marginRight: 12,
+    flex: 0.48,
   },
   imageButtonText: {
     color: '#3b82f6',
     marginLeft: 8,
     fontWeight: 'bold',
   },
-  imagePreviewContainer: {
-    position: 'relative',
-    marginBottom: 16,
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
   imagePreview: {
     width: '100%',
     height: 200,
-    resizeMode: 'cover',
+    borderRadius: 8,
+    marginTop: 10,
+  },
+  imagePreviewContainer: {
+    position: 'relative',
+    marginTop: 10,
   },
   removeImageButton: {
     position: 'absolute',
-    top: 10,
-    right: 10,
+    top: 15,
+    right: 5,
     backgroundColor: 'rgba(0,0,0,0.6)',
     borderRadius: 15,
     width: 30,
@@ -775,6 +947,24 @@ const styles = StyleSheet.create({
     color: '#666',
     fontSize: 12,
     marginTop: 4,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginTop: 12,
+    marginBottom: 6,
+    color: '#333',
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  galleryButton: {
+    backgroundColor: '#3b82f6',
+  },
+  cameraButton: {
+    backgroundColor: '#3b82f6',
   },
 });
 

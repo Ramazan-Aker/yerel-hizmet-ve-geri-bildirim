@@ -179,7 +179,17 @@ const IssueDetailScreen = ({ route, navigation }) => {
         {issue.images && issue.images.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Fotoğraflar</Text>
-            <Text style={styles.photoInfo}>{issue.images.length} fotoğraf mevcut</Text>
+            <ScrollView horizontal={true} showsHorizontalScrollIndicator={false}>
+              {issue.images.map((image, index) => (
+                <View key={index} style={styles.imageContainer}>
+                  <Image
+                    source={{ uri: image }}
+                    style={styles.image}
+                    resizeMode="cover"
+                  />
+                </View>
+              ))}
+            </ScrollView>
           </View>
         )}
         
@@ -357,6 +367,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     fontStyle: 'italic',
+  },
+  imageContainer: {
+    marginRight: 10,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  image: {
+    width: 200,
+    height: 150,
+    borderRadius: 8,
   },
   adminSection: {
     marginBottom: 20,

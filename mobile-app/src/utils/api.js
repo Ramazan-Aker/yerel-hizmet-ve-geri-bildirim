@@ -65,6 +65,22 @@ client.interceptors.response.use(
     if (error.response) {
       console.error(`API Hata: ${error.response.status}`, error.response.data);
       
+      // 500 hatası için daha detaylı log
+      if (error.response.status === 500) {
+        console.error('500 SUNUCU HATASI DETAYLARI:');
+        console.error('Request URL:', error.config.url);
+        console.error('Request Method:', error.config.method);
+        console.error('Request Headers:', error.config.headers);
+        if (error.config.data) {
+          try {
+            console.error('Request Data:', JSON.parse(error.config.data));
+          } catch (e) {
+            console.error('Request Data (raw):', error.config.data);
+          }
+        }
+        console.error('Response:', error.response.data);
+      }
+      
       // 401 Unauthorized hatası - token süresi dolmuş veya geçersiz
       if (error.response.status === 401) {
         // Token'ı kaldır ve giriş sayfasına yönlendir
@@ -110,8 +126,31 @@ const api = {
       }
     },
     
-    getUserProfile: () => client.get('/auth/me'),
-    updateProfile: (userData) => client.put('/auth/profile', userData),
+    getUserProfile: async () => {
+      try {
+        console.log('Kullanıcı profil bilgileri getiriliyor...');
+        const response = await client.get('/auth/me');
+        console.log('Kullanıcı profil yanıtı:', response.data);
+        return { success: true, data: response.data };
+      } catch (error) {
+        console.error('Kullanıcı profili getirme hatası:', error);
+        return { 
+          success: false, 
+          message: error.response?.data?.message || 'Kullanıcı bilgileri alınamadı' 
+        };
+      }
+    },
+    updateProfile: async (userData) => {
+      try {
+        console.log('Profile update request:', userData);
+        const response = await client.put('/auth/profile', userData);
+        console.log('Profile update response:', response.data);
+        return response;
+      } catch (error) {
+        console.error('Profile update error:', error);
+        throw error;
+      }
+    },
     changePassword: (passwordData) => client.put('/auth/updatepassword', passwordData),
   },
   
@@ -120,9 +159,27 @@ const api = {
     getAll: async () => {
       try {
         const token = await AsyncStorage.getItem('token');
+        
+        // Kullanıcının şehri ile ilgili verileri al
+        let userCity = null;
+        try {
+          const userJson = await AsyncStorage.getItem('user');
+          if (userJson) {
+            const userData = JSON.parse(userJson);
+            userCity = userData.city;
+          }
+        } catch (userError) {
+          console.error('Kullanıcı bilgisi alınamadı:', userError);
+        }
+        
+        // API isteği
         const response = await client.get('/issues', {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
+          params: userCity ? { city: userCity } : {} // Kullanıcı şehrine göre filtrele
         });
+        
+        console.log(`API yanıtı: ${response.data.data?.length || 0} sorun bulundu`);
+        
         return { success: true, data: response.data };
       } catch (error) {
         console.error('Error fetching issues:', error);
@@ -153,83 +210,83 @@ const api = {
       try {
         console.log('Creating issue with data:', JSON.stringify(issueData, null, 2));
         
-        // Validate and format location data if provided
+        // JSON'ı basitleştirerek konsola yazdıralım (debugging için)
+        console.log('Issue data details:');
+        console.log('- title:', issueData.title);
+        console.log('- description:', issueData.description ? issueData.description.substring(0, 20) + '...' : 'empty');
+        console.log('- category:', issueData.category);
+        console.log('- severity:', issueData.severity);
+        console.log('- location.coordinates:', issueData.location?.coordinates);
+        console.log('- location.city:', issueData.location?.city);
+        console.log('- location.district:', issueData.location?.district);
+        console.log('- location.type:', issueData.location?.type);
+        console.log('- has images:', issueData.images && issueData.images.length > 0);
+        
+        // Validate and format location data
         if (issueData.location) {
-          console.log('Processing location data:', JSON.stringify(issueData.location, null, 2));
-          
-          // Check if coordinates is provided and properly formatted
-          if (issueData.location.coordinates) {
-            console.log('Raw coordinates:', JSON.stringify(issueData.location.coordinates, null, 2));
-            
-            // Ensure coordinates is an array in the format [longitude, latitude]
-            if (!Array.isArray(issueData.location.coordinates)) {
-              console.log('Converting coordinates to array format');
-              if (typeof issueData.location.coordinates === 'object') {
-                const { longitude, latitude } = issueData.location.coordinates;
-                issueData.location.coordinates = [longitude, latitude];
-                console.log('Converted coordinates:', JSON.stringify(issueData.location.coordinates, null, 2));
-              } else {
-                throw new Error('Coordinates must be an array or object with longitude and latitude');
-              }
-            } else {
-              // Make sure we have exactly 2 elements in the coordinates array
-              if (issueData.location.coordinates.length !== 2) {
-                throw new Error('Coordinates array must contain exactly 2 elements [longitude, latitude]');
-              }
-              
-              // Validate that coordinates are numbers
-              if (isNaN(issueData.location.coordinates[0]) || isNaN(issueData.location.coordinates[1])) {
-                throw new Error('Coordinates must be valid numbers');
-              }
-            }
-          } else {
-            console.log('No coordinates provided in location data');
+          // Ensure coordinates is an array if it exists
+          if (!Array.isArray(issueData.location.coordinates)) {
+            console.warn('Location coordinates is not an array, initializing it');
+            issueData.location.coordinates = [];
           }
           
-          // Set default type if not provided
+          // If coordinates are empty or invalid, use default coordinates (Istanbul)
+          if (issueData.location.coordinates.length !== 2) {
+            console.warn('Invalid coordinates format, using default Istanbul coordinates');
+            issueData.location.coordinates = [28.9784, 41.0082]; // Istanbul coordinates
+          }
+          
+          // Set default type if not specified
           if (!issueData.location.type) {
-            console.log('Setting default location type to Point');
             issueData.location.type = 'Point';
           }
-          
-          // Validate required address fields
-          if (!issueData.location.address || !issueData.location.district) {
-            console.log('Missing required location fields:', {
-              hasAddress: !!issueData.location.address,
-              hasDistrict: !!issueData.location.district
-            });
-            throw new Error('Location must include address and district');
-          }
         } else {
-          console.log('No location data provided in the issue');
-          throw new Error('Location data is required');
+          // Create a default location object if none provided
+          console.warn('No location data provided, creating default');
+          issueData.location = {
+            address: '',
+            district: '',
+            city: '',
+            type: 'Point',
+            coordinates: [28.9784, 41.0082] // Istanbul coordinates
+          };
         }
         
-        const requestData = JSON.stringify(issueData);
-        console.log('Final request data:', requestData);
+        // Ensure images array is properly formatted
+        if (issueData.images && issueData.images.length > 0) {
+          // Verify all images have the data:image prefix
+          issueData.images = issueData.images.filter(img => 
+            img && typeof img === 'string' && img.startsWith('data:image')
+          );
+          
+          console.log(`Processing ${issueData.images.length} images for upload`);
+        }
         
-        const token = await AsyncStorage.getItem('token');
-        const response = await client.post('/issues', issueData, {
-          headers: { 
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        });
-        
-        console.log('Issue created successfully:', response.data);
+        const response = await client.post('/issues', issueData);
+        console.log('Issue created successfully, response:', response.data);
         return { success: true, data: response.data };
       } catch (error) {
         console.error('Error creating issue:', error);
-        console.error('Error details:', error.response?.data || error.message);
-        return { 
-          success: false, 
-          message: error.response?.data?.message || error.message || 'Sorun oluşturulamadı' 
-        };
+        return handleApiError(error);
       }
     },
     update: (id, issueData) => client.put(`/issues/${id}`, issueData),
     delete: (id) => client.delete(`/issues/${id}`),
-    getMyIssues: () => client.get('/issues/myissues'),
+    getMyIssues: async () => {
+      try {
+        const token = await AsyncStorage.getItem('token');
+        const response = await client.get('/issues/myissues', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        return { success: true, data: response.data.data || response.data };
+      } catch (error) {
+        console.error('Error fetching my issues:', error);
+        return { 
+          success: false, 
+          message: error.response?.data?.message || 'Sorunlarınız alınamadı' 
+        };
+      }
+    },
     addComment: (issueId, comment) => client.post(`/issues/${issueId}/comments`, comment),
     uploadImage: (issueId, formData) => client.post(`/issues/${issueId}/images`, formData, {
       headers: {
@@ -276,6 +333,30 @@ const api = {
     getReportStats: () => client.get('/statistics/reports'),
     getUserStats: () => client.get('/statistics/users'),
   },
+};
+
+// Yardımcı fonksiyonlar
+const handleApiError = (error) => {
+  console.error('API Error:', error);
+  
+  if (error.response && error.response.data) {
+    return {
+      success: false,
+      message: error.response.data.message || 'Bir hata oluştu',
+      error: error.response.data
+    };
+  } else if (error.isDemoMode) {
+    return {
+      success: false,
+      message: 'Demo modunda bazı özellikler kısıtlıdır',
+      isDemoMode: true
+    };
+  } else {
+    return {
+      success: false,
+      message: error.message || 'Beklenmeyen bir hata oluştu'
+    };
+  }
 };
 
 export default api; 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   StyleSheet,
   View,
@@ -15,6 +15,7 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useAuth } from '../hooks/useAuth';
 import * as ImagePicker from 'expo-image-picker';
 import api from '../utils/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const ProfileScreen = ({ navigation }) => {
   const { user, logout, updateUser } = useAuth();
@@ -28,28 +29,106 @@ const ProfileScreen = ({ navigation }) => {
   const [address, setAddress] = useState(user?.address || '');
   const [profileImage, setProfileImage] = useState(user?.profileImage || null);
   const [notifications, setNotifications] = useState(user?.notifications || true);
+  const [district, setDistrict] = useState(user?.district || '');
+  
+  // Kullanıcının bildirimleri için state değişkenleri
+  const [userReports, setUserReports] = useState([]);
+  const [reportsLoading, setReportsLoading] = useState(true);
 
-  // Kullanıcının bildirimleri
-  const userReports = [
-    {
-      id: 1,
-      title: 'Kaldırım Sorunu',
-      status: 'İnceleniyor',
-      date: '15 Haziran 2023',
-    },
-    {
-      id: 2,
-      title: 'Sokak Lambası Arızası',
-      status: 'Çözüldü',
-      date: '14 Haziran 2023',
-    },
-    {
-      id: 3,
-      title: 'Çöp Konteyner Sorunu',
-      status: 'Beklemede',
-      date: '13 Haziran 2023',
-    },
-  ];
+  // Kullanıcı bilgileri değiştiğinde state'i güncelle
+  useEffect(() => {
+    if (user) {
+      console.log('ProfileScreen: Kullanıcı verileri değişti, state güncelleniyor:', user);
+      setName(user.name || '');
+      setEmail(user.email || '');
+      setPhone(user.phone || '');
+      setCity(user.city || '');
+      setAddress(user.address || '');
+      setProfileImage(user.profileImage || null);
+      setNotifications(user.notifications || true);
+      setDistrict(user.district || '');
+    }
+  }, [user]);
+
+  // Kullanıcının bildirimlerini getir
+  const fetchUserReports = useCallback(async () => {
+    try {
+      setReportsLoading(true);
+      console.log('Kullanıcı bildirimleri getiriliyor...');
+      const response = await api.issues.getMyIssues();
+      
+      if (response.success) {
+        console.log('Getirilen bildirimler:', response.data);
+        
+        // response.data kontrolü
+        const issuesData = Array.isArray(response.data) ? response.data : [];
+        
+        // Sadece ilk 3 bildirimi göster
+        const formattedReports = issuesData.slice(0, 3).map(issue => ({
+          id: issue._id,
+          title: issue.title,
+          status: issue.status,
+          date: new Date(issue.createdAt).toLocaleDateString('tr-TR'),
+        }));
+        
+        setUserReports(formattedReports);
+      } else {
+        console.error('Bildirimler getirilemedi:', response.message);
+        setUserReports([]);
+      }
+    } catch (error) {
+      console.error('Bildirimler getirilirken hata oluştu:', error);
+      setUserReports([]);
+    } finally {
+      setReportsLoading(false);
+    }
+  }, []);
+  
+  // Sayfa yüklendiğinde bildirimleri getir
+  useEffect(() => {
+    fetchUserReports();
+  }, [fetchUserReports]);
+
+  // Profil bilgilerini yenile
+  const refreshUserData = useCallback(async () => {
+    try {
+      console.log('Kullanıcı profil bilgileri yenileniyor...');
+      const response = await api.auth.getUserProfile();
+      
+      if (response.success && response.data) {
+        // API'den dönen veri yapısını kontrol et
+        const userData = response.data.data;
+        
+        if (userData) {
+          console.log('Yeni kullanıcı bilgileri alındı:', userData);
+          
+          // Güncel verileri local state'e kaydet
+          setName(userData.name || '');
+          setEmail(userData.email || '');
+          setPhone(userData.phone || '');
+          setCity(userData.city || '');
+          setAddress(userData.address || '');
+          setDistrict(userData.district || '');
+          
+          // Bildirimleri de yenile
+          fetchUserReports();
+          
+          return true;
+        }
+      } else {
+        console.warn('Kullanıcı verileri alınamadı:', response.message);
+      }
+      return false;
+    } catch (error) {
+      console.error('Profil bilgileri yenilenirken hata:', error);
+      return false;
+    }
+  }, [fetchUserReports]);
+
+  // Sayfa yüklendiğinde kullanıcı bilgilerini yenile
+  useEffect(() => {
+    refreshUserData();
+  }, [refreshUserData]);
 
   // Profil resmi seçme
   const pickImage = async () => {
@@ -76,7 +155,7 @@ const ProfileScreen = ({ navigation }) => {
 
   // Profil güncelleme
   const handleUpdateProfile = async () => {
-    if (!name.trim()) {
+    if (!name) {
       Alert.alert('Uyarı', 'İsim alanı boş olamaz.');
       return;
     }
@@ -84,36 +163,44 @@ const ProfileScreen = ({ navigation }) => {
     setLoading(true);
 
     try {
-      // API'ye gönderilecek veriler
+      // API'ye gönderilecek veriler - sadece değiştirilebilir alanları gönder
       const profileData = {
         name,
-        phone,
-        city,
-        district: address // district alanını şimdilik adresle dolduralım
+        phone: phone || '',
+        city: city || '',
+        district: district || '',
+        address: address || ''
       };
 
-      // API çağrısı
-      const response = await api.auth.updateProfile(profileData);
-      console.log('Profil güncelleme yanıtı:', response.data);
+      console.log('Profil güncelleme verileri:', profileData);
 
-      // Kullanıcı verilerini güncelle
-      const updatedUser = {
-        ...user,
-        name,
-        email,
-        phone,
-        city,
-        address,
-        profileImage,
-        notifications
-      };
+      // Önce updateUser fonksiyonu ile API'ye gönder
+      const success = await updateUser(profileData);
       
-      updateUser(updatedUser);
-      setIsEditing(false);
-      Alert.alert('Başarılı', 'Profil bilgileriniz güncellendi.');
+      if (success) {
+        // Profil başarıyla güncellendikten sonra lokal state'i güncelle
+        // Not: AuthContext içindeki updateUser zaten user state'ini güncellemiş olacak
+        // Ancak ekstra güvenlik için burada bir daha güncelliyoruz
+        await refreshUserData();
+        
+        // Bildirimleri yenile
+        await fetchUserReports();
+        
+        setIsEditing(false);
+        Alert.alert('Başarılı', 'Profil bilgileriniz güncellendi.');
+        
+        // Lokal state'i doğrudan da güncelleyelim (UI'ın hemen yenilenmesi için)
+        setName(profileData.name);
+        setPhone(profileData.phone);
+        setCity(profileData.city);
+        setDistrict(profileData.district);
+        setAddress(profileData.address);
+      } else {
+        Alert.alert('Hata', 'Profil güncellenirken bir sorun oluştu.');
+      }
     } catch (error) {
       console.error('Profil güncellenirken hata:', error);
-      Alert.alert('Hata', 'Profil güncellenirken bir sorun oluştu.');
+      Alert.alert('Hata', 'Profil güncellenirken bir sorun oluştu: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -123,30 +210,37 @@ const ProfileScreen = ({ navigation }) => {
   const getStatusColor = (status) => {
     switch (status) {
       case 'Çözüldü':
+      case 'resolved':
         return '#4CAF50'; // Yeşil
       case 'İnceleniyor':
+      case 'in_progress':
         return '#2196F3'; // Mavi
       case 'Beklemede':
+      case 'pending':
         return '#FFC107'; // Sarı
+      case 'Reddedildi':
+      case 'rejected':
+        return '#F44336'; // Kırmızı
       default:
         return '#9E9E9E'; // Gri
     }
   };
 
-  // Bildirimin detayına git
-  const navigateToReportDetail = (report) => {
-    // Bildirim detay ekranına gerçek verileri almak için bir API çağrısı yapılabilir
-    const fullReport = {
-      id: report.id,
-      title: report.title,
-      category: 'Dummy Category',
-      status: report.status,
-      location: 'Dummy Location',
-      createdAt: new Date().toISOString(),
-      imageUrl: 'https://via.placeholder.com/150',
+  // Durum metni
+  const getStatusText = (status) => {
+    const statusMap = {
+      'pending': 'Yeni',
+      'in_progress': 'İnceleniyor',
+      'resolved': 'Çözüldü',
+      'rejected': 'Reddedildi'
     };
     
-    navigation.navigate('ReportDetail', { report: fullReport });
+    return statusMap[status] || status;
+  };
+
+  // Bildirimin detayına git
+  const navigateToReportDetail = (report) => {
+    navigation.navigate('IssueDetail', { issueId: report.id });
   };
 
   // Çıkış yapma işlemi
@@ -223,6 +317,7 @@ const ProfileScreen = ({ navigation }) => {
                   setAddress(user?.address || '');
                   setProfileImage(user?.profileImage || null);
                   setNotifications(user?.notifications || true);
+                  setDistrict(user?.district || '');
                 }}
               >
                 <Icon name="close" size={20} color="#fff" />
@@ -267,7 +362,7 @@ const ProfileScreen = ({ navigation }) => {
                 placeholder="Ad Soyad"
               />
             ) : (
-              <Text style={styles.infoValue}>{user?.name || 'Belirtilmemiş'}</Text>
+              <Text style={styles.infoValue}>{name || 'Belirtilmemiş'}</Text>
             )}
           </View>
           
@@ -283,7 +378,7 @@ const ProfileScreen = ({ navigation }) => {
                 editable={false} // E-posta değiştirilemez
               />
             ) : (
-              <Text style={styles.infoValue}>{user?.email || 'Belirtilmemiş'}</Text>
+              <Text style={styles.infoValue}>{email || 'Belirtilmemiş'}</Text>
             )}
           </View>
           
@@ -298,7 +393,7 @@ const ProfileScreen = ({ navigation }) => {
                 keyboardType="phone-pad"
               />
             ) : (
-              <Text style={styles.infoValue}>{user?.phone || 'Belirtilmemiş'}</Text>
+              <Text style={styles.infoValue}>{phone || 'Belirtilmemiş'}</Text>
             )}
           </View>
           
@@ -312,7 +407,7 @@ const ProfileScreen = ({ navigation }) => {
                 placeholder="Şehir"
               />
             ) : (
-              <Text style={styles.infoValue}>{user?.city || 'Belirtilmemiş'}</Text>
+              <Text style={styles.infoValue}>{city || 'Belirtilmemiş'}</Text>
             )}
           </View>
           
@@ -327,7 +422,7 @@ const ProfileScreen = ({ navigation }) => {
                 multiline
               />
             ) : (
-              <Text style={styles.infoValue}>{user?.address || 'Belirtilmemiş'}</Text>
+              <Text style={styles.infoValue}>{address || 'Belirtilmemiş'}</Text>
             )}
           </View>
           
@@ -347,7 +442,12 @@ const ProfileScreen = ({ navigation }) => {
         <View style={styles.reportsContainer}>
           <Text style={styles.sectionTitle}>Bildirimlerim</Text>
           
-          {userReports.length > 0 ? (
+          {reportsLoading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color="#3b82f6" />
+              <Text style={styles.loadingText}>Bildirimler yükleniyor...</Text>
+            </View>
+          ) : userReports.length > 0 ? (
             userReports.map((report) => (
               <TouchableOpacity 
                 key={report.id}
@@ -359,7 +459,7 @@ const ProfileScreen = ({ navigation }) => {
                   <Text style={styles.reportDate}>{report.date}</Text>
                 </View>
                 <View style={[styles.statusBadge, { backgroundColor: getStatusColor(report.status) }]}>
-                  <Text style={styles.statusText}>{report.status}</Text>
+                  <Text style={styles.statusText}>{getStatusText(report.status)}</Text>
                 </View>
               </TouchableOpacity>
             ))
@@ -378,6 +478,28 @@ const ProfileScreen = ({ navigation }) => {
             <Text style={styles.newReportButtonText}>Yeni Bildirim Oluştur</Text>
           </TouchableOpacity>
         </View>
+
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={async () => {
+            // MyIssues sayfasına gitmeden önce bildirimleri yenile
+            setReportsLoading(true);
+            try {
+              await fetchUserReports();
+            } catch (error) {
+              console.error('Bildirimler yenilenirken hata:', error);
+            } finally {
+              setReportsLoading(false);
+              navigation.navigate('MyIssues');
+            }
+          }}
+        >
+          <Icon name="assignment" size={24} color="#3b82f6" style={styles.menuIcon} />
+          <View style={styles.menuTextContainer}>
+            <Text style={styles.menuText}>Bildirdiğim Sorunlar</Text>
+            <Icon name="chevron-right" size={24} color="#ccc" />
+          </View>
+        </TouchableOpacity>
       </View>
     </ScrollView>
   );
@@ -585,6 +707,40 @@ const styles = StyleSheet.create({
   },
   newReportButtonText: {
     marginLeft: 8,
+    fontSize: 16,
+    color: '#3b82f6',
+    fontWeight: '500',
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  menuIcon: {
+    marginRight: 12,
+  },
+  menuTextContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  menuText: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '500',
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 10,
+  },
+  loadingText: {
+    marginLeft: 10,
     fontSize: 16,
     color: '#3b82f6',
     fontWeight: '500',

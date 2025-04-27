@@ -236,12 +236,17 @@ const ReportDetailScreen = ({ route, navigation }) => {
       </View>
       
       {/* Bildirim görseli */}
-      {report?.imageUrl && (
-        <Image
-          source={{ uri: report.imageUrl }}
-          style={styles.image}
-          resizeMode="cover"
-        />
+      {report?.images && report.images.length > 0 && (
+        <ScrollView horizontal={true} showsHorizontalScrollIndicator={false} style={styles.imageScrollView}>
+          {report.images.map((imageUri, index) => (
+            <Image
+              key={index}
+              source={{ uri: imageUri }}
+              style={styles.image}
+              resizeMode="cover"
+            />
+          ))}
+        </ScrollView>
       )}
       
       {/* Bildirim detayları */}
@@ -432,9 +437,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
   },
+  imageScrollView: {
+    marginBottom: 15,
+  },
   image: {
-    width: '100%',
-    height: 250,
+    width: 300,
+    height: 200,
+    borderRadius: 8,
+    marginRight: 10,
   },
   detailsContainer: {
     padding: 16,

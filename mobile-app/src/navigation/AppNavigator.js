@@ -10,8 +10,11 @@ import RegisterScreen from '../screens/RegisterScreen';
 
 // Main Screens
 import HomeScreen from '../screens/HomeScreen';
+import IssuesScreen from '../screens/IssuesScreen';
+import MyIssuesScreen from '../screens/MyIssuesScreen';
 import CreateReportScreen from '../screens/CreateReportScreen';
 import ReportDetailScreen from '../screens/ReportDetailScreen';
+import IssueDetailScreen from '../screens/IssueDetailScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 
 // Auth Context
@@ -61,6 +64,8 @@ const TabNavigator = () => {
 
           if (route.name === 'Home') {
             iconName = 'home';
+          } else if (route.name === 'Issues') {
+            iconName = 'list';
           } else if (route.name === 'Profile') {
             iconName = 'person';
           }
@@ -73,6 +78,11 @@ const TabNavigator = () => {
         name="Home" 
         component={HomeScreen} 
         options={{ tabBarLabel: 'Ana Sayfa' }}
+      />
+      <Tab.Screen 
+        name="Issues" 
+        component={IssuesScreen} 
+        options={{ tabBarLabel: 'Sorunlar' }}
       />
       <Tab.Screen 
         name="Profile" 
@@ -95,6 +105,8 @@ const MainNavigator = () => {
       <Stack.Screen name="Tabs" component={TabNavigator} />
       <Stack.Screen name="CreateReport" component={CreateReportScreen} />
       <Stack.Screen name="ReportDetail" component={ReportDetailScreen} />
+      <Stack.Screen name="IssueDetail" component={IssueDetailScreen} />
+      <Stack.Screen name="MyIssues" component={MyIssuesScreen} />
     </Stack.Navigator>
   );
 };

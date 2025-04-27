@@ -186,18 +186,47 @@ const ReportIssuePage = () => {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleImageChange = (e) => {
+  const handleImageChange = async (e) => {
     const files = Array.from(e.target.files);
     
-    // Preview images
-    const newPreviewImages = files.map(file => URL.createObjectURL(file));
-    setPreviewImages(prev => [...prev, ...newPreviewImages]);
+    if (files.length > 3) {
+      toast.error('En fazla 3 fotoğraf yükleyebilirsiniz');
+      return;
+    }
     
-    // Store files for later upload
-    setFormData(prev => ({ 
-      ...prev, 
-      images: [...prev.images, ...files] 
-    }));
+    // Dosya boyutu kontrolü
+    for (const file of files) {
+      if (file.size > 5 * 1024 * 1024) { // 5MB
+        toast.error('Fotoğraflar en fazla 5MB boyutunda olmalıdır');
+        return;
+      }
+    }
+    
+    // Fotoğrafları base64 formatına dönüştür
+    const filePromises = files.map(file => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          resolve(event.target.result);
+        };
+        reader.onerror = (error) => {
+          reject(error);
+        };
+        reader.readAsDataURL(file);
+      });
+    });
+    
+    try {
+      const base64Images = await Promise.all(filePromises);
+      setPreviewImages(base64Images);
+      setFormData(prev => ({
+        ...prev,
+        images: base64Images
+      }));
+    } catch (error) {
+      console.error('Fotoğraf dönüştürme hatası:', error);
+      toast.error('Fotoğraflar yüklenirken bir hata oluştu');
+    }
   };
 
   const removeImage = (index) => {
@@ -259,6 +288,7 @@ const ReportIssuePage = () => {
       
       // Lokasyon nesnesini düzgün formatta oluştur
       const locationData = {
+        type: 'Point',
         address: formData.address.trim(),
         district: formData.district.trim(),
         city: userCity, // Kullanıcının profil bilgisinden şehir bilgisi
@@ -274,8 +304,11 @@ const ReportIssuePage = () => {
         category: formData.category,
         severity: formData.severity,
         location: locationData,
-        images: formData.images
+        images: formData.images || []
+        // Status alanı belirtilmedi, backend varsayılanı kullanacak
       };
+      
+      console.log('Gönderilecek veri:', issueData);
       
       // API isteği gönder
       const response = await issueService.createIssue(issueData);
@@ -284,7 +317,7 @@ const ReportIssuePage = () => {
       toast.success('Sorun başarıyla bildirildi');
       navigate('/');
     } catch (error) {
-      console.log('Sorun bildirilirken hata:', error);
+      console.error('Sorun bildirilirken hata:', error);
       toast.error(error || 'Sorun bildirilirken bir hata oluştu');
     } finally {
       setIsSubmitting(false);

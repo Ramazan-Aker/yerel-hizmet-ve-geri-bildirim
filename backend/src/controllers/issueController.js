@@ -1,6 +1,14 @@
 ﻿const Issue = require('../models/Issue');
 const User = require('../models/User');
-const cloudinary = require('cloudinary');
+const cloudinary = require('cloudinary').v2;
+
+// Cloudinary konfigürasyonu
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'demo',
+  api_key: process.env.CLOUDINARY_API_KEY || '',
+  api_secret: process.env.CLOUDINARY_API_SECRET || '',
+  secure: true
+});
 
 // @desc    Yeni sorun bildirimi oluşturma
 // @route   POST /api/issues
@@ -44,25 +52,39 @@ exports.createIssue = async (req, res) => {
       try {
         logger.info(`Processing ${images.length} images`);
         
-        // Process each base64 image and upload to Cloudinary
-        const uploadPromises = images.map(async (imageData) => {
-          if (!imageData.startsWith('data:image')) {
-            logger.warn('Invalid image format, skipping');
-            return null;
-          }
+        // Cloudinary konfigürasyonu kontrol et
+        const isCloudinaryConfigured = process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET;
+        
+        if (isCloudinaryConfigured) {
+          // Process each base64 image and upload to Cloudinary
+          const uploadPromises = images.map(async (imageData) => {
+            if (!imageData.startsWith('data:image')) {
+              logger.warn('Invalid image format, skipping');
+              return null;
+            }
 
-          const result = await cloudinary.uploader.upload(imageData, {
-            folder: 'issue_images',
-            resource_type: 'image'
+            const result = await cloudinary.uploader.upload(imageData, {
+              folder: 'issue_images',
+              resource_type: 'image'
+            });
+            
+            logger.info(`Uploaded image to Cloudinary: ${result.public_id}`);
+            return result.secure_url;
           });
-          
-          logger.info(`Uploaded image to Cloudinary: ${result.public_id}`);
-          return result.secure_url;
-        });
 
-        const uploadResults = await Promise.all(uploadPromises);
-        uploadedImageUrls = uploadResults.filter(url => url !== null);
-        logger.info(`Successfully uploaded ${uploadedImageUrls.length} images`);
+          const uploadResults = await Promise.all(uploadPromises);
+          uploadedImageUrls = uploadResults.filter(url => url !== null);
+          logger.info(`Successfully uploaded ${uploadedImageUrls.length} images`);
+        } else {
+          // Cloudinary olmadan, base64 resimlerini doğrudan kullan
+          logger.info('Cloudinary konfigüre edilmemiş, resimler base64 olarak kaydedilecek');
+          uploadedImageUrls = images.filter(img => img && img.startsWith('data:image'));
+          
+          // Base64 resimlerinin boyutunu kontrol et
+          if (uploadedImageUrls.length > 0) {
+            logger.info(`Base64 formatında ${uploadedImageUrls.length} resim işlendi`);
+          }
+        }
       } catch (imgError) {
         logger.error('Error uploading images to Cloudinary:', imgError);
         // Continue without images rather than failing the whole issue creation
@@ -74,8 +96,8 @@ exports.createIssue = async (req, res) => {
       title,
       description,
       category,
-      severity: severity || 'medium',
-      status: 'pending',
+      severity: severity || 'Orta',
+      status: 'Yeni',
       location: formattedLocation,
       user: userId,
       images: uploadedImageUrls,

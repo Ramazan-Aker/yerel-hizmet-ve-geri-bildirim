@@ -24,37 +24,6 @@ const HomeScreen = ({ navigation }) => {
   const [loadingMore, setLoadingMore] = useState(false);
   const [isDemoMode, setIsDemoMode] = useState(false);
 
-  // Demo veriler
-  const dummyData = [
-    {
-      id: 1,
-      title: 'Kaldırım Sorunu',
-      category: 'Altyapı',
-      status: 'İnceleniyor',
-      location: 'Atatürk Mahallesi',
-      createdAt: '2023-06-15T10:30:00',
-      imageUrl: 'https://via.placeholder.com/150',
-    },
-    {
-      id: 2,
-      title: 'Sokak Lambası Arızası',
-      category: 'Aydınlatma',
-      status: 'Çözüldü',
-      location: 'Cumhuriyet Caddesi',
-      createdAt: '2023-06-14T14:20:00',
-      imageUrl: 'https://via.placeholder.com/150',
-    },
-    {
-      id: 3,
-      title: 'Çöp Konteyner Sorunu',
-      category: 'Temizlik',
-      status: 'Beklemede',
-      location: 'İnönü Bulvarı',
-      createdAt: '2023-06-13T09:45:00',
-      imageUrl: 'https://via.placeholder.com/150',
-    },
-  ];
-
   // Bildirimleri getiren fonksiyon
   const fetchReports = async (pageNum = 1, shouldRefresh = false) => {
     try {
@@ -68,40 +37,67 @@ const HomeScreen = ({ navigation }) => {
         setLoading(true);
       }
 
-      // API'den bildirimleri al
-      const { data } = await api.reports.getAll({ page: pageNum, limit: 10 });
+      // API'den sorunları al - getAll yerine getAllIssues kullan
+      const response = await api.issues.getAll();
       
-      if (shouldRefresh || pageNum === 1) {
-        setReports(data.reports);
-      } else {
-        setReports(prev => [...prev, ...data.reports]);
-      }
+      console.log('API yanıtı:', response);
       
-      // Daha fazla bildirim var mı kontrol et
-      setHasMore(data.reports.length === 10);
-      
-      if (pageNum > 1) {
-        setPage(pageNum);
-      }
-
-      // Demo modunu kapat, çünkü API çağrısı başarılı oldu
-      setIsDemoMode(false);
-    } catch (error) {
-      console.error('Bildirimler getirilirken hata oluştu:', error);
-      
-      // API bağlantısı yoksa veya hata varsa örnek veri göster
-      if (pageNum === 1) {
-        setReports(dummyData);
-        setIsDemoMode(true);
+      if (response.success) {
+        const issueData = response.data.data || [];
         
-        // Network hatası olduğunda sadece bir kere uyarı göster
-        if (!isDemoMode && (error.message === 'Network Error' || error.isDemoMode)) {
-          Alert.alert(
-            'Bağlantı Hatası', 
-            'API sunucusuna bağlanılamadı. Demo veriler gösteriliyor.',
-            [{ text: 'Tamam', style: 'default' }]
-          );
+        // Verileri formatla
+        const formattedIssues = issueData.map(issue => ({
+          id: issue._id,
+          title: issue.title,
+          category: issue.category,
+          status: issue.status,
+          location: issue.location?.district 
+            ? `${issue.location.district}, ${issue.location.city || ''}` 
+            : issue.location?.address || 'Belirtilmemiş',
+          createdAt: issue.createdAt,
+          imageUrl: issue.images && issue.images.length > 0 ? issue.images[0] : null,
+          description: issue.description,
+          coordinates: issue.location?.coordinates || null
+        }));
+        
+        console.log(`${formattedIssues.length} sorun bulundu ve formatlandı`);
+        
+        if (shouldRefresh || pageNum === 1) {
+          setReports(formattedIssues);
+        } else {
+          setReports(prev => [...prev, ...formattedIssues]);
         }
+        
+        // Daha fazla sorun var mı kontrol et
+        setHasMore(formattedIssues.length >= 10);
+        
+        if (pageNum > 1) {
+          setPage(pageNum);
+        }
+
+        // Demo modunu kapat, çünkü API çağrısı başarılı oldu
+        setIsDemoMode(false);
+      } else {
+        console.error('API hata döndürdü:', response.message);
+        setIsDemoMode(true);
+        Alert.alert(
+          'Veri Hatası', 
+          'Sorunlar getirilemedi: ' + (response.message || 'Bilinmeyen hata'),
+          [{ text: 'Tamam', style: 'default' }]
+        );
+      }
+    } catch (error) {
+      console.error('Sorunlar getirilirken hata oluştu:', error);
+      
+      setIsDemoMode(true);
+      
+      // Network hatası olduğunda sadece bir kere uyarı göster
+      if (!isDemoMode && (error.message === 'Network Error' || error.isDemoMode)) {
+        Alert.alert(
+          'Bağlantı Hatası', 
+          'API sunucusuna bağlanılamadı.',
+          [{ text: 'Tamam', style: 'default' }]
+        );
       }
     } finally {
       setLoading(false);
@@ -122,9 +118,6 @@ const HomeScreen = ({ navigation }) => {
 
   // Daha fazla bildirim yükle
   const loadMoreReports = () => {
-    // Demo modda pagination yok, daha fazla yükleme yapma
-    if (isDemoMode) return;
-    
     if (hasMore && !loadingMore) {
       fetchReports(page + 1);
     }
@@ -134,25 +127,46 @@ const HomeScreen = ({ navigation }) => {
   const getStatusColor = (status) => {
     switch (status) {
       case 'Çözüldü':
+      case 'resolved':
         return '#4CAF50'; // Yeşil
       case 'İnceleniyor':
+      case 'in_progress':
         return '#2196F3'; // Mavi
       case 'Beklemede':
+      case 'Yeni':
+      case 'pending':
         return '#FFC107'; // Sarı
+      case 'Reddedildi':
+      case 'rejected':
+        return '#F44336'; // Kırmızı
       default:
         return '#9E9E9E'; // Gri
     }
   };
 
+  // Durum metnini düzenle
+  const getStatusText = (status) => {
+    const statusMap = {
+      'pending': 'Yeni',
+      'in_progress': 'İnceleniyor',
+      'resolved': 'Çözüldü',
+      'rejected': 'Reddedildi'
+    };
+    
+    return statusMap[status] || status;
+  };
+
   // Tarih formatını düzenle
   const formatDate = (dateString) => {
+    if (!dateString) return 'Belirtilmemiş';
     const date = new Date(dateString);
     return date.toLocaleDateString('tr-TR');
   };
 
   // Bildirimin detayına git
   const navigateToReportDetail = (report) => {
-    navigation.navigate('ReportDetail', { report, reportId: report.id });
+    // Yeni IssueDetail ekranına yönlendirme yap
+    navigation.navigate('IssueDetail', { issueId: report.id });
   };
 
   // Yeni bildirim oluştur
@@ -167,9 +181,9 @@ const HomeScreen = ({ navigation }) => {
       onPress={() => navigateToReportDetail(item)}
     >
       <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle}>{item.title}</Text>
+        <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
         <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
-          <Text style={styles.statusText}>{item.status}</Text>
+          <Text style={styles.statusText}>{getStatusText(item.status)}</Text>
         </View>
       </View>
       
@@ -190,7 +204,7 @@ const HomeScreen = ({ navigation }) => {
           
           <View style={styles.detailRow}>
             <Icon name="location-on" size={16} color="#666" />
-            <Text style={styles.detailText}>{item.location}</Text>
+            <Text style={styles.detailText} numberOfLines={1}>{item.location}</Text>
           </View>
           
           <View style={styles.detailRow}>

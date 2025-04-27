@@ -234,7 +234,7 @@ exports.updatePassword = async (req, res) => {
 // @access  Private
 exports.updateProfile = async (req, res) => {
   try {
-    const { name, phone, city, district } = req.body;
+    const { name, phone, city, district, address } = req.body;
 
     // Güncellenecek alanları kontrol et
     const updateFields = {};
@@ -242,6 +242,9 @@ exports.updateProfile = async (req, res) => {
     if (phone) updateFields.phone = phone;
     if (city) updateFields.city = city;
     if (district) updateFields.district = district;
+    if (address) updateFields.address = address;
+
+    console.log('Updating user profile with fields:', updateFields);
 
     // Kullanıcıyı bul ve güncelle
     const user = await User.findByIdAndUpdate(
@@ -256,6 +259,8 @@ exports.updateProfile = async (req, res) => {
         message: 'Kullanıcı bulunamadı'
       });
     }
+
+    console.log('Updated user:', user);
 
     res.status(200).json({
       success: true,

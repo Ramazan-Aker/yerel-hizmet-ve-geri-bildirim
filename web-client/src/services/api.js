@@ -111,38 +111,88 @@ export const issueService = {
 
   createIssue: async (issueData) => {
     try {
-      // Gönderimden önce şehir bilgisinin location içinde olduğundan emin olalım
-      if (!issueData.location.city && issueData.city) {
-        issueData.location.city = issueData.city;
-      }
+      // Hata ayıklama için tam gelen veriyi logla
+      console.log('createIssue fonksiyonuna gelen orijinal veri:', JSON.stringify(issueData, null, 2));
       
-      // Eğer şehir yoksa ve kullanıcı oturum açmışsa, profil bilgisinden alalım
-      if (!issueData.location.city && localStorage.getItem('token')) {
-        try {
-          const userResponse = await apiClient.get('/users/profile');
-          if (userResponse.data && userResponse.data.city) {
-            issueData.location.city = userResponse.data.city;
-            console.log('Şehir bilgisi kullanıcı profilinden alındı:', userResponse.data.city);
-          }
-        } catch (profileError) {
-          console.error('Şehir bilgisi alınamadı:', profileError);
+      // Veriyi klonla, asıl veriyi değiştirmemek için
+      const processedData = JSON.parse(JSON.stringify(issueData));
+      
+      // Verinin doğru formatta olduğundan emin olalım
+      if (!processedData.location) {
+        processedData.location = {};
+      }
+
+      // Location bilgilerinin doğruluğunu kontrol et
+      if (processedData.location) {
+        // Şehir bilgisinin ayarlanması
+        if (!processedData.location.city && processedData.city) {
+          processedData.location.city = processedData.city;
+        }
+        
+        // Koordinatların doğru formatta olduğunu kontrol et ([longitude, latitude])
+        if (processedData.location.coordinates && Array.isArray(processedData.location.coordinates)) {
+          // Koordinatlar array ama sayı değil ise sayıya dönüştür
+          processedData.location.coordinates = processedData.location.coordinates.map(coord => 
+            typeof coord === 'string' ? parseFloat(coord) : coord
+          );
+          
+          console.log('İşlenmiş koordinatlar:', processedData.location.coordinates);
+        }
+        
+        // Konum tipi belirtilmemişse ekle
+        if (!processedData.location.type) {
+          processedData.location.type = 'Point';
         }
       }
       
-      console.log('API\'ye gönderilecek sorun verisi:', issueData);
+      // Fotoğraflar varsa base64 formatında olduğundan emin ol
+      if (processedData.images && Array.isArray(processedData.images)) {
+        // Base64 formatında olduğundan emin ol
+        processedData.images = processedData.images.filter(img => img && (typeof img === 'string'));
+        
+        // Bazı base64 verileri "data:image/jpeg;base64," ile başlar, bazıları sadece base64 veridir
+        // Backend'in ihtiyacına göre uyarla. Gerekirse prefix ekle veya kaldır.
+        processedData.images = processedData.images.map(img => {
+          if (img.startsWith('data:image')) {
+            // Base64 öneki var, bu formatta gönderebiliriz
+            return img;
+          } else {
+            // Öneki yoksa ekle
+            return `data:image/jpeg;base64,${img}`;
+          }
+        });
+        
+        console.log(`${processedData.images.length} adet fotoğraf gönderilecek`);
+      }
       
-      const response = await apiClient.post('/issues', issueData);
+      console.log('API\'ye gönderilecek işlenmiş veri:', JSON.stringify(processedData, null, 2));
       
+      // API isteğini gönder
+      const response = await apiClient.post('/issues', processedData, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      console.log('API yanıtı başarılı:', response.data);
       return response.data;
     } catch (error) {
       console.error('API - Issue oluşturma hatası:', error);
       
-      // Daha detaylı hata mesajı
+      // Hata detaylarını konsola yazdır
       if (error.response) {
         console.error('API - Sunucu yanıtı:', error.response.data);
-        throw error.response.data.message || 'Sorun oluşturulamadı: Sunucu hatası';
+        console.error('API - Durum kodu:', error.response.status);
+        console.error('API - Yanıt başlıkları:', error.response.headers);
+        
+        // Hata mesajını döndür (varsa)
+        if (error.response.data && error.response.data.message) {
+          throw error.response.data.message;
+        } else {
+          throw `Sunucu hatası: ${error.response.status}`;
+        }
       } else if (error.request) {
-        console.error('API - İstek gönderildi ama yanıt alınamadı');
+        console.error('API - İstek gönderildi ama yanıt alınamadı:', error.request);
         throw 'Sunucu yanıt vermiyor, lütfen daha sonra tekrar deneyin';
       } else {
         console.error('API - İstek oluşturulurken hata:', error.message);

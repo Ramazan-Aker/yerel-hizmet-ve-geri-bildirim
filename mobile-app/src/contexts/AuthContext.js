@@ -178,15 +178,69 @@ export const AuthProvider = ({ children }) => {
   // Kullanıcı bilgilerini güncelleme
   const updateUser = async (userData) => {
     try {
+      console.log('Profil güncelleme isteği gönderiliyor:', userData);
+      
       // API ile kullanıcı bilgilerini güncelle
-      const response = await api.auth.updateUserProfile(userData);
-      const { user: updatedUser } = response.data;
+      const response = await api.auth.updateProfile(userData);
+      
+      // API yanıtından güncellenmiş kullanıcı bilgilerini al
+      if (!response || !response.data) {
+        console.error('API yanıtında veri bulunamadı');
+        throw new Error('API yanıtı geçersiz');
+      }
+      
+      console.log('API yanıtı:', response.data);
+      
+      // Kullanıcı verisinin formatını kontrol et
+      let updatedUser = response.data.data || response.data;
+      
+      if (!updatedUser) {
+        console.error('Güncellenmiş kullanıcı verisi bulunamadı');
+        throw new Error('Kullanıcı verisi bulunamadı');
+      }
+      
+      console.log('Güncellenecek kullanıcı verileri:', updatedUser);
+      console.log('Mevcut kullanıcı verileri:', user);
+      
+      // Mevcut kullanıcı verisiyle birleştir
+      updatedUser = {
+        ...user,
+        ...updatedUser,
+        // Alanların undefined olmamasını sağla
+        name: updatedUser.name || user?.name || '',
+        email: updatedUser.email || user?.email || '',
+        phone: updatedUser.phone || user?.phone || '',
+        city: updatedUser.city || user?.city || '',
+        address: updatedUser.address || user?.address || '',
+        district: updatedUser.district || user?.district || ''
+      };
+      
+      console.log('Birleştirilmiş kullanıcı verisi:', updatedUser);
       
       // Güncellenmiş kullanıcı bilgilerini AsyncStorage'a kaydet
       await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
       
       // Kullanıcı bilgilerini state'e kaydet
       setUser(updatedUser);
+      console.log('Context state kullanıcı verisi güncellendi:', updatedUser);
+      
+      // Profil verilerini güncellemek için API çağrısı yap
+      try {
+        const refreshedProfile = await api.auth.getUserProfile();
+        if (refreshedProfile && refreshedProfile.data && refreshedProfile.data.user) {
+          const freshUserData = refreshedProfile.data.user;
+          console.log('Yenilenen profil bilgileri:', freshUserData);
+          
+          // En güncel kullanıcı bilgilerini kaydet
+          await AsyncStorage.setItem('user', JSON.stringify(freshUserData));
+          setUser(freshUserData);
+          console.log('Yenilenen kullanıcı verileri state\'e kaydedildi:', freshUserData);
+        }
+      } catch (refreshError) {
+        console.warn('Profil bilgileri yenilenirken hata oluştu:', refreshError);
+        // Bu hata kritik değil, güncelleme başarılı oldu sayalım
+      }
+      
       return true;
     } catch (e) {
       console.error('Kullanıcı güncellenirken hata:', e);
