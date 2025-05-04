@@ -121,7 +121,19 @@ const AppNavigator = () => {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer
+      theme={{
+        colors: {
+          background: '#ffffff',
+          border: '#f0f0f0',
+          card: '#ffffff',
+          notification: '#ff3b30',
+          primary: '#3b82f6',
+          text: '#000000',
+        },
+        dark: false,
+      }}
+    >
       {user ? <MainNavigator /> : <AuthNavigator />}
     </NavigationContainer>
   );

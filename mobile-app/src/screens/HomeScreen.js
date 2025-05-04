@@ -8,14 +8,15 @@ import {
   ActivityIndicator,
   RefreshControl,
   Alert,
-  Image
+  Image,
+  SafeAreaView
 } from 'react-native';
 import { useAuth } from '../hooks/useAuth';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import api from '../utils/api';
 
 const HomeScreen = ({ navigation }) => {
-  const { user } = useAuth();
+  const { user, isOffline, serverStatus, checkConnection } = useAuth();
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -229,7 +230,21 @@ const HomeScreen = ({ navigation }) => {
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
+      {/* Connection Status Bar */}
+      {isOffline && (
+        <TouchableOpacity
+          style={styles.connectionStatusBar}
+          onPress={checkConnection}
+          activeOpacity={0.7}
+        >
+          <Icon name="wifi-off" size={18} color="#fff" />
+          <Text style={styles.connectionStatusText}>
+            Sunucu bağlantısı kurulamadı. Yenilemek için dokunun.
+          </Text>
+        </TouchableOpacity>
+      )}
+
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Şehir Bildirimleri</Text>
         <Text style={styles.headerSubtitle}>
@@ -281,7 +296,7 @@ const HomeScreen = ({ navigation }) => {
           </TouchableOpacity>
         </>
       )}
-    </View>
+    </SafeAreaView>
   );
 };
 
@@ -439,6 +454,23 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     fontSize: 14,
     color: '#666',
+  },
+  connectionStatusBar: {
+    backgroundColor: '#ef4444',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+    borderRadius: 4,
+    marginHorizontal: 8,
+  },
+  connectionStatusText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginLeft: 8,
   },
 });
 

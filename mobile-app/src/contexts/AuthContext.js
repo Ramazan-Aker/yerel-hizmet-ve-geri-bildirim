@@ -1,6 +1,8 @@
 import React, { createContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../utils/api';
+import { Alert } from 'react-native';
+import NetInfo from '@react-native-community/netinfo';
 
 // Context oluşturma
 export const AuthContext = createContext();
@@ -9,6 +11,36 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isOffline, setIsOffline] = useState(false);
+  const [serverStatus, setServerStatus] = useState('unknown'); // 'online', 'offline', 'unknown'
+
+  // Ağ bağlantısını izle
+  useEffect(() => {
+    const checkServerConnection = async () => {
+      try {
+        const result = await api.checkConnection();
+        setServerStatus(result.success ? 'online' : 'offline');
+        setIsOffline(!result.success);
+        if (!result.success) {
+          console.warn('Sunucu bağlantısı kurulamadı:', result.message);
+        }
+      } catch (error) {
+        console.error('Sunucu bağlantı kontrolü sırasında hata:', error);
+        setServerStatus('offline');
+        setIsOffline(true);
+      }
+    };
+    
+    // Uygulama başlatıldığında sunucu bağlantı durumunu kontrol et
+    checkServerConnection();
+    
+    // 60 saniyede bir bağlantı durumunu otomatik kontrol et
+    const connectionCheckInterval = setInterval(() => {
+      checkServerConnection();
+    }, 60000);
+    
+    return () => clearInterval(connectionCheckInterval);
+  }, []);
 
   // Uygulama başlatıldığında kayıtlı kullanıcı bilgilerini kontrol et
   useEffect(() => {
@@ -26,16 +58,47 @@ export const AuthProvider = ({ children }) => {
           // API'ye bir istek gönderilebilir. Başarısız olursa, kullanıcıyı çıkış yaptırabilirsiniz.
           try {
             // Kullanıcı profilini al (token doğrulaması için)
-            const { data } = await api.auth.getUserProfile();
-            // API'den gelen güncel kullanıcı bilgilerini güncelle
-            await AsyncStorage.setItem('user', JSON.stringify(data.user));
-            setUser(data.user);
+            const { success, data, message } = await api.auth.getUserProfile();
+            
+            if (success && data && data.user) {
+              // AsyncStorage'a kaydetmeden önce user verisi içeriğini kontrol et
+              if (data.user && typeof data.user === 'object') {
+                // Null değerleri kaldır
+                const safeUserData = Object.fromEntries(
+                  Object.entries(data.user).filter(([_, value]) => value !== null && value !== undefined)
+                );
+                
+                console.log('Güncellenmiş kullanıcı verileri:', safeUserData);
+                
+                // AsyncStorage'a kaydet
+                await AsyncStorage.setItem('user', JSON.stringify(safeUserData));
+                setUser(safeUserData);
+              } else {
+                console.warn('API yanıtında geçerli bir user nesnesi yok:', data);
+              }
+            } else {
+              console.warn('Kullanıcı profili güncellenemedi:', message);
+              // Sunucu offline durumunda mevcut kullanıcı bilgilerini koruyalım
+              if (!isOffline) {
+                console.warn('Sunucu yanıt verdiği halde profil güncellenemedi');
+              }
+            }
           } catch (profileError) {
+            console.error('Profil alma hatası:', profileError);
+            
             // Token geçersiz veya süresi dolmuş, kullanıcıyı çıkış yaptır
             if (profileError.response && profileError.response.status === 401) {
               await AsyncStorage.removeItem('token');
               await AsyncStorage.removeItem('user');
               setUser(null);
+            } 
+            // Sunucu bağlantı hatası - mevcut kullanıcı verileriyle devam et
+            else if (profileError.message && 
+                    (profileError.message.includes('timeout') || 
+                     profileError.message === 'Network Error')) {
+              console.warn('Bağlantı problemi nedeniyle profil güncellenemedi');
+              setIsOffline(true);
+              // Mevcut kullanıcı bilgilerini koruyalım, çıkış yapma
             }
           }
         }
@@ -47,7 +110,47 @@ export const AuthProvider = ({ children }) => {
     };
 
     bootstrapAsync();
-  }, []);
+  }, [isOffline]);
+
+  // Ağ bağlantısını tekrar kontrol et
+  const checkConnection = async () => {
+    try {
+      setLoading(true);
+      const result = await api.checkConnection();
+      setServerStatus(result.success ? 'online' : 'offline');
+      setIsOffline(!result.success);
+      
+      if (!result.success) {
+        Alert.alert(
+          'Bağlantı Problemi',
+          'Sunucuya bağlanılamıyor. Lütfen internet bağlantınızı kontrol edin.'
+        );
+      } else {
+        // Bağlantı başarılı, kullanıcı bilgilerini güncelle
+        if (user) {
+          try {
+            const { success, data } = await api.auth.getUserProfile();
+            if (success && data && data.user) {
+              await AsyncStorage.setItem('user', JSON.stringify(data.user));
+              setUser(data.user);
+              console.log('Kullanıcı profili güncellendi:', data.user);
+            }
+          } catch (error) {
+            console.warn('Bağlantı kuruldu ancak profil güncellenemedi:', error);
+          }
+        }
+      }
+      
+      return result.success;
+    } catch (error) {
+      console.error('Bağlantı kontrolü sırasında hata:', error);
+      setServerStatus('offline');
+      setIsOffline(true);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Giriş yapma fonksiyonu
   const login = async (email, password) => {
@@ -79,10 +182,17 @@ export const AuthProvider = ({ children }) => {
         
         // Token'ı userData'dan çıkar ve user nesnesini oluştur
         const { token: _, ...userInfo } = userData;
-        await AsyncStorage.setItem('user', JSON.stringify(userInfo));
+        
+        // Null/undefined değer kontrolü
+        const safeUserInfo = Object.fromEntries(
+          Object.entries(userInfo).filter(([_, value]) => value !== null && value !== undefined)
+        );
+        
+        // Kullanıcı bilgilerini kaydet
+        await AsyncStorage.setItem('user', JSON.stringify(safeUserInfo));
         
         // Kullanıcı bilgilerini state'e kaydet
-        setUser(userInfo);
+        setUser(safeUserInfo);
         return true;
       } else {
         setError(data?.message || 'Giriş başarısız');
@@ -134,10 +244,17 @@ export const AuthProvider = ({ children }) => {
         
         // Token'ı userData'dan çıkar ve user nesnesini oluştur
         const { token: _, ...userInfo } = userData;
-        await AsyncStorage.setItem('user', JSON.stringify(userInfo));
+        
+        // Null/undefined değer kontrolü
+        const safeUserInfo = Object.fromEntries(
+          Object.entries(userInfo).filter(([_, value]) => value !== null && value !== undefined)
+        );
+        
+        // Kullanıcı bilgilerini kaydet
+        await AsyncStorage.setItem('user', JSON.stringify(safeUserInfo));
         
         // Kullanıcı bilgilerini state'e kaydet
-        setUser(userInfo);
+        setUser(safeUserInfo);
         return true;
       } else {
         setError(data?.message || 'Kayıt başarısız');
@@ -231,10 +348,17 @@ export const AuthProvider = ({ children }) => {
           const freshUserData = refreshedProfile.data.user;
           console.log('Yenilenen profil bilgileri:', freshUserData);
           
+          // Null/undefined değerleri kaldır
+          if (freshUserData && typeof freshUserData === 'object') {
+            const safeFreshUserData = Object.fromEntries(
+              Object.entries(freshUserData).filter(([_, value]) => value !== null && value !== undefined)
+            );
+          
           // En güncel kullanıcı bilgilerini kaydet
-          await AsyncStorage.setItem('user', JSON.stringify(freshUserData));
-          setUser(freshUserData);
-          console.log('Yenilenen kullanıcı verileri state\'e kaydedildi:', freshUserData);
+            await AsyncStorage.setItem('user', JSON.stringify(safeFreshUserData));
+            setUser(safeFreshUserData);
+            console.log('Yenilenen kullanıcı verileri state\'e kaydedildi:', safeFreshUserData);
+          }
         }
       } catch (refreshError) {
         console.warn('Profil bilgileri yenilenirken hata oluştu:', refreshError);
@@ -294,21 +418,24 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Context değerleri
-  const authContext = {
+  // Provider component - Context değerlerini sağlar
+  return (
+    <AuthContext.Provider
+      value={{
     user,
     loading,
     error,
-    setError,
+        isOffline,
+        serverStatus,
     login,
-    loginWithDemo,  // Demo kullanıcısı ile giriş yapma
+        loginWithDemo,
     register,
     logout,
-    updateUser
-  };
-
-  return (
-    <AuthContext.Provider value={authContext}>
+        updateUser,
+        checkConnection, // Yeni eklenen bağlantı kontrol fonksiyonu
+        clearError: () => setError(null),
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

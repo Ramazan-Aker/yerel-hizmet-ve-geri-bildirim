@@ -10,9 +10,10 @@ import {
   TextInput,
   Image,
   ScrollView,
-  Dimensions
+  Dimensions,
+  SafeAreaView
 } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
+import RNPickerSelect from 'react-native-picker-select';
 import { useAuth } from '../hooks/useAuth';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import MapView, { Marker, Callout } from 'react-native-maps';
@@ -22,7 +23,7 @@ import { useFocusEffect } from '@react-navigation/native';
 const { width } = Dimensions.get('window');
 
 const IssuesScreen = ({ navigation }) => {
-  const { user } = useAuth();
+  const { user, isOffline, checkConnection } = useAuth();
   const [issues, setIssues] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -71,6 +72,67 @@ const IssuesScreen = ({ navigation }) => {
     'resolved': 'Çözüldü',
     'rejected': 'Reddedildi'
   };
+
+  // RNPickerSelect için kategoriler
+  const categoryItems = categories.map(category => ({
+    label: category,
+    value: category,
+    key: `category-${category}`
+  }));
+
+  // RNPickerSelect için durumlar
+  const statusItems = statuses.map(status => ({
+    label: status,
+    value: status,
+    key: `status-${status}`
+  }));
+
+  // RNPickerSelect için sıralama seçenekleri
+  const sortByItems = [
+    { label: 'En Yeni', value: 'newest', key: 'sort-newest' },
+    { label: 'En Eski', value: 'oldest', key: 'sort-oldest' },
+    { label: 'En Çok Oy', value: 'upvotes', key: 'sort-upvotes' }
+  ];
+
+  // Picker style
+  const pickerSelectStyles = StyleSheet.create({
+    inputIOS: {
+      fontSize: 14,
+      paddingVertical: 12,
+      paddingHorizontal: 10,
+      borderWidth: 1,
+      borderColor: '#ccc',
+      borderRadius: 6,
+      color: '#000000',
+      paddingRight: 30,
+      backgroundColor: '#ffffff',
+      width: 160,
+      height: 45,
+      fontWeight: '500'
+    },
+    inputAndroid: {
+      fontSize: 14,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+      borderWidth: 1,
+      borderColor: '#ccc',
+      borderRadius: 6,
+      color: '#000000',
+      paddingRight: 30,
+      backgroundColor: '#ffffff',
+      width: 160,
+      height: 45,
+      fontWeight: '500'
+    },
+    iconContainer: {
+      top: 12,
+      right: 10,
+    },
+    viewContainer: {
+      backgroundColor: '#ffffff',
+      borderRadius: 6,
+    }
+  });
 
   // API'den sorunları getir
   const fetchIssues = useCallback(async (shouldRefresh = false) => {
@@ -241,7 +303,25 @@ const IssuesScreen = ({ navigation }) => {
 
   // Sorun detayına git
   const navigateToDetail = (issue) => {
-    navigation.navigate('IssueDetail', { issueId: issue._id });
+    console.log(`Sorun detayına gidiliyor, ID: ${issue._id}`, {
+      title: issue.title,
+      status: issue.status
+    });
+    
+    // Sorun ID kontrol et
+    if (!issue._id) {
+      console.error('Sorun ID bulunamadı, detay sayfası açılamıyor.');
+      return;
+    }
+    
+    // Detay sayfasına git
+    navigation.navigate('IssueDetail', { 
+      issueId: issue._id,
+      // Başlık ve durum bilgisini yedek olarak gönder
+      // Bu sayede API'den veri gelmese bile ekranda bir şey gösterebiliriz
+      issueTitle: issue.title || 'İsimsiz Sorun',
+      issueStatus: issue.status || 'pending'
+    });
   };
 
   // Her bir sorun kartını render et
@@ -286,8 +366,30 @@ const IssuesScreen = ({ navigation }) => {
     </TouchableOpacity>
   );
 
+  // Bağlantı durumunu kontrol eden işlev
+  const handleConnectionCheck = async () => {
+    const connected = await checkConnection();
+    if (connected) {
+      fetchIssues(); // Bağlantı başarılıysa bildirimleri yeniden getir
+    }
+  };
+
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
+      {/* Connection Status Bar */}
+      {isOffline && (
+        <TouchableOpacity
+          style={styles.connectionStatusBar}
+          onPress={handleConnectionCheck}
+          activeOpacity={0.7}
+        >
+          <Icon name="wifi-off" size={18} color="#fff" />
+          <Text style={styles.connectionStatusText}>
+            Sunucu bağlantısı kurulamadı. Yenilemek için dokunun.
+          </Text>
+        </TouchableOpacity>
+      )}
+      
       {/* Filtre Bölümü */}
       <View style={styles.filterContainer}>
         <TextInput
@@ -300,31 +402,51 @@ const IssuesScreen = ({ navigation }) => {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScrollView}>
           <View style={styles.filterItem}>
             <Text style={styles.filterLabel}>Kategori:</Text>
-            <View style={styles.pickerContainer}>
-              <Picker
-                selectedValue={filters.category}
+            <View style={styles.pickerWrapper}>
+              <RNPickerSelect
+                placeholder={{}}
+                items={categoryItems}
                 onValueChange={(value) => setFilters(prev => ({ ...prev, category: value }))}
-                style={styles.picker}
-              >
-                {categories.map((category, index) => (
-                  <Picker.Item key={index} label={category} value={category} />
-                ))}
-              </Picker>
+                value={filters.category}
+                style={pickerSelectStyles}
+                useNativeAndroidPickerStyle={false}
+                Icon={() => <Icon name="arrow-drop-down" size={24} color="#3b82f6" />}
+                touchableWrapperProps={{ activeOpacity: 0.5 }}
+                pickerProps={{
+                  dropdownIconColor: '#3b82f6',
+                  mode: 'dropdown',
+                  style: { 
+                    backgroundColor: '#ffffff',
+                    color: '#000000',
+                    fontWeight: 'bold'
+                  }
+                }}
+              />
             </View>
           </View>
           
           <View style={styles.filterItem}>
             <Text style={styles.filterLabel}>Durum:</Text>
-            <View style={styles.pickerContainer}>
-              <Picker
-                selectedValue={filters.status}
+            <View style={styles.pickerWrapper}>
+              <RNPickerSelect
+                placeholder={{}}
+                items={statusItems}
                 onValueChange={(value) => setFilters(prev => ({ ...prev, status: value }))}
-                style={styles.picker}
-              >
-                {statuses.map((status, index) => (
-                  <Picker.Item key={index} label={status} value={status} />
-                ))}
-              </Picker>
+                value={filters.status}
+                style={pickerSelectStyles}
+                useNativeAndroidPickerStyle={false}
+                Icon={() => <Icon name="arrow-drop-down" size={24} color="#3b82f6" />}
+                touchableWrapperProps={{ activeOpacity: 0.5 }}
+                pickerProps={{
+                  dropdownIconColor: '#3b82f6',
+                  mode: 'dropdown',
+                  style: { 
+                    backgroundColor: '#ffffff',
+                    color: '#000000',
+                    fontWeight: 'bold'
+                  }
+                }}
+              />
             </View>
           </View>
           
@@ -340,16 +462,26 @@ const IssuesScreen = ({ navigation }) => {
           
           <View style={styles.filterItem}>
             <Text style={styles.filterLabel}>Sırala:</Text>
-            <View style={styles.pickerContainer}>
-              <Picker
-                selectedValue={sortBy}
+            <View style={styles.pickerWrapper}>
+              <RNPickerSelect
+                placeholder={{}}
+                items={sortByItems}
                 onValueChange={(value) => setSortBy(value)}
-                style={styles.picker}
-              >
-                <Picker.Item label="En Yeni" value="newest" />
-                <Picker.Item label="En Eski" value="oldest" />
-                <Picker.Item label="En Çok Oy" value="upvotes" />
-              </Picker>
+                value={sortBy}
+                style={pickerSelectStyles}
+                useNativeAndroidPickerStyle={false}
+                Icon={() => <Icon name="arrow-drop-down" size={24} color="#3b82f6" />}
+                touchableWrapperProps={{ activeOpacity: 0.5 }}
+                pickerProps={{
+                  dropdownIconColor: '#3b82f6',
+                  mode: 'dropdown',
+                  style: { 
+                    backgroundColor: '#ffffff',
+                    color: '#000000',
+                    fontWeight: 'bold'
+                  }
+                }}
+              />
             </View>
           </View>
         </ScrollView>
@@ -477,7 +609,7 @@ const IssuesScreen = ({ navigation }) => {
       >
         <Icon name="add" size={30} color="#fff" />
       </TouchableOpacity>
-    </View>
+    </SafeAreaView>
   );
 };
 
@@ -510,7 +642,7 @@ const styles = StyleSheet.create({
   },
   filterItem: {
     marginRight: 16,
-    width: 150,
+    width: 160,
   },
   filterLabel: {
     fontSize: 14,
@@ -518,23 +650,20 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     color: '#333',
   },
-  pickerContainer: {
-    backgroundColor: '#f5f5f5',
+  pickerWrapper: {
     borderRadius: 8,
-    height: 40,
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  picker: {
-    height: 40,
-    width: '100%',
+    marginTop: 5,
+    marginBottom: 10,
   },
   districtInput: {
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    height: 40,
+    height: 45,
+    color: '#333',
   },
   viewToggle: {
     flexDirection: 'row',
@@ -685,6 +814,23 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 3,
+  },
+  connectionStatusBar: {
+    backgroundColor: '#ef4444',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+    borderRadius: 4,
+    marginHorizontal: 8,
+  },
+  connectionStatusText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginLeft: 8,
   },
 });
 

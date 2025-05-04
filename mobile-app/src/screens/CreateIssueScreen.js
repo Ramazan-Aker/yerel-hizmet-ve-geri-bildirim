@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, ActivityIndicator, Image } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
+import * as Camera from 'expo-camera';
 import * as Location from 'expo-location';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import { cities } from '../data/cities';
 import { allDistricts } from '../data/allDistricts';
 import { cityCoordinates } from '../data/cityCoordinates';
+import { Ionicons } from '@expo/vector-icons';
 
 const CreateIssueScreen = ({ navigation }) => {
   const { user } = useAuth();
@@ -110,12 +112,43 @@ const CreateIssueScreen = ({ navigation }) => {
     }
   };
 
-  const pickImage = async () => {
+  // Fotoğraf ekleme butonlarının etiketleri
+  const getAddPhotoLabel = () => {
+    if (images.length >= 3) {
+      return "Maksimum fotoğraf sayısına ulaşıldı";
+    }
+    return `Galeriden Ekle (${images.length}/3)`;
+  };
+
+  const getTakePhotoLabel = () => {
+    if (images.length >= 3) {
+      return "Maksimum fotoğraf sayısına ulaşıldı";
+    }
+    return `Kamera ile Çek (${images.length}/3)`;
+  };
+
+  // Galeriden fotoğraf seçme
+  const pickImageFromGallery = async () => {
     try {
+      setImages(prevImages => {
+        // Mevcut fotoğraf sayısını doğrudan alın
+        const currentImagesCount = prevImages.length;
+        console.log('FOTOĞRAF EKLEME BAŞLADI, Mevcut sayı:', currentImagesCount);
+        
+        // En fazla 3 resim kontrolü
+        if (currentImagesCount >= 3) {
+          Alert.alert('Limit', 'En fazla 3 fotoğraf ekleyebilirsiniz.');
+          return prevImages; // Değişiklik yok, aynı değeri döndür
+        }
+        
+        // Async işlemler içinde yeni setImages çağrısı yapacağız
+        return prevImages;
+      });
+      
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       
       if (status !== 'granted') {
-        Alert.alert('Izin gerekli', 'Galeriye erişim izni vermeniz gerekiyor.');
+        Alert.alert('İzin Gerekli', 'Galeriye erişim izni vermeniz gerekiyor.');
         return;
       }
       
@@ -124,15 +157,106 @@ const CreateIssueScreen = ({ navigation }) => {
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.8,
+        allowsMultipleSelection: false, // Tek seferde bir resim ekleyelim
       });
       
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        setImages([...images, result.assets[0].uri]);
+        // Yeni fotoğrafı al
+        const newUri = result.assets[0].uri;
+        console.log('YENİ FOTOĞRAF SEÇİLDİ:', newUri.substring(0, 30) + '...');
+        
+        // Fonksiyonel güncelleme kullanarak state'i güncelle
+        setImages(prevImages => {
+          // Eğer önceki resimlerle beraber 3'ü geçecekse eklemeyelim
+          if (prevImages.length >= 3) {
+            Alert.alert('Limit', 'En fazla 3 fotoğraf ekleyebilirsiniz.');
+            return prevImages;
+          }
+          
+          // Yeni array oluştur ve yeni URI'yi ekle
+          const updatedImages = [...prevImages, newUri];
+          console.log('GÜNCELLENEN FOTOĞRAFLAR:', updatedImages.length);
+          return updatedImages;
+        });
       }
     } catch (error) {
-      console.error('Resim seçme hatası:', error);
-      Alert.alert('Hata', 'Resim seçilirken bir hata oluştu.');
+      console.error('Galeriden fotoğraf seçme hatası:', error);
+      Alert.alert('Hata', 'Fotoğraf seçilirken bir hata oluştu.');
     }
+  };
+
+  // Kamera ile fotoğraf çekme
+  const takePictureWithCamera = async () => {
+    try {
+      setImages(prevImages => {
+        // Mevcut fotoğraf sayısını doğrudan alın
+        const currentImagesCount = prevImages.length;
+        console.log('KAMERA BAŞLADI, Mevcut sayı:', currentImagesCount);
+        
+        // En fazla 3 resim kontrolü
+        if (currentImagesCount >= 3) {
+          Alert.alert('Limit', 'En fazla 3 fotoğraf ekleyebilirsiniz.');
+          return prevImages; // Değişiklik yok, aynı değeri döndür
+        }
+        
+        // Async işlemler içinde yeni setImages çağrısı yapacağız
+        return prevImages;
+      });
+      
+      const { status } = await Camera.requestCameraPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert('İzin Gerekli', 'Kamera erişim izni vermeniz gerekiyor.');
+        return;
+      }
+      
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+      
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        // Yeni fotoğrafı al
+        const newUri = result.assets[0].uri;
+        console.log('YENİ FOTOĞRAF ÇEKİLDİ:', newUri.substring(0, 30) + '...');
+        
+        // Fonksiyonel güncelleme kullanarak state'i güncelle
+        setImages(prevImages => {
+          // Eğer önceki resimlerle beraber 3'ü geçecekse eklemeyelim
+          if (prevImages.length >= 3) {
+            Alert.alert('Limit', 'En fazla 3 fotoğraf ekleyebilirsiniz.');
+            return prevImages;
+          }
+          
+          // Yeni array oluştur ve yeni URI'yi ekle
+          const updatedImages = [...prevImages, newUri];
+          console.log('GÜNCELLENEN FOTOĞRAFLAR:', updatedImages.length);
+          return updatedImages;
+        });
+      }
+    } catch (error) {
+      console.error('Kamera ile fotoğraf çekme hatası:', error);
+      Alert.alert('Hata', 'Fotoğraf çekilirken bir hata oluştu.');
+    }
+  };
+
+  // Fotoğraf silme fonksiyonu - fonksiyonel güncelleme kullanıyoruz
+  const removeImage = (index) => {
+    // Fonksiyonel güncelleme kullanarak state'i güncelle
+    setImages(prevImages => {
+      console.log('SİLME ÖNCESİ FOTOĞRAF SAYISI:', prevImages.length);
+      
+      // Yeni bir kopya oluştur
+      const updatedImages = [...prevImages];
+      
+      // Belirtilen indeksteki fotoğrafı çıkart
+      updatedImages.splice(index, 1);
+      console.log('SİLME SONRASI FOTOĞRAF SAYISI:', updatedImages.length);
+      
+      // Yeni diziyi döndür
+      return updatedImages;
+    });
   };
 
   const handleSubmit = async () => {
@@ -321,18 +445,73 @@ const CreateIssueScreen = ({ navigation }) => {
         )}
         
         <View style={styles.imageSection}>
-          <Text style={styles.label}>Fotoğraflar</Text>
-          <TouchableOpacity style={styles.addImageButton} onPress={pickImage}>
-            <Text style={styles.buttonText}>Fotoğraf Ekle</Text>
-          </TouchableOpacity>
+          <Text style={styles.label}>Fotoğraflar (Maksimum 3)</Text>
           
-          <View style={styles.imagePreviewContainer}>
-            {images.length > 0 ? (
-              <Text style={styles.imageCount}>{images.length} fotoğraf seçildi</Text>
-            ) : (
-              <Text style={styles.noImageText}>Fotoğraf eklenmedi</Text>
-            )}
+          <View style={styles.photoButtonsContainer}>
+            <TouchableOpacity 
+              style={[
+                styles.photoButton, 
+                styles.galleryButton,
+                images.length >= 3 && styles.disabledButton
+              ]} 
+              onPress={pickImageFromGallery}
+              disabled={images.length >= 3}
+            >
+              <Ionicons name="images-outline" size={20} color="#fff" />
+              <Text style={styles.buttonText}>
+                {getAddPhotoLabel()}
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[
+                styles.photoButton, 
+                styles.cameraButton,
+                images.length >= 3 && styles.disabledButton
+              ]} 
+              onPress={takePictureWithCamera}
+              disabled={images.length >= 3}
+            >
+              <Ionicons name="camera-outline" size={20} color="#fff" />
+              <Text style={styles.buttonText}>
+                {getTakePhotoLabel()}
+              </Text>
+          </TouchableOpacity>
           </View>
+          
+          {/* Fotoğraf ön izleme bölümü */}
+            {images.length > 0 ? (
+            <View style={styles.imagesContainer}>
+              {images.map((uri, index) => (
+                <View key={index} style={styles.imagePreview}>
+                  <Image source={{ uri }} style={styles.previewImage} />
+                  <TouchableOpacity 
+                    style={styles.removeImageButton}
+                    onPress={() => removeImage(index)}
+                  >
+                    <Ionicons name="close-circle" size={24} color="red" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+              
+              {/* Boş kare ekleme */}
+              {images.length < 3 && Array(3 - images.length).fill(0).map((_, i) => (
+                <View key={`empty-${i}`} style={[styles.imagePreview, styles.emptyImagePreview]}>
+                  <Ionicons name="add-circle-outline" size={30} color="#ccc" />
+                </View>
+              ))}
+            </View>
+            ) : (
+            <View style={styles.imagePreviewContainer}>
+              <Text style={styles.noImageText}>Fotoğraf eklenmedi</Text>
+          </View>
+          )}
+          
+          {images.length > 0 && (
+            <Text style={styles.imageCount}>
+              {images.length} / 3 fotoğraf seçildi
+            </Text>
+          )}
         </View>
         
         <TouchableOpacity 
@@ -438,21 +617,54 @@ const styles = StyleSheet.create({
   imageSection: {
     marginBottom: 20,
   },
-  addImageButton: {
-    backgroundColor: '#2196F3',
-    borderRadius: 8,
-    padding: 14,
-    alignItems: 'center',
-    marginBottom: 10,
+  photoButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10
   },
-  imagePreviewContainer: {
-    padding: 10,
-    backgroundColor: '#eee',
-    borderRadius: 8,
+  photoButton: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderRadius: 8,
+    flex: 0.48
+  },
+  galleryButton: {
+    backgroundColor: '#2196F3',
+  },
+  cameraButton: {
+    backgroundColor: '#4CAF50',
+  },
+  imagesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
+  imagePreview: {
+    width: '31%',
+    aspectRatio: 1,
+    marginBottom: 10,
+    position: 'relative',
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 8,
+  },
+  removeImageButton: {
+    position: 'absolute',
+    top: -10,
+    right: -10,
+    backgroundColor: 'white',
+    borderRadius: 12,
   },
   imageCount: {
+    textAlign: 'center',
+    marginTop: 10,
     color: '#555',
+    fontWeight: '500',
   },
   noImageText: {
     color: '#999',
@@ -469,6 +681,20 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 18,
+  },
+  imagePreviewContainer: {
+    padding: 10,
+    backgroundColor: '#eee',
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  emptyImagePreview: {
+    backgroundColor: '#f5f5f5',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderStyle: 'dashed',
+    justifyContent: 'center',
+    alignItems: 'center'
   },
 });
 

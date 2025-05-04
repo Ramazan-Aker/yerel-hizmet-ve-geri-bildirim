@@ -15,12 +15,25 @@ cloudinary.config({
 // @access  Private
 exports.createIssue = async (req, res) => {
   const logger = req.logger || console;
+  
+  try {
+    // Request body'sinin boyutunu kontrol et (debug için)
+    const requestSize = JSON.stringify(req.body).length;
+    logger.info(`Request size: ${Math.round(requestSize / 1024)} KB`);
+    
+    // 10MB'dan büyük istekleri reddet
+    if (requestSize > 10 * 1024 * 1024) {
+      return res.status(413).json({
+        success: false,
+        message: 'İstek boyutu çok büyük. Lütfen daha küçük boyutlu fotoğraflar yükleyin.'
+      });
+    }
+    
   logger.info('Creating new issue with data:', {
     ...req.body,
     images: req.body.images ? `${req.body.images.length} images` : 'no images'
   });
 
-  try {
     const { title, description, category, severity, location, images } = req.body;
     const userId = req.user.id;
 
@@ -52,42 +65,84 @@ exports.createIssue = async (req, res) => {
       try {
         logger.info(`Processing ${images.length} images`);
         
+        // Her bir görüntünün boyutunu kontrol et (debug için)
+        images.forEach((img, index) => {
+          if (img && typeof img === 'string') {
+            const formatInfo = img.substring(0, 20); // Format bilgisini göster
+            logger.info(`Image ${index + 1} format: ${formatInfo}..., size: ~${Math.round(img.length / 1024)} KB`);
+          } else {
+            logger.warn(`Image ${index + 1} is not a valid string`);
+          }
+        });
+        
+        // Maksimum 3 görüntü ile sınırla
+        const limitedImages = images.slice(0, 3);
+        logger.info(`Limited to ${limitedImages.length} images`);
+        
+        // Geçerli formatları filtrele
+        const validImages = limitedImages.filter(img => 
+          img && 
+          typeof img === 'string' && 
+          (img.startsWith('data:image/jpeg') || 
+           img.startsWith('data:image/jpg') || 
+           img.startsWith('data:image/png'))
+        );
+        
+        if (validImages.length < limitedImages.length) {
+          logger.warn(`Filtered out ${limitedImages.length - validImages.length} images with invalid format`);
+        }
+        
         // Cloudinary konfigürasyonu kontrol et
         const isCloudinaryConfigured = process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET;
         
         if (isCloudinaryConfigured) {
           // Process each base64 image and upload to Cloudinary
-          const uploadPromises = images.map(async (imageData) => {
-            if (!imageData.startsWith('data:image')) {
-              logger.warn('Invalid image format, skipping');
-              return null;
+          logger.info('Uploading images to Cloudinary...');
+          
+          const uploadPromises = validImages.map(async (imageData, index) => {
+            try {
+              // Görüntü formatını belirle
+              let format = 'jpg'; // Varsayılan
+              if (imageData.startsWith('data:image/png')) {
+                format = 'png';
             }
 
             const result = await cloudinary.uploader.upload(imageData, {
               folder: 'issue_images',
-              resource_type: 'image'
+                resource_type: 'image',
+                format: format // Format bilgisini Cloudinary'ye aktar
             });
             
-            logger.info(`Uploaded image to Cloudinary: ${result.public_id}`);
+              logger.info(`Uploaded image ${index + 1} to Cloudinary: ${result.public_id}, format: ${format}`);
             return result.secure_url;
+            } catch (uploadError) {
+              logger.error(`Error uploading image ${index + 1} to Cloudinary:`, uploadError);
+              return null;
+            }
           });
 
           const uploadResults = await Promise.all(uploadPromises);
           uploadedImageUrls = uploadResults.filter(url => url !== null);
-          logger.info(`Successfully uploaded ${uploadedImageUrls.length} images`);
+          logger.info(`Successfully uploaded ${uploadedImageUrls.length} images to Cloudinary`);
         } else {
-          // Cloudinary olmadan, base64 resimlerini doğrudan kullan
+          // Cloudinary olmadan base64 resimlerini kullan, ancak boyutu sınırla
           logger.info('Cloudinary konfigüre edilmemiş, resimler base64 olarak kaydedilecek');
-          uploadedImageUrls = images.filter(img => img && img.startsWith('data:image'));
           
-          // Base64 resimlerinin boyutunu kontrol et
-          if (uploadedImageUrls.length > 0) {
+          // Mevcut formatlarını koru
+          uploadedImageUrls = validImages.map(img => {
+            // Görüntü boyutu kontrolü yap
+            if (img.length > 500 * 1024) { // 500KB'dan büyükse uyarı ver
+              logger.warn('Büyük görüntü tespit edildi, performans sorunları yaşanabilir');
+            }
+            return img;
+          });
+          
             logger.info(`Base64 formatında ${uploadedImageUrls.length} resim işlendi`);
-          }
         }
       } catch (imgError) {
-        logger.error('Error uploading images to Cloudinary:', imgError);
-        // Continue without images rather than failing the whole issue creation
+        logger.error('Error processing images:', imgError);
+        // Görüntü işleme hatalarında boş bir dizi ile devam et
+        uploadedImageUrls = [];
       }
     }
 
@@ -97,7 +152,7 @@ exports.createIssue = async (req, res) => {
       description,
       category,
       severity: severity || 'Orta',
-      status: 'Yeni',
+      status: 'pending', // İngilizce status değerini kullan (Yeni -> pending)
       location: formattedLocation,
       user: userId,
       images: uploadedImageUrls,
@@ -118,9 +173,36 @@ exports.createIssue = async (req, res) => {
     });
   } catch (error) {
     logger.error('Error creating issue:', error);
+    
+    // Daha spesifik hata mesajları
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Doğrulama hatası: ' + Object.values(error.errors).map(val => val.message).join(', ')
+      });
+    } else if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Aynı bilgilerle daha önce kayıt açılmış'
+      });
+    } else if (error.message && error.message.includes('payload too large')) {
+      return res.status(413).json({
+        success: false,
+        message: 'Yüklenen fotoğraflar çok büyük. Lütfen daha küçük boyutlu veya daha az sayıda fotoğraf kullanın.'
+      });
+    }
+    
+    // Görüntülerle ilgili olabilecek diğer hatalar
+    if (error.message && error.message.toLowerCase().includes('image')) {
+      return res.status(400).json({
+        success: false,
+        message: 'Fotoğraf işlenirken hata oluştu. Desteklenen formatlar: JPG ve PNG. Lütfen farklı bir fotoğraf deneyin.'
+      });
+    }
+    
     return res.status(500).json({
       success: false,
-      message: 'An error occurred while creating the issue'
+      message: 'Sorun oluşturulurken bir hata meydana geldi. Lütfen daha sonra tekrar deneyin.'
     });
   }
 };

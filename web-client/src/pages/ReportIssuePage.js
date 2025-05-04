@@ -188,44 +188,66 @@ const ReportIssuePage = () => {
 
   const handleImageChange = async (e) => {
     const files = Array.from(e.target.files);
+    if (!files.length) return;
     
-    if (files.length > 3) {
-      toast.error('En fazla 3 fotoğraf yükleyebilirsiniz');
+    // Mevcut görüntü sayısını kontrol et
+    const totalImages = previewImages.length + files.length;
+    if (totalImages > 3) {
+      toast.error(`En fazla 3 fotoğraf yükleyebilirsiniz (şu anda ${previewImages.length} fotoğraf seçili)`);
       return;
     }
     
     // Dosya boyutu kontrolü
     for (const file of files) {
-      if (file.size > 5 * 1024 * 1024) { // 5MB
-        toast.error('Fotoğraflar en fazla 5MB boyutunda olmalıdır');
+      if (file.size > 5 * 1024 * 1024) { // 5MB limit
+        toast.error(`'${file.name}' dosyası çok büyük (${Math.round(file.size/1024/1024)}MB). Lütfen 5MB'dan küçük dosyalar seçin.`);
         return;
       }
     }
     
-    // Fotoğrafları base64 formatına dönüştür
-    const filePromises = files.map(file => {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          resolve(event.target.result);
-        };
-        reader.onerror = (error) => {
-          reject(error);
-        };
-        reader.readAsDataURL(file);
-      });
-    });
+    // Yükleme bildirimi
+    toast.loading('Fotoğraflar yükleniyor...', { id: 'image-processing' });
     
     try {
-      const base64Images = await Promise.all(filePromises);
-      setPreviewImages(base64Images);
+      const processedImages = [];
+      
+      for (const file of files) {
+        try {
+          // Dosyayı base64'e dönüştür - hiçbir işlem yapmadan
+        const reader = new FileReader();
+          const base64Promise = new Promise((resolve, reject) => {
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error(`Dosya okunamadı: ${file.name}`));
+        reader.readAsDataURL(file);
+      });
+          
+          const base64 = await base64Promise;
+          processedImages.push(base64);
+          
+        } catch (fileError) {
+          console.error(`Dosya işleme hatası (${file.name}):`, fileError);
+          // Hata durumunda devam et, diğer dosyaları işlemeye çalış
+        }
+      }
+      
+      if (processedImages.length > 0) {
+        // Başarılı görüntüleri ekle
+        setPreviewImages(prev => [...prev, ...processedImages]);
+        
+        // Form verilerini güncelle
       setFormData(prev => ({
         ...prev,
-        images: base64Images
+          images: [...prev.images, ...processedImages]
       }));
+        
+        toast.success(`${processedImages.length} fotoğraf başarıyla yüklendi`, { id: 'image-processing' });
+      } else {
+        toast.error('Hiçbir fotoğraf yüklenemedi', { id: 'image-processing' });
+      }
+      
     } catch (error) {
-      console.error('Fotoğraf dönüştürme hatası:', error);
-      toast.error('Fotoğraflar yüklenirken bir hata oluştu');
+      console.error('Fotoğraf işleme hatası:', error);
+      toast.error('Fotoğraflar işlenirken hata oluştu');
     }
   };
 
@@ -423,6 +445,23 @@ const ReportIssuePage = () => {
                   ref={fileInputRef}
                 />
                 <span className="text-xs text-gray-500">En fazla 3 fotoğraf, her biri max 5MB</span>
+              </div>
+              
+              {/* Fotoğraf sayısı bilgisi */}
+              {previewImages.length > 0 && (
+                <div className="mt-2 flex items-center">
+                  <span className="text-sm text-gray-600">
+                    {previewImages.length} fotoğraf seçildi ({3 - previewImages.length} fotoğraf daha ekleyebilirsiniz)
+                  </span>
+                </div>
+              )}
+              
+              {/* JPG uyarısı */}
+              <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-md">
+                <p className="text-xs text-yellow-700">
+                  <strong>Not:</strong> JPG/JPEG formatındaki fotoğraflar yüklenirken sorun yaşanabilir. 
+                  Mümkünse PNG formatında fotoğraflar kullanmanızı öneririz. JPG formatında sorun yaşarsanız, daha küçük boyutlu veya daha düşük çözünürlüklü fotoğraflar deneyin.
+                </p>
               </div>
               
               {previewImages.length > 0 && (

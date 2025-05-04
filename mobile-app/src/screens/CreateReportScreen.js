@@ -10,7 +10,8 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  Modal
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { Picker } from '@react-native-picker/picker';
@@ -90,6 +91,12 @@ const CreateReportScreen = ({ navigation }) => {
     longitudeDelta: 0.0421,
   });
 
+  // Add state for custom picker modal
+  const [pickerModalVisible, setPickerModalVisible] = useState(false);
+  const [activePickerItems, setActivePickerItems] = useState([]);
+  const [activePickerValue, setActivePickerValue] = useState(null);
+  const [activePickerType, setActivePickerType] = useState('');
+
   // Kullanıcı bilgisi değiştiğinde şehir bilgisini güncelle
   useEffect(() => {
     if (user && user.city) {
@@ -144,24 +151,40 @@ const CreateReportScreen = ({ navigation }) => {
     }
   }, [city]);
 
-  // Kategori listesi
-  const categories = [
+  // Kategori listesi - RNPickerSelect için formatlayalım
+  const categoryItems = [
     { label: 'Kategori Seçin', value: '' },
     { label: 'Altyapı', value: 'Altyapı' },
     { label: 'Çevre', value: 'Çevre' },
     { label: 'Ulaşım', value: 'Ulaşım' },
     { label: 'Güvenlik', value: 'Güvenlik' },
     { label: 'Temizlik', value: 'Temizlik' },
-    { label: 'Park ve Bahçeler', value: 'Diğer' },
+    { label: 'Park ve Bahçeler', value: 'Park ve Bahçeler' },
     { label: 'Diğer', value: 'Diğer' },
   ];
   
   // Önem seviyesi listesi
-  const severityLevels = [
+  const severityItems = [
     { label: 'Düşük', value: 'Düşük' },
     { label: 'Orta', value: 'Orta' },
     { label: 'Yüksek', value: 'Yüksek' },
     { label: 'Kritik', value: 'Kritik' },
+  ];
+
+  // Şehir listesi
+  const cityItems = cities.map(cityName => ({
+    label: cityName,
+    value: cityName,
+  }));
+
+  // İlçe listesi
+  const districtItems = [
+    { label: 'İlçe Seçin', value: '', key: 'district-default' },
+    ...availableDistricts.map(districtName => ({
+      label: districtName,
+      value: districtName,
+      key: `district-${districtName}`
+    }))
   ];
 
   // İzin kontrolü ve galeriden resim seçme
@@ -554,6 +577,61 @@ const CreateReportScreen = ({ navigation }) => {
     }
   };
 
+  // Function to open the picker modal
+  const openPickerModal = (items, currentValue, type) => {
+    setActivePickerItems(items);
+    setActivePickerValue(currentValue);
+    setActivePickerType(type);
+    setPickerModalVisible(true);
+  };
+  
+  // Function to handle picker selection
+  const handlePickerSelect = (value) => {
+    setPickerModalVisible(false);
+    
+    switch (activePickerType) {
+      case 'category':
+        setCategory(value);
+        break;
+      case 'severity':
+        setSeverity(value);
+        break;
+      case 'district':
+        setDistrict(value);
+        break;
+      default:
+        break;
+    }
+  };
+
+  // Custom picker component 
+  const CustomPicker = ({ label, value, items, onPress, disabled, error }) => {
+    return (
+      <TouchableOpacity
+        style={[
+          styles.customPickerContainer,
+          disabled && styles.disabledPicker,
+          error && styles.inputError
+        ]}
+        onPress={onPress}
+        disabled={disabled}
+      >
+        <Text style={[
+          styles.customPickerText,
+          !value && styles.customPickerPlaceholder,
+          disabled && styles.disabledPickerText
+        ]}>
+          {value ? items.find(item => item.value === value)?.label || value : label}
+        </Text>
+        <Icon 
+          name="arrow-drop-down" 
+          size={24} 
+          color={disabled ? "#ccc" : "#3b82f6"} 
+        />
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -573,65 +651,140 @@ const CreateReportScreen = ({ navigation }) => {
 
           {/* Kategori */}
           <Text style={styles.label}>Kategori <Text style={styles.required}>*</Text></Text>
+          {Platform.OS === 'ios' ? (
+            <CustomPicker
+              label="Kategori Seçin"
+              value={category}
+              items={categoryItems}
+              onPress={() => openPickerModal(categoryItems, category, 'category')}
+              error={errors.category}
+            />
+          ) : (
           <View style={[styles.pickerContainer, errors.category && styles.inputError]}>
             <Picker
               selectedValue={category}
-              onValueChange={(itemValue) => setCategory(itemValue)}
+                onValueChange={(value) => setCategory(value)}
               style={styles.picker}
+                dropdownIconColor="#3b82f6"
+                mode="dropdown"
             >
-              {categories.map(item => (
-                <Picker.Item key={item.value} label={item.label} value={item.value} />
+                {categoryItems.map((item) => (
+                  <Picker.Item 
+                    key={`category-${item.value}`} 
+                    label={item.label} 
+                    value={item.value}
+                    color="#000000"
+                  />
               ))}
             </Picker>
           </View>
+          )}
           {errors.category && <Text style={styles.errorText}>{errors.category}</Text>}
 
           {/* Önem Seviyesi */}
           <Text style={styles.label}>Önem Seviyesi</Text>
+          {Platform.OS === 'ios' ? (
+            <CustomPicker
+              label="Önem Seviyesi Seçin"
+              value={severity}
+              items={severityItems}
+              onPress={() => openPickerModal(severityItems, severity, 'severity')}
+            />
+          ) : (
           <View style={styles.pickerContainer}>
             <Picker
               selectedValue={severity}
-              onValueChange={(itemValue) => setSeverity(itemValue)}
+                onValueChange={(value) => setSeverity(value)}
               style={styles.picker}
+                dropdownIconColor="#3b82f6"
+                mode="dropdown"
             >
-              {severityLevels.map(item => (
-                <Picker.Item key={item.value} label={item.label} value={item.value} />
+                {severityItems.map((item) => (
+                  <Picker.Item 
+                    key={`severity-${item.value}`} 
+                    label={item.label} 
+                    value={item.value}
+                    color="#000000"
+                  />
               ))}
             </Picker>
           </View>
+          )}
 
           {/* Şehir Seçimi */}
           <Text style={styles.label}>İl <Text style={styles.required}>*</Text></Text>
+          {Platform.OS === 'ios' ? (
+            <CustomPicker
+              label="Şehir Seçin"
+              value={city}
+              items={cityItems}
+              disabled={true}
+              error={errors.city}
+            />
+          ) : (
           <View style={[styles.pickerContainer, errors.city && styles.inputError]}>
             <Picker
               selectedValue={city}
-              onValueChange={(itemValue) => setCity(itemValue)}
+                enabled={false}
               style={styles.picker}
-              enabled={false} // Şehri değiştirmeye izin verme
+                dropdownIconColor="#ccc"
             >
-              {cities.map((cityName, index) => (
-                <Picker.Item key={index} label={cityName} value={cityName} />
+                {cities.map((cityName) => (
+                  <Picker.Item 
+                    key={`city-${cityName}`} 
+                    label={cityName} 
+                    value={cityName}
+                    color="#000000"
+                  />
               ))}
             </Picker>
           </View>
+          )}
           {errors.city && <Text style={styles.errorText}>{errors.city}</Text>}
           <Text style={styles.infoText}>Şehir bilgisi profilinizden otomatik olarak alınmaktadır.</Text>
 
           {/* İlçe Seçimi */}
           <Text style={styles.label}>İlçe <Text style={styles.required}>*</Text></Text>
+          {Platform.OS === 'ios' ? (
+            <CustomPicker
+              label="İlçe Seçin"
+              value={district}
+              items={availableDistricts.map(districtName => ({
+                label: districtName,
+                value: districtName,
+              }))}
+              onPress={() => openPickerModal(
+                availableDistricts.map(districtName => ({
+                  label: districtName,
+                  value: districtName,
+                })), 
+                district, 
+                'district'
+              )}
+              disabled={availableDistricts.length === 0}
+              error={errors.district}
+            />
+          ) : (
           <View style={[styles.pickerContainer, errors.district && styles.inputError]}>
             <Picker
               selectedValue={district}
-              onValueChange={(itemValue) => setDistrict(itemValue)}
+                onValueChange={(value) => setDistrict(value)}
               style={styles.picker}
               enabled={availableDistricts.length > 0}
+                dropdownIconColor={availableDistricts.length === 0 ? "#ccc" : "#3b82f6"}
             >
-              <Picker.Item label="İlçe Seçin" value="" />
-              {availableDistricts.map((districtName, index) => (
-                <Picker.Item key={index} label={districtName} value={districtName} />
+                <Picker.Item key="district-default" label="İlçe Seçin" value="" color="#000000" />
+                {availableDistricts.map((districtName) => (
+                  <Picker.Item 
+                    key={`district-${districtName}`} 
+                    label={districtName} 
+                    value={districtName}
+                    color="#000000"
+                  />
               ))}
             </Picker>
           </View>
+          )}
           {errors.district && <Text style={styles.errorText}>{errors.district}</Text>}
 
           {/* Adres */}
@@ -756,6 +909,47 @@ const CreateReportScreen = ({ navigation }) => {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Custom Picker Modal for iOS */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={pickerModalVisible}
+        onRequestClose={() => setPickerModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <TouchableOpacity 
+                style={styles.modalCancelButton}
+                onPress={() => setPickerModalVisible(false)}
+              >
+                <Text style={styles.modalButtonText}>İptal</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalDoneButton}
+                onPress={() => handlePickerSelect(activePickerValue)}
+              >
+                <Text style={styles.modalButtonText}>Tamam</Text>
+              </TouchableOpacity>
+            </View>
+            <Picker
+              selectedValue={activePickerValue}
+              onValueChange={(value) => setActivePickerValue(value)}
+              itemStyle={{ fontSize: 16, color: '#000000' }}
+            >
+              {activePickerItems.map((item) => (
+                <Picker.Item 
+                  key={`modal-${item.value}`} 
+                  label={item.label} 
+                  value={item.value}
+                  color="#000000"
+                />
+              ))}
+            </Picker>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 };
@@ -811,23 +1005,70 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   pickerContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: '#ffffff',
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#ccc',
     borderRadius: 8,
-    marginBottom: 5,
+    height: 50,
+    marginBottom: 15,
   },
   picker: {
     height: 50,
+    color: '#000000',
   },
-  textArea: {
-    backgroundColor: '#fff',
+  customPickerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#ccc',
     borderRadius: 8,
-    padding: 12,
+    paddingHorizontal: 12,
+    height: 50,
+    marginBottom: 15,
+  },
+  customPickerText: {
     fontSize: 16,
-    minHeight: 120,
+    color: '#000000',
+  },
+  customPickerPlaceholder: {
+    color: '#555555',
+  },
+  disabledPicker: {
+    backgroundColor: '#f5f5f5',
+  },
+  disabledPickerText: {
+    color: '#999999',
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalContent: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    paddingBottom: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  modalCancelButton: {
+    padding: 5,
+  },
+  modalDoneButton: {
+    padding: 5,
+  },
+  modalButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#3b82f6',
   },
   mapContainer: {
     marginTop: 12,

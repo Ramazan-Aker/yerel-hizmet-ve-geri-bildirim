@@ -1,31 +1,422 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 
-// Android emülatörü için localhost yerine 10.0.2.2 kullanıyoruz
-// Web tarayıcısında localhost:5001, Android Emülatörde 10.0.2.2:5001 kullanılır
+// App config'den IP adresini al
+const LOCAL_IP = Constants.expoConfig.extra?.hostIp || '192.168.1.54';
+const API_BASE_URL = Constants.expoConfig.extra?.apiBaseUrl || `http://${LOCAL_IP}:5001/api`;
+
+// API URL yapılandırması
+// - Android emülatörü: 10.0.2.2:5001
+// - iOS simülatörü: localhost:5001
+// - Gerçek cihaz: Bilgisayarın Wi-Fi IP adresi (LOCAL_IP:5001)
 const isAndroid = Platform.OS === 'android';
-const BASE_URL = isAndroid 
-  ? 'http://10.0.2.2:5001/api'
-  : 'http://localhost:5001/api';
+const isIOS = Platform.OS === 'ios';
+
+// Android Studio emülatörünü otomatik tespit etmeye çalışalım
+// NOT: Bu %100 doğru olmayabilir, gerekirse manuel ayarlayın
+let isEmulator = false;
+
+// Android için emülatör tespiti
+if (isAndroid && 
+    (Platform.constants.Brand === 'google' || 
+     Platform.constants.Brand === 'Android' || 
+     ['google_sdk', 'sdk', 'sdk_gphone'].includes(Platform.constants.Model))) {
+  isEmulator = true;
+}
+
+// iOS için emülatör tespiti (tam kesin değildir)
+if (isIOS && ['iPhone Simulator', 'iPad Simulator'].includes(Platform.constants.systemName)) {
+  isEmulator = true;
+}
+
+// API Base URL'ini belirleme
+let BASE_URL;
+if (isEmulator) {
+  // Emülatörde çalışıyorsa
+  BASE_URL = isAndroid
+    ? `http://10.0.2.2:5001/api`  // Android Emülatör
+    : `http://localhost:5001/api`; // iOS Simülatör
+} else {
+  // Gerçek cihazda çalışıyorsa (aynı Wi-Fi ağında)
+  BASE_URL = API_BASE_URL; // Bilgisayarın güncel Wi-Fi IP adresi
+  
+  // iOS cihazı için alternatif IP dene
+  if (isIOS) {
+    // iOS için ek ayar
+    console.log('iOS cihazı için özel ayarlar kullanılıyor...');
+    
+    // iOS'ta localhost olmayan HTTP bağlantıları için güvenlik kontrolü
+    const iosURL = API_BASE_URL;
+    console.log('iOS için URL:', iosURL);
+    
+    // IP tabanlı URL kullan (mobil Safari için açık izin gerekir)
+    BASE_URL = iosURL;
+  }
+}
+
+// Ek URL seçenekleri - gerekirse kullanılabilir
+const API_URL_OPTIONS = {
+  EMULATOR_ANDROID: `http://10.0.2.2:5001/api`,
+  EMULATOR_IOS: `http://localhost:5001/api`,
+  REAL_DEVICE: API_BASE_URL,
+  ANDROID_STUDIO: `http://10.0.2.2:5001/api`,        // Android Studio Emülatör
+  GENYMOTION: `http://10.0.3.2:5001/api`,            // Genymotion Emülatör
+  EXPO_ANDROID: API_BASE_URL,      // Expo ile Android cihaz
+  EXPO_IOS: API_BASE_URL,          // Expo ile iOS cihaz
+  // Alternatif IP'ler - gerçek cihazda deneyin
+  ALT_IP_1: `http://192.168.1.46:5001/api`,          // Alternatif IP 1
+  ALT_IP_2: `http://192.168.56.1:5001/api`,          // Alternatif IP 2 (VirtualBox/VMware)
+  // iOS özel IP adresleri
+  IOS_IP_1: `http://localhost:5001/api`,             // iOS özelinde localhost denemesi
+  IOS_IP_2: `http://127.0.0.1:5001/api`,             // iOS özelinde loopback IP
+  IOS_NETWORK_IP: API_BASE_URL,    // Bilgisayarın Wi-Fi IP'si
+  IOS_HOTSPOT: `http://172.20.10.1:5001/api`         // iPhone hotspot IP örneği
+};
+
+// Demo mod aktif mi? API bağlantısı kurulamazsa otomatik olarak demo moduna geçecek
+let isDemoMode = false;
+
+// Demo verileri
+const demoData = {
+  issues: [
+    {
+      _id: "demo1",
+      title: "Sokak Lambası Arızası",
+      description: "Merkez Mahallesi 123 sokak no: 45 önündeki sokak lambası yanmıyor.",
+      category: "Altyapı",
+      status: "pending",
+      severity: "Orta",
+      upvotes: 5,
+      location: {
+        address: "Merkez Mahallesi 123 sokak no: 45",
+        district: "Merkez",
+        city: "Niğde",
+        coordinates: [28.9784, 41.0082],
+        type: "Point"
+      },
+      images: ["https://picsum.photos/id/1/500/300"],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      createdBy: "demo-user"
+    },
+    {
+      _id: "demo2",
+      title: "Çöp Konteyneri Sorunu",
+      description: "Atatürk Caddesi üzerinde çöp konteynerlerinin yetersiz olması sebebiyle çöpler yola taşıyor.",
+      category: "Temizlik",
+      status: "in_progress",
+      severity: "Yüksek",
+      upvotes: 12,
+      location: {
+        address: "Atatürk Caddesi",
+        district: "Merkez",
+        city: "Niğde",
+        coordinates: [28.9684, 41.0182],
+        type: "Point"
+      },
+      images: ["https://picsum.photos/id/2/500/300"],
+      createdAt: new Date(Date.now() - 86400000).toISOString(), // 1 gün önce
+      updatedAt: new Date(Date.now() - 43200000).toISOString(), // 12 saat önce
+      createdBy: "demo-user"
+    },
+    {
+      _id: "demo3",
+      title: "Park Ekipmanları Hasarlı",
+      description: "Çocuk parkındaki salıncaklar kırık ve tehlike arz ediyor.",
+      category: "Park ve Bahçeler",
+      status: "resolved",
+      severity: "Kritik",
+      upvotes: 8,
+      location: {
+        address: "Hürriyet Parkı",
+        district: "Bor",
+        city: "Niğde",
+        coordinates: [28.9884, 41.0282],
+        type: "Point"
+      },
+      images: ["https://picsum.photos/id/3/500/300"],
+      createdAt: new Date(Date.now() - 172800000).toISOString(), // 2 gün önce
+      updatedAt: new Date(Date.now() - 86400000).toISOString(), // 1 gün önce
+      createdBy: "demo-user"
+    }
+  ]
+};
+
+console.log(`API URL: ${BASE_URL}`);
+
+// Durum bilgisini dışarıdan takip edebilmek için
+const apiStatus = {
+  isConnected: false,
+  isDemoMode: false,
+  currentUrl: BASE_URL,
+  lastChecked: null
+};
+
+// API bağlantı testi için yardımcı fonksiyon
+const testApiConnection = async (testUrl = BASE_URL) => {
+  try {
+    console.log('API bağlantısı test ediliyor...');
+    console.log('Kullanılan API URL:', testUrl);
+    
+    apiStatus.lastChecked = new Date();
+    
+    // Uzun timeout ile HTTP HEAD isteği - sadece header'ları çekecek şekilde (daha hızlı)
+    const response = await axios({
+      method: 'head', // Sadece header'ları almak için HEAD isteği
+      url: `${testUrl.replace('/api', '')}/`,
+      timeout: 30000, // 30 saniye bekle
+      validateStatus: function (status) {
+        // Herhangi bir durum kodu başarılı sayılır (sunucu yanıt verdiği sürece)
+        return status >= 200 && status < 600;
+      }
+    });
+    
+    console.log('API sunucusu yanıt verdi:', response.status);
+    
+    // Durum güncelle
+    apiStatus.isConnected = true;
+    apiStatus.currentUrl = testUrl;
+    
+    return { success: true, status: response.status, url: testUrl };
+  } catch (error) {
+    console.error('API bağlantı testi başarısız:', error.message);
+    console.error('Hata detayları:', error.code || 'Bilinmeyen hata kodu');
+    console.error('İnternet bağlantınızı kontrol edin - düşük bağlantı hızı bu hataya neden olabilir.');
+    
+    // Durum güncelle (başarısız)
+    apiStatus.isConnected = false;
+    
+    return { success: false, error: error.message, url: testUrl };
+  }
+};
+
+// Tüm alternatif IP adreslerini test eden fonksiyon
+const tryAllApiUrls = async () => {
+  console.log('Tüm alternatif IP adreslerini deniyorum...');
+  
+  // iOS için özel URLs
+  let urlsToTry = [];
+  
+  if (isIOS) {
+    // iOS cihazlarda önce bu URL'leri dene
+    console.log('iPhone için özel URL listesi kullanılıyor...');
+    urlsToTry = [
+      BASE_URL,
+      API_URL_OPTIONS.EXPO_IOS,
+      API_URL_OPTIONS.IOS_NETWORK_IP,
+      API_URL_OPTIONS.IOS_IP_1,
+      API_URL_OPTIONS.IOS_IP_2,
+      API_URL_OPTIONS.IOS_HOTSPOT,
+      API_URL_OPTIONS.REAL_DEVICE,
+      API_URL_OPTIONS.ALT_IP_1,
+      API_URL_OPTIONS.ALT_IP_2
+    ];
+  } else {
+    // Android veya diğer cihazlar için
+    urlsToTry = [
+      BASE_URL,  // Mevcut URL'i önce dene
+      API_URL_OPTIONS.REAL_DEVICE,
+      API_URL_OPTIONS.ALT_IP_1,
+      API_URL_OPTIONS.ALT_IP_2,
+      // Emülatörde çalışıyorsa bu URL'leri de dene
+      ...(isEmulator ? [API_URL_OPTIONS.EMULATOR_ANDROID, API_URL_OPTIONS.EMULATOR_IOS] : []),
+      // Son çare olarak diğer tüm URL'leri dene
+      ...Object.values(API_URL_OPTIONS).filter(url => 
+        url !== BASE_URL && 
+        url !== API_URL_OPTIONS.REAL_DEVICE && 
+        url !== API_URL_OPTIONS.ALT_IP_1 && 
+        url !== API_URL_OPTIONS.ALT_IP_2 &&
+        (!isEmulator || (url !== API_URL_OPTIONS.EMULATOR_ANDROID && url !== API_URL_OPTIONS.EMULATOR_IOS))
+      )
+    ];
+  }
+  
+  // URL'lerin benzersiz olduğundan emin ol
+  const uniqueUrls = [...new Set(urlsToTry)];
+  
+  console.log(`${uniqueUrls.length} farklı URL test edilecek...`);
+  
+  // Her URL için bağlantı testini sırayla dene
+  for (const url of uniqueUrls) {
+    console.log(`URL test ediliyor: ${url}`);
+    const testResult = await testApiConnection(url);
+    
+    if (testResult.success) {
+      console.log(`Başarılı bağlantı: ${url}`);
+      
+      // Başarılı olan URL'i ayarla
+      BASE_URL = url;
+      
+      // Axios client'ı güncelle
+      client.defaults.baseURL = url;
+      
+      // API durum bilgisini güncelle
+      apiStatus.isConnected = true;
+      apiStatus.currentUrl = url;
+      apiStatus.isDemoMode = false;
+      
+      return { success: true, url };
+    }
+    
+    console.log(`Başarısız bağlantı: ${url}`);
+  }
+  
+  console.error('Hiçbir API URL ile bağlantı kurulamadı');
+  
+  // Demo moduna geçiş yapılabilir
+  enableDemoMode();
+  
+  return { success: false };
+};
+
+// Demo modunu etkinleştir
+const enableDemoMode = () => {
+  console.log('DEMO MODU ETKİNLEŞTİRİLİYOR...');
+  isDemoMode = true;
+  
+  // API durum bilgisini güncelle
+  apiStatus.isDemoMode = true;
+  apiStatus.isConnected = false;
+  
+  // iOS cihazlar için özel hata mesajı
+  if (isIOS) {
+    console.warn('=== iOS BAĞLANTI UYARISI ===');
+    console.warn('iPhone cihazında API sunucusuna bağlanılamadı.');
+    console.warn('iOS, güvenlik nedeniyle HTTP bağlantılarına izin vermeyebilir.');
+    console.warn('Çözüm için app.json dosyasına aşağıdaki ayarı ekleyin:');
+    console.warn(`
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
+      }
+    }
+    `);
+    console.warn('Veya API sunucusunu HTTPS kullanacak şekilde yapılandırın.');
+    console.warn('=== iOS BAĞLANTI UYARISI ===');
+  }
+  
+  return true;
+};
+
+// Android Studio için özel kontrolcü
+const checkAndPingApi = async () => {
+  const connectionTest = await testApiConnection();
+  
+  if (!connectionTest.success) {
+    console.warn('API bağlantısı başarısız. Alternatif URL\'ler deneniyor...');
+    
+    // Tüm alternatif URL'leri dene
+    const altUrlTest = await tryAllApiUrls();
+    
+    if (altUrlTest.success) {
+      console.log(`Alternatif API URL ile bağlantı başarılı: ${altUrlTest.url}`);
+      return true;
+    } else {
+      console.error('Hiçbir API URL ile bağlantı kurulamadı.');
+      
+      // Demo modu aktif
+      return false;
+    }
+  }
+  
+  return connectionTest.success;
+};
+
+// Network sorunu yaşanan durumlarda kontrol stratejileri
+const handleNetworkIssues = async () => {
+  console.log('Ağ sorunları kontrol ediliyor...');
+  
+  // Bağlantı hızını test et
+  let slowConnection = false;
+  let startTime = Date.now();
+  
+  try {
+    // 1KB veriyi almaya çalış - bağlantı hızını ölçmek için
+    const speedTest = await axios.get(`${BASE_URL.replace('/api', '')}/`, { 
+      timeout: 8000,
+      headers: { 'Cache-Control': 'no-cache' }
+    });
+    
+    const endTime = Date.now();
+    const duration = endTime - startTime;
+    
+    console.log(`Bağlantı hızı testi: ${duration}ms`);
+    
+    // 2 saniyeden uzun sürüyorsa, bağlantı yavaş sayılır
+    if (duration > 2000) {
+      slowConnection = true;
+      console.warn('Yavaş internet bağlantısı tespit edildi!');
+    }
+    
+  } catch (error) {
+    console.error('Bağlantı hız testi başarısız:', error.message);
+    slowConnection = true;
+  }
+  
+  // Sonuç döndür
+  return {
+    slowConnection,
+    // Bağlantı sorunlarıyla ilgili ek durum bilgileri eklenebilir
+    status: {
+      isOnline: navigator.onLine,
+      testDuration: Date.now() - startTime,
+      timestamp: new Date().toISOString()
+    }
+  };
+};
+
+// Uygulamanın başlatılmasında API bağlantısını test etmek için çağrılabilir
+checkAndPingApi().then(success => {
+  console.log('API bağlantı kontrolü sonucu:', success ? 'Başarılı' : 'Başarısız');
+  
+  // Bağlantı başarısızsa, ağ sorunlarını kontrol et
+  if (!success) {
+    handleNetworkIssues().then(result => {
+      if (result.slowConnection) {
+        console.warn('=== YAVAŞ BAĞLANTI UYARISI ===');
+        console.warn('İnternet bağlantınız yavaş görünüyor. Bu, API bağlantı sorunlarına neden olabilir.');
+        console.warn('Öneriler:');
+        console.warn('1. Wi-Fi sinyali güçlü bir konuma geçin');
+        console.warn('2. Mobil veri kullanıyorsanız, Wi-Fi\'a geçmeyi deneyin');
+        console.warn('3. Router/modemi yeniden başlatın');
+        console.warn('4. Diğer cihazlardaki veri yoğun uygulamaları kapatın');
+        console.warn('=== YAVAŞ BAĞLANTI UYARISI ===');
+      }
+    });
+  }
+});
 
 // Axios client instance oluştur
 const client = axios.create({
   baseURL: BASE_URL,
-  timeout: 10000, // 10 saniye timeout
+  timeout: 30000, // 30 saniye timeout (2 dakika -> 30 saniye olarak azaltıldı)
   headers: {
     'Content-Type': 'application/json',
   },
+  // Retry mekanizması için yapılandırma
+  retry: 2, // Daha az yeniden deneme (5 -> 2)
+  retryDelay: 1500, // Daha kısa bekleme süresi (3 sn -> 1.5 sn)
+  withCredentials: true,
 });
+
+// Debug modu - geliştirme aşamasında true, production'da false olmalı
+const DEBUG_MODE = false;
 
 // İstek gönderilmeden önce çalışacak interceptor
 client.interceptors.request.use(
   async (config) => {
-    console.log(`API İsteği: ${config.method.toUpperCase()} ${config.url}`);
-    
-    // İstek verilerini logla
-    if (config.data) {
-      console.log('İstek verisi:', config.data);
+    if (DEBUG_MODE) {
+      console.log(`API İsteği: ${config.method.toUpperCase()} ${config.url}`);
+      
+      // İstek verilerini logla
+      if (config.data) {
+        console.log('İstek verisi:', config.data);
+      }
     }
     
     // Kullanıcı token'ı varsa, header'a ekle
@@ -37,7 +428,7 @@ client.interceptors.request.use(
     return config;
   },
   (error) => {
-    console.error('İstek gönderilirken hata oluştu:', error);
+    if (DEBUG_MODE) console.error('İstek gönderilirken hata oluştu:', error);
     return Promise.reject(error);
   }
 );
@@ -45,28 +436,128 @@ client.interceptors.request.use(
 // Yanıt alındıktan sonra çalışacak interceptor
 client.interceptors.response.use(
   (response) => {
-    console.log(`API Yanıtı: ${response.status} ${response.config.url}`);
+    if (DEBUG_MODE) {
+      console.log(`API Yanıtı: ${response.status} ${response.config.url}`);
+      
+      // Response içeriğini analiz et (hata ayıklama için)
+      try {
+        if (response.data) {
+          // Veri büyükse özet bilgi göster
+          if (typeof response.data === 'object') {
+            const dataType = Array.isArray(response.data) ? 'array' : 'object';
+            const dataSize = JSON.stringify(response.data).length;
+            console.log(`Yanıt tipi: ${dataType}, boyut: ${dataSize} bytes`);
+            
+            // Sayfa bilgisi veya başarı durumu varsa göster
+            if (response.data.success !== undefined) {
+              console.log(`Yanıt başarılı: ${response.data.success}`);
+            }
+            
+            // Data array içeriyorsa uzunluğunu göster
+            if (response.data.data && Array.isArray(response.data.data)) {
+              console.log(`Veri sayısı: ${response.data.data.length}`);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Yanıt verisi analiz edilemedi:', e.message);
+      }
+    }
+    
     return response;
   },
   async (error) => {
-    // Network hatası kontrolü - Demo modu için önemli
+    // Timeout hatası kontrolü
+    if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+      if (DEBUG_MODE) console.warn('API isteği zaman aşımına uğradı. Yeniden deneniyor...');
+      
+      const config = error.config;
+      
+      // Retry mekanizması
+      if (!config || !config.retry) {
+        return Promise.reject(error);
+      }
+      
+      // Retry sayısı kontrolü
+      config.__retryCount = config.__retryCount || 0;
+      if (config.__retryCount >= config.retry) {
+        if (DEBUG_MODE) console.error('Maksimum yeniden deneme sayısına ulaşıldı:', config.retry);
+        return Promise.reject(error);
+      }
+      
+      // Retry sayacını artır
+      config.__retryCount += 1;
+      if (DEBUG_MODE) console.log(`İstek yeniden deneniyor (${config.__retryCount}/${config.retry})...`);
+      
+      // Daha kısa sabit bekleme süresi
+      const delayTime = 1000; // Sabit 1 saniye bekleme
+      
+      if (DEBUG_MODE) console.log(`Yeniden denemeden önce ${delayTime}ms bekleniyor...`);
+      
+      // Retry delay
+      const backoff = new Promise((resolve) => {
+        setTimeout(() => {
+          resolve();
+        }, delayTime);
+      });
+      
+      // Retry işlemi
+      return backoff.then(() => {
+        return client(config);
+      });
+    }
+    
+    // Network hatası kontrolü
     if (error.message === 'Network Error') {
-      console.warn('API sunucusuna bağlanılamadı. Demo verileri kullanılacak.');
+      if (DEBUG_MODE) console.warn('API sunucusuna bağlanılamadı. Bağlantı tekrar denenecek...');
       
-      // Demo modu için özel hata nesnesi
-      const customError = new Error('API bağlantısı kurulamadı');
-      customError.isDemoMode = true;
-      customError.originalError = error;
+      const config = error.config;
       
-      return Promise.reject(customError);
+      // Retry mekanizması network hatası için
+      if (!config || !config.retry) {
+        return Promise.reject(error);
+      }
+      
+      // Retry sayısı kontrolü
+      config.__retryCount = config.__retryCount || 0;
+      if (config.__retryCount >= config.retry) {
+        if (DEBUG_MODE) console.error('Maksimum yeniden deneme sayısına ulaşıldı:', config.retry);
+        
+        // Network Error sonrası custom error
+        const customError = new Error('API bağlantısı kurulamadı');
+        customError.originalError = error;
+        
+        return Promise.reject(customError);
+      }
+      
+      // Retry sayacını artır
+      config.__retryCount += 1;
+      if (DEBUG_MODE) console.log(`Network hatası - İstek yeniden deneniyor (${config.__retryCount}/${config.retry})...`);
+      
+      // Sabit bekleme süresi
+      const delayTime = 1000; // Sabit 1 saniye
+      
+      if (DEBUG_MODE) console.log(`Yeniden denemeden önce ${delayTime}ms bekleniyor...`);
+      
+      // Retry delay
+      const backoff = new Promise((resolve) => {
+        setTimeout(() => {
+          resolve();
+        }, delayTime);
+      });
+      
+      return backoff.then(() => {
+        if (DEBUG_MODE) console.log(`${config.baseURL} adresine yeniden bağlanmayı deniyorum...`);
+        return client(config);
+      });
     }
     
     // API yanıt hatası
     if (error.response) {
-      console.error(`API Hata: ${error.response.status}`, error.response.data);
+      if (DEBUG_MODE) console.error(`API Hata: ${error.response.status}`, error.response.data);
       
       // 500 hatası için daha detaylı log
-      if (error.response.status === 500) {
+      if (error.response.status === 500 && DEBUG_MODE) {
         console.error('500 SUNUCU HATASI DETAYLARI:');
         console.error('Request URL:', error.config.url);
         console.error('Request Method:', error.config.method);
@@ -86,9 +577,8 @@ client.interceptors.response.use(
         // Token'ı kaldır ve giriş sayfasına yönlendir
         await AsyncStorage.removeItem('token');
         await AsyncStorage.removeItem('user');
-        // Burada global bir event emitter ile oturum sonlandırma işlemini tetikleyebilirsiniz
       }
-    } else if (error.request) {
+    } else if (error.request && DEBUG_MODE) {
       // İstek gönderildi ama yanıt alınamadı
       console.error('Sunucudan yanıt alınamadı:', error.request);
     }
@@ -99,6 +589,12 @@ client.interceptors.response.use(
 
 // API endpoints
 const api = {
+  // API kesilme durumunda yeniden bağlantı için base URL'i güncelle
+  updateBaseUrl: (newBaseUrl) => {
+    client.defaults.baseURL = newBaseUrl;
+    console.log(`API Base URL güncellendi: ${newBaseUrl}`);
+  },
+
   // Auth işlemleri
   auth: {
     // Login ve register fonksiyonlarını düzenliyoruz
@@ -158,6 +654,15 @@ const api = {
   issues: {
     getAll: async () => {
       try {
+        // API bağlantısını kontrol et
+        await checkAndPingApi();
+        
+        // Demo modunda ise demo verileri döndür
+        if (isDemoMode) {
+          console.log('Demo modunda sorunlar getiriliyor...');
+          return { success: true, data: { data: demoData.issues }, isDemoMode: true };
+        }
+        
         const token = await AsyncStorage.getItem('token');
         
         // Kullanıcının şehri ile ilgili verileri al
@@ -183,6 +688,14 @@ const api = {
         return { success: true, data: response.data };
       } catch (error) {
         console.error('Error fetching issues:', error);
+        
+        // Hata durumunda ve demo modu aktifse demo verileri döndür
+        if (isDemoMode) {
+          console.log('Demo modunda sorunlar getiriliyor (hata sonrası)...');
+          return { success: true, data: { data: demoData.issues }, isDemoMode: true };
+        }
+        
+        // Normal hata durumu
         return { 
           success: false, 
           message: error.response?.data?.message || 'Sorunlar alınamadı' 
@@ -192,13 +705,66 @@ const api = {
     
     getById: async (issueId) => {
       try {
+        // Demo modunda ise ilgili demo verisini döndür
+        if (isDemoMode) {
+          console.log(`Demo modunda ${issueId} ID'li sorun detayları getiriliyor...`);
+          
+          // Demo verileri içinden ilgili ID'yi bul
+          const demoIssue = demoData.issues.find(issue => issue._id === issueId);
+          
+          // Eğer varsa döndür, yoksa ilk veriyi döndür (boş olmaması için)
+          if (demoIssue) {
+            return { success: true, data: demoIssue, isDemoMode: true };
+          } else {
+            return { success: true, data: demoData.issues[0], isDemoMode: true };
+          }
+        }
+        
         const token = await AsyncStorage.getItem('token');
+        console.log(`${issueId} ID'li sorun detayları getiriliyor...`);
+        
+        // API çağrısı
         const response = await client.get(`/issues/${issueId}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        return { success: true, data: response.data };
+        
+        // Yanıtı işle
+        console.log('API yanıtı alındı:', response.status);
+        
+        if (response.data) {
+          // Veri formatını kontrol et ve düzenle
+          let issueData = response.data;
+          
+          // Eğer data içinde veri varsa onu kullan
+          if (response.data.data) {
+            issueData = response.data.data;
+          }
+          
+          console.log('Sorun detayı:', JSON.stringify(issueData).substring(0, 200) + '...');
+          
+          // Cevap döndür
+          return { success: true, data: issueData };
+        } else {
+          console.error('API yanıtında veri yok');
+          return { 
+            success: false, 
+            message: 'Sorun detayları alınamadı: API veri dönmedi' 
+          };
+        }
       } catch (error) {
         console.error(`Error fetching issue ${issueId}:`, error);
+        console.error('Hata detayları:', error.response?.data || error.message);
+        
+        // Hata durumunda ve demo modu aktifse demo verileri döndür
+        if (isDemoMode) {
+          console.log('Demo modunda sorun detayları getiriliyor (hata sonrası)...');
+          return { 
+            success: true, 
+            data: demoData.issues.find(issue => issue._id === issueId) || demoData.issues[0],
+            isDemoMode: true
+          };
+        }
+        
         return { 
           success: false, 
           message: error.response?.data?.message || 'Sorun detayları alınamadı' 
@@ -252,14 +818,35 @@ const api = {
           };
         }
         
-        // Ensure images array is properly formatted
+        // Fotoğrafları base64'e dönüştür
         if (issueData.images && issueData.images.length > 0) {
-          // Verify all images have the data:image prefix
-          issueData.images = issueData.images.filter(img => 
-            img && typeof img === 'string' && img.startsWith('data:image')
-          );
+          console.log(`${issueData.images.length} fotoğraf işleniyor...`);
           
-          console.log(`Processing ${issueData.images.length} images for upload`);
+          const processedImages = [];
+          
+          for (let i = 0; i < issueData.images.length; i++) {
+            const uri = issueData.images[i];
+            console.log(`Fotoğraf ${i+1} işleniyor: ${uri.substring(0, 30)}...`);
+            
+            try {
+              // URI'leri Base64'e dönüştürme
+              const base64Image = await uriToBase64(uri);
+              processedImages.push(base64Image);
+              console.log(`Fotoğraf ${i+1} işlendi, boyut: ~${Math.round(base64Image.length / 1024)} KB`);
+            } catch (imgError) {
+              console.error(`Fotoğraf ${i+1} işlenemedi:`, imgError);
+            }
+          }
+          
+          // İşlenen fotoğrafları ana veriye ekle
+          if (processedImages.length > 0) {
+            issueData.images = processedImages;
+            console.log(`${processedImages.length} fotoğraf işlendi ve yüklemeye hazır.`);
+          } else {
+            // Eğer hiçbir fotoğraf işlenemediyse, fotoğrafları kaldır
+            delete issueData.images;
+            console.warn('Hiçbir fotoğraf işlenemedi, fotoğraflar çıkarıldı.');
+          }
         }
         
         const response = await client.post('/issues', issueData);
@@ -274,6 +861,16 @@ const api = {
     delete: (id) => client.delete(`/issues/${id}`),
     getMyIssues: async () => {
       try {
+        // Demo modunda ise demo verileri döndür
+        if (isDemoMode) {
+          console.log('Demo modunda kişisel sorunlar getiriliyor...');
+          return { 
+            success: true, 
+            data: demoData.issues.filter(issue => issue.createdBy === "demo-user"),
+            isDemoMode: true 
+          };
+        }
+        
         const token = await AsyncStorage.getItem('token');
         const response = await client.get('/issues/myissues', {
           headers: { Authorization: `Bearer ${token}` }
@@ -281,6 +878,17 @@ const api = {
         return { success: true, data: response.data.data || response.data };
       } catch (error) {
         console.error('Error fetching my issues:', error);
+        
+        // Hata durumunda ve demo modu aktifse demo verileri döndür
+        if (isDemoMode) {
+          console.log('Demo modunda kişisel sorunlar getiriliyor (hata sonrası)...');
+          return { 
+            success: true, 
+            data: demoData.issues.filter(issue => issue.createdBy === "demo-user"),
+            isDemoMode: true 
+          };
+        }
+        
         return { 
           success: false, 
           message: error.response?.data?.message || 'Sorunlarınız alınamadı' 
@@ -333,6 +941,21 @@ const api = {
     getReportStats: () => client.get('/statistics/reports'),
     getUserStats: () => client.get('/statistics/users'),
   },
+
+  // Bağlantı durumunu kontrol et
+  checkConnection: async () => {
+    try {
+      // /health endpoint'i yerine /issues endpoint'ini kullanıyoruz (var olduğunu biliyoruz)
+      const response = await client.get('/issues', { 
+        timeout: 5000,
+        params: { limit: 1 } // Sadece 1 kayıt isteyelim, performans için
+      });
+      return { success: true, data: { status: 'online' } };
+    } catch (error) {
+      console.error('API bağlantı kontrolü başarısız:', error);
+      return { success: false, message: 'API sunucusuna bağlanılamadı' };
+    }
+  },
 };
 
 // Yardımcı fonksiyonlar
@@ -359,4 +982,63 @@ const handleApiError = (error) => {
   }
 };
 
+// URI'yi Base64'e dönüştürme fonksiyonu
+const uriToBase64 = async (uri) => {
+  try {
+    // Local file URI ise
+    if (uri.startsWith('file://')) {
+      // Fetch API ile dosyayı oku
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      
+      // Dosya boyutunu kontrol et (1MB üzeri ise uyarı ver)
+      if (blob.size > 1024 * 1024) {
+        console.warn(`Büyük görsel tespit edildi: ${Math.round(blob.size / 1024)} KB. Performans için görsel sıkıştırma önerilir.`);
+      }
+      
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          resolve(reader.result);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } 
+    // Zaten base64 ise
+    else if (uri.startsWith('data:image')) {
+      // Base64 veri uzunluğu kontrolü
+      if (uri.length > 200000) { // Yaklaşık 150KB
+        console.warn(`Büyük base64 görsel tespit edildi: ~${Math.round(uri.length / 1365)} KB. Performans için görsel sıkıştırma önerilir.`);
+      }
+      return uri;
+    } 
+    // Diğer URI türleri için (http, https)
+    else {
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      
+      // Dosya boyutunu kontrol et
+      if (blob.size > 1024 * 1024) {
+        console.warn(`Büyük görsel tespit edildi: ${Math.round(blob.size / 1024)} KB. Performans için görsel sıkıştırma önerilir.`);
+      }
+      
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          resolve(reader.result);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+  } catch (error) {
+    console.error('URI to Base64 conversion error:', error);
+    throw new Error('Fotoğraf dönüştürülemedi: ' + error.message);
+  }
+};
+
 export default api; 
+
+// Durum bilgisini dışarıya aç
+export { apiStatus, tryAllApiUrls, enableDemoMode, isDemoMode }; 

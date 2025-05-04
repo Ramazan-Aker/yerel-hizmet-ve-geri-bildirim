@@ -11,8 +11,10 @@
 'use strict';
 
 import type {
-  NamedShape,
+  CommandParamTypeAnnotation,
   CommandTypeAnnotation,
+  ComponentCommandArrayTypeAnnotation,
+  NamedShape,
 } from '../../../CodegenSchema.js';
 import type {TypeDeclarationMap} from '../../utils';
 
@@ -21,7 +23,24 @@ const {getValueFromTypes} = require('../utils.js');
 // $FlowFixMe[unclear-type] there's no flowtype for ASTs
 type EventTypeAST = Object;
 
-function buildCommandSchema(property: EventTypeAST, types: TypeDeclarationMap) {
+function buildCommandSchema(
+  property: EventTypeAST,
+  types: TypeDeclarationMap,
+): $ReadOnly<{
+  name: string,
+  optional: boolean,
+  typeAnnotation: {
+    type: 'FunctionTypeAnnotation',
+    params: $ReadOnlyArray<{
+      name: string,
+      optional: boolean,
+      typeAnnotation: CommandParamTypeAnnotation,
+    }>,
+    returnTypeAnnotation: {
+      type: 'VoidTypeAnnotation',
+    },
+  },
+}> {
   const name = property.key.name;
   const optional = property.optional;
   const value = getValueFromTypes(property.value, types);
@@ -48,7 +67,7 @@ function buildCommandSchema(property: EventTypeAST, types: TypeDeclarationMap) {
       paramValue.type === 'GenericTypeAnnotation'
         ? paramValue.id.name
         : paramValue.type;
-    let returnType;
+    let returnType: CommandParamTypeAnnotation;
 
     switch (type) {
       case 'RootTag':
@@ -82,6 +101,26 @@ function buildCommandSchema(property: EventTypeAST, types: TypeDeclarationMap) {
           type: 'StringTypeAnnotation',
         };
         break;
+      case 'Array':
+      case '$ReadOnlyArray':
+        if (!paramValue.type === 'GenericTypeAnnotation') {
+          throw new Error(
+            'Array and $ReadOnlyArray are GenericTypeAnnotation for array',
+          );
+        }
+        returnType = {
+          type: 'ArrayTypeAnnotation',
+          elementType: getCommandArrayElementTypeType(
+            paramValue.typeParameters.params[0],
+          ),
+        };
+        break;
+      case 'ArrayTypeAnnotation':
+        returnType = {
+          type: 'ArrayTypeAnnotation',
+          elementType: getCommandArrayElementTypeType(paramValue.elementType),
+        };
+        break;
       default:
         (type: empty);
         throw new Error(
@@ -107,6 +146,66 @@ function buildCommandSchema(property: EventTypeAST, types: TypeDeclarationMap) {
       },
     },
   };
+}
+
+type Allowed = ComponentCommandArrayTypeAnnotation['elementType'];
+
+function getCommandArrayElementTypeType(inputType: mixed): Allowed {
+  // TODO: T172453752 support more complex type annotation for array element
+  if (typeof inputType !== 'object') {
+    throw new Error('Expected an object');
+  }
+
+  const type = inputType?.type;
+
+  if (inputType == null || typeof type !== 'string') {
+    throw new Error('Command array element type must be a string');
+  }
+
+  switch (type) {
+    case 'BooleanTypeAnnotation':
+      return {
+        type: 'BooleanTypeAnnotation',
+      };
+    case 'StringTypeAnnotation':
+      return {
+        type: 'StringTypeAnnotation',
+      };
+    case 'GenericTypeAnnotation':
+      const name = typeof inputType.id === 'object' ? inputType.id?.name : null;
+
+      if (typeof name !== 'string') {
+        throw new Error(
+          'Expected GenericTypeAnnotation AST name to be a string',
+        );
+      }
+
+      switch (name) {
+        case 'Int32':
+          return {
+            type: 'Int32TypeAnnotation',
+          };
+        case 'Float':
+          return {
+            type: 'FloatTypeAnnotation',
+          };
+        case 'Double':
+          return {
+            type: 'DoubleTypeAnnotation',
+          };
+        default:
+          // This is not a great solution. This generally means its a type alias to another type
+          // like an object or union. Ideally we'd encode that in the schema so the compat-check can
+          // validate those deeper objects for breaking changes and the generators can do something smarter.
+          // As of now, the generators just create ReadableMap or (const NSArray *) which are untyped
+          return {
+            type: 'MixedTypeAnnotation',
+          };
+      }
+
+    default:
+      throw new Error(`Unsupported array element type ${type}`);
+  }
 }
 
 function getCommands(
