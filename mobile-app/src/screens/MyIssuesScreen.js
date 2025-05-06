@@ -264,7 +264,7 @@ const MyIssuesScreen = ({ navigation }) => {
               </Text>
               <TouchableOpacity
                 style={styles.createButton}
-                onPress={() => navigation.navigate('CreateReport')}
+                onPress={() => navigation.navigate('CreateIssue')}
               >
                 <Text style={styles.createButtonText}>Sorun Bildir</Text>
               </TouchableOpacity>

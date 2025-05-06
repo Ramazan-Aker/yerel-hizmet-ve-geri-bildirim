@@ -172,7 +172,7 @@ const HomeScreen = ({ navigation }) => {
 
   // Yeni bildirim oluştur
   const navigateToCreateReport = () => {
-    navigation.navigate('CreateReport');
+    navigation.navigate('CreateIssue');
   };
 
   // Her bir bildirim için kart bileşeni

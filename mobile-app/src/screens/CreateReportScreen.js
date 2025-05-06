@@ -77,6 +77,7 @@ const CreateReportScreen = ({ navigation }) => {
   const [address, setAddress] = useState('');
   const [district, setDistrict] = useState('');
   const [city, setCity] = useState('');
+  const [locationDescription, setLocationDescription] = useState('');
   const [availableDistricts, setAvailableDistricts] = useState([]);
   const [image, setImage] = useState(null);
   
@@ -262,6 +263,7 @@ const CreateReportScreen = ({ navigation }) => {
       if (!address) newErrors.address = 'Adres gerekli';
       if (!district) newErrors.district = 'İlçe gerekli';
       if (!city) newErrors.city = 'Şehir gerekli';
+      if (!locationDescription) newErrors.locationDescription = 'Adres tarifi gerekli';
       
       // Only validate location if map is visible
       if (mapVisible && !selectedLocation) {
@@ -281,6 +283,7 @@ const CreateReportScreen = ({ navigation }) => {
         district: district || '',
         city: city || '',
         type: 'Point',
+        directionInfo: locationDescription || '',
         coordinates: []
       };
 
@@ -797,6 +800,20 @@ const CreateReportScreen = ({ navigation }) => {
           />
           {errors.address && <Text style={styles.errorText}>{errors.address}</Text>}
 
+          {/* Adres Tarifi - Zorunlu Alan */}
+          <Text style={styles.label}>Adres Tarifi <Text style={styles.required}>*</Text></Text>
+          <TextInput
+            style={[styles.textArea, { height: 80 }, errors.locationDescription && styles.inputError]}
+            placeholder="Yetkililerin konumu daha kolay bulabilmesi için ekstra bilgiler yazabilirsiniz. Örn: Apartmanın arkasındaki yeşil alan, parkın doğu girişi, vb."
+            value={locationDescription}
+            onChangeText={setLocationDescription}
+            multiline
+            numberOfLines={3}
+            textAlignVertical="top"
+          />
+          {errors.locationDescription && <Text style={styles.errorText}>{errors.locationDescription}</Text>}
+          <Text style={styles.helperText}>Konumun daha kolay bulunabilmesi için ek açıklama bilgisi giriniz</Text>
+
           {/* Konum - Harita */}
           <View style={styles.mapContainer}>
             <View style={styles.mapHeader}>
@@ -1206,6 +1223,19 @@ const styles = StyleSheet.create({
   },
   cameraButton: {
     backgroundColor: '#3b82f6',
+  },
+  textArea: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+  },
+  helperText: {
+    color: '#666',
+    fontSize: 12,
+    marginTop: 4,
   },
 });
 

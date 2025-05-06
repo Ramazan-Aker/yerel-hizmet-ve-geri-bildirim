@@ -39,4 +39,17 @@ if (!process.env.REACT_NATIVE_PACKAGER_HOSTNAME) {
   process.env.REACT_NATIVE_PACKAGER_HOSTNAME = HOST;
 }
 
+// Resolve'u özelleştir
+config.resolver.extraNodeModules = {
+  ...(config.resolver.extraNodeModules || {}),
+  // Node.js crypto modülünün yerine React Native uyumlu modülleri kullan
+  crypto: require.resolve('expo-crypto'),
+  // Diğer Node.js modülleri gerekirse buraya eklenebilir
+  stream: require.resolve('stream-browserify'),
+  buffer: require.resolve('buffer'),
+};
+
+// Web için polyfill ekleyelim
+config.resolver.sourceExts = [...config.resolver.sourceExts, 'web.js', 'web.ts', 'web.jsx', 'web.tsx'];
+
 module.exports = config;

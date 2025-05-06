@@ -54,6 +54,10 @@ const IssueSchema = mongoose.Schema(
         type: [Number],
         required: [true, 'Koordinatlar gerekli'],
         index: '2dsphere'
+      },
+      directionInfo: {
+        type: String,
+        default: ''
       }
     },
     images: [

@@ -12,7 +12,6 @@ import RegisterScreen from '../screens/RegisterScreen';
 import HomeScreen from '../screens/HomeScreen';
 import IssuesScreen from '../screens/IssuesScreen';
 import MyIssuesScreen from '../screens/MyIssuesScreen';
-import CreateReportScreen from '../screens/CreateReportScreen';
 import CreateIssueScreen from '../screens/CreateIssueScreen';
 import ReportDetailScreen from '../screens/ReportDetailScreen';
 import IssueDetailScreen from '../screens/IssueDetailScreen';
@@ -118,11 +117,6 @@ const MainNavigator = () => {
         name="Tabs" 
         component={TabNavigator} 
         key="tabs-screen" 
-      />
-      <Stack.Screen 
-        name="CreateReport" 
-        component={CreateReportScreen} 
-        key="create-report-screen" 
       />
       <Stack.Screen 
         name="CreateIssue" 

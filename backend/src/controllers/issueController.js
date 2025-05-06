@@ -56,7 +56,8 @@ exports.createIssue = async (req, res) => {
     // Add type to location if not provided
     const formattedLocation = {
       ...location,
-      type: location.type || 'Point'
+      type: location.type || 'Point',
+      directionInfo: location.directionInfo || ''
     };
 
     // Process images if provided

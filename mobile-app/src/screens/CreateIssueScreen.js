@@ -8,10 +8,13 @@ import * as FileSystem from 'expo-file-system';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
+import httpClient from '../utils/httpClient';
 import { cities } from '../data/cities';
 import { allDistricts } from '../data/allDistricts';
 import { cityCoordinates } from '../data/cityCoordinates';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
 
 const CreateIssueScreen = ({ navigation }) => {
   const { user } = useAuth();
@@ -22,7 +25,9 @@ const CreateIssueScreen = ({ navigation }) => {
   const [city, setCity] = useState('');
   const [district, setDistrict] = useState('');
   const [address, setAddress] = useState('');
+  const [locationDescription, setLocationDescription] = useState('');
   const [loading, setLoading] = useState(false);
+  const [imageLoading, setImageLoading] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
   const [coordinates, setCoordinates] = useState(null);
   const [locationError, setLocationError] = useState(null);
@@ -108,12 +113,6 @@ const CreateIssueScreen = ({ navigation }) => {
     }
   };
 
-  const useSelectedCityLocation = () => {
-    if (city && cityCoordinates[city]) {
-      setCoordinates(cityCoordinates[city]);
-    }
-  };
-
   // Fotoğraf ekleme butonlarının etiketleri
   const getAddPhotoLabel = () => {
     if (images.length >= 3) {
@@ -129,30 +128,81 @@ const CreateIssueScreen = ({ navigation }) => {
     return `Kamera ile Çek (${images.length}/3)`;
   };
 
-  // Fotoğrafları sıkıştırma ve yeniden boyutlandırma
+  // Fotoğrafları sıkıştırma ve yeniden boyutlandırma (sadece URI döndürür)
   const compressImage = async (uri) => {
     try {
       console.log('Resim sıkıştırılıyor:', uri.substring(0, 30) + '...');
       
-      // Önce dosya boyutunu kontrol et
+      // URI kontrolü
+      if (!uri || (typeof uri !== 'string') || uri.trim() === '') {
+        console.error('Geçersiz URI:', uri);
+        return null;
+      }
+      
+      // Dosya mevcut mu kontrol et
       const fileInfo = await FileSystem.getInfoAsync(uri);
+      if (!fileInfo.exists) {
+        console.error('Dosya bulunamadı:', uri);
+        return null; // Dosya yoksa null döndür
+      }
+      
+      // Orijinal boyutu kontrol et
       console.log('Orijinal dosya boyutu:', (fileInfo.size / 1024 / 1024).toFixed(2) + ' MB');
       
-      // Resim sıkıştırma ve boyutlandırma işlemi
-      const manipResult = await manipulateAsync(
-        uri,
-        [{ resize: { width: 1080 } }], // 1080 genişliğe yeniden boyutlandır (yükseklik otomatik ayarlanır)
-        { compress: 0.7, format: SaveFormat.JPEG } // %70 sıkıştırma oranı
-      );
+      // Boyut zaten küçükse (200KB'den az) sıkıştırmaya gerek yok
+      let finalUri = uri;
+      if (fileInfo.size > 200 * 1024) {
+        // Sıkıştırma oranını dosya boyutuna göre belirle
+        let compressionQuality = 0.7; // Varsayılan %70
+        if (fileInfo.size > 5 * 1024 * 1024) { // 5MB'dan büyükse
+          compressionQuality = 0.5; // Daha fazla sıkıştır (%50)
+        } else if (fileInfo.size < 1 * 1024 * 1024) { // 1MB'dan küçükse
+          compressionQuality = 0.8; // Daha az sıkıştır (%80)
+        }
+        
+        // Resim sıkıştırma ve boyutlandırma işlemi
+        const manipResult = await manipulateAsync(
+          uri,
+          [{ resize: { width: 800 } }], // 800 genişliğe yeniden boyutlandır (daha küçük)
+          { compress: compressionQuality, format: SaveFormat.JPEG }
+        );
+        
+        // Sıkıştırılmış dosya bilgisini al
+        const compressedInfo = await FileSystem.getInfoAsync(manipResult.uri);
+        console.log('Sıkıştırılmış dosya boyutu:', (compressedInfo.size / 1024 / 1024).toFixed(2) + ' MB');
+        
+        finalUri = manipResult.uri;
+      } else {
+        console.log('Dosya zaten küçük, sıkıştırma yapılmadı.');
+      }
       
-      // Yeni boyutu kontrol et
-      const compressedInfo = await FileSystem.getInfoAsync(manipResult.uri);
-      console.log('Sıkıştırılmış dosya boyutu:', (compressedInfo.size / 1024 / 1024).toFixed(2) + ' MB');
-      
-      return manipResult.uri;
+      return finalUri;
     } catch (error) {
       console.error('Resim sıkıştırma hatası:', error);
-      return uri; // Hata durumunda orijinal URI'yi döndür
+      return null; // Hata durumunda null döndür
+    }
+  };
+
+  // URI'yi base64'e dönüştür
+  const uriToBase64 = async (uri) => {
+    try {
+      if (!uri) return null;
+      
+      console.log('Resim base64 formatına dönüştürülüyor...');
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      
+      if (!base64 || base64.length === 0) {
+        console.warn('Base64 dönüştürme sonucu boş');
+        return null;
+      }
+      
+      console.log('Base64 dönüştürme başarılı, uzunluk:', base64.length);
+      return `data:image/jpeg;base64,${base64}`;
+    } catch (error) {
+      console.error('Base64 dönüştürme hatası:', error);
+      return null;
     }
   };
 
@@ -175,6 +225,8 @@ const CreateIssueScreen = ({ navigation }) => {
       // Kaç fotoğraf daha seçilebileceğini hesapla
       const remainingSlots = 3 - images.length;
       
+      setImageLoading(true);
+      
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: false, // Çoklu seçim için editing kapalı olmalı
@@ -185,41 +237,48 @@ const CreateIssueScreen = ({ navigation }) => {
       });
       
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        // Yükleme göstergesi
-        setLoading(true);
-        
         try {
-          // Her resmi sıkıştır
-          const compressedImages = await Promise.all(
-            result.assets.map(async (asset) => {
-              const compressedUri = await compressImage(asset.uri);
-              return {
-                uri: compressedUri,
-                id: `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` // Benzersiz ID oluştur
-              };
-            })
-          );
+          console.log(`${result.assets.length} fotoğraf seçildi, işleniyor...`);
           
-          console.log(`${compressedImages.length} YENİ FOTOĞRAF SEÇİLDİ VE SIKIŞTIRILDI`);
+          // Her bir resmi tek tek işle
+          const processedImages = [];
+          
+          for (const asset of result.assets) {
+            // Önce resmi sıkıştır
+            const compressedUri = await compressImage(asset.uri);
+            
+            if (compressedUri) {
+              // Sonra base64'e dönüştür
+              const base64Image = await uriToBase64(compressedUri);
+              
+              // Yeni resmi ekle - hem URI hem base64 içeriyor
+              processedImages.push({
+                uri: compressedUri, // Görsel gösterimi için URI
+                base64: base64Image, // API'ye göndermek için base64
+                id: `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` // Benzersiz ID oluştur
+              });
+            }
+          }
+          
+          console.log(`${processedImages.length} fotoğraf başarıyla işlendi`);
           
           // State'i güncelle - mevcut images'ı kopyala ve yenilerini ekle
-          const updatedImages = [...images, ...compressedImages];
-          console.log('GÜNCELLEME ÖNCESİ:', images.length, 'fotoğraf');
-          console.log('GÜNCELLEME SONRASI:', updatedImages.length, 'fotoğraf');
-          
-          // Doğrudan set et
+          const updatedImages = [...images, ...processedImages];
           setImages(updatedImages);
+          
+          console.log(`Toplam ${updatedImages.length} fotoğraf eklendi`);
         } catch (error) {
           console.error('Resim sıkıştırma işlemi başarısız:', error);
           Alert.alert('Hata', 'Resimler işlenirken bir hata oluştu.');
-        } finally {
-          setLoading(false);
         }
+      } else {
+        console.log('Fotoğraf seçimi iptal edildi veya seçilen fotoğraf yok');
       }
     } catch (error) {
       console.error('Galeriden fotoğraf seçme hatası:', error);
       Alert.alert('Hata', 'Fotoğraf seçilirken bir hata oluştu.');
-      setLoading(false);
+    } finally {
+      setImageLoading(false);
     }
   };
 
@@ -240,6 +299,8 @@ const CreateIssueScreen = ({ navigation }) => {
         return;
       }
       
+      setImageLoading(true);
+      
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: true,
         aspect: [4, 3],
@@ -247,135 +308,241 @@ const CreateIssueScreen = ({ navigation }) => {
       });
       
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        // Yükleme göstergesi
-        setLoading(true);
-        
         try {
-          // Resmi sıkıştır
+          // Resmi sıkıştır ve base64'e dönüştür
           const newUri = result.assets[0].uri;
+          console.log('Fotoğraf çekildi, işleniyor:', newUri.substring(0, 30) + '...');
+          
+          // Önce resmi sıkıştır
           const compressedUri = await compressImage(newUri);
           
-          const newImageWithId = {
-            uri: compressedUri,
-            id: `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` // Benzersiz ID oluştur
-          };
-          
-          console.log('YENİ FOTOĞRAF ÇEKİLDİ VE SIKIŞTIRILDI');
-          
-          // Mevcut tüm fotoğrafları ve yeni eklenen fotoğrafı içeren yeni bir dizi oluştur
-          const updatedImages = [...images, newImageWithId];
-          console.log('KAMERA - GÜNCELLEME ÖNCESİ:', images.length, 'fotoğraf');
-          console.log('KAMERA - GÜNCELLEME SONRASI:', updatedImages.length, 'fotoğraf');
-          
-          // State'i güncelle
-          setImages(updatedImages);
+          if (compressedUri) {
+            // Sonra base64'e dönüştür
+            const base64Image = await uriToBase64(compressedUri);
+            
+            if (base64Image) {
+              const newImageWithId = {
+                uri: compressedUri, // Görsel gösterimi için URI
+                base64: base64Image, // API'ye göndermek için base64
+                id: `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` // Benzersiz ID oluştur
+              };
+              
+              // Mevcut tüm fotoğrafları ve yeni eklenen fotoğrafı içeren yeni bir dizi oluştur
+              const updatedImages = [...images, newImageWithId];
+              
+              // State'i güncelle
+              setImages(updatedImages);
+              
+              console.log(`Fotoğraf başarıyla eklendi. Toplam: ${updatedImages.length}`);
+            } else {
+              Alert.alert('Hata', 'Resim işlenirken bir hata oluştu.');
+            }
+          } else {
+            Alert.alert('Hata', 'Resim sıkıştırılırken bir hata oluştu.');
+          }
         } catch (error) {
           console.error('Resim sıkıştırma işlemi başarısız:', error);
           Alert.alert('Hata', 'Resim işlenirken bir hata oluştu.');
-        } finally {
-          setLoading(false);
         }
+      } else {
+        console.log('Fotoğraf çekimi iptal edildi veya çekilen fotoğraf yok');
       }
     } catch (error) {
       console.error('Kamera ile fotoğraf çekme hatası:', error);
       Alert.alert('Hata', 'Fotoğraf çekilirken bir hata oluştu.');
-      setLoading(false);
+    } finally {
+      setImageLoading(false);
     }
   };
 
   // Fotoğraf silme fonksiyonu
   const removeImage = (index) => {
-    // Yeni bir kopya oluştur ve seçilen fotoğrafı kaldır
-    const updatedImages = [...images];
-    updatedImages.splice(index, 1);
-    setImages(updatedImages);
-    console.log('FOTOĞRAF SİLİNDİ, YENİ SAYISI:', updatedImages.length);
+    try {
+      // Mevcut durumu kontrol et
+      console.log(`${index}. fotoğraf siliniyor. Mevcut fotoğraf sayısı: ${images.length}`);
+      
+      // Yeni bir kopya oluştur ve seçilen fotoğrafı kaldır
+      const updatedImages = [...images];
+      updatedImages.splice(index, 1);
+      
+      // State'i güncelle
+      setImages(updatedImages);
+      
+      console.log(`Fotoğraf silindi. Yeni fotoğraf sayısı: ${updatedImages.length}`);
+    } catch (error) {
+      console.error('Fotoğraf silme hatası:', error);
+      Alert.alert('Hata', 'Fotoğraf silinirken bir hata oluştu.');
+    }
   };
 
   const handleSubmit = async () => {
-    if (!title || !description || !category || !city || !district || !address) {
-      Alert.alert('Hata', 'Lütfen tüm alanları doldurun.');
+    // Validasyon hataları için boş bir obje oluştur
+    const validationErrors = {};
+    
+    // Tüm alanları kontrol et
+    if (!title) validationErrors.title = 'Başlık zorunludur';
+    if (!description) validationErrors.description = 'Açıklama zorunludur';
+    if (!category) validationErrors.category = 'Kategori zorunludur';
+    if (!city) validationErrors.city = 'Şehir zorunludur';
+    if (!district) validationErrors.district = 'İlçe zorunludur';
+    if (!address) validationErrors.address = 'Adres zorunludur';
+    if (!locationDescription) validationErrors.locationDescription = 'Adres tarifi zorunludur';
+    if (!coordinates) validationErrors.coordinates = 'Konum bilgisi zorunludur';
+    
+    // Eğer validasyon hataları varsa, uyarı göster ve geri dön
+    if (Object.keys(validationErrors).length > 0) {
+      // Hata mesajlarını birleştir
+      const errorMessages = Object.values(validationErrors).join('\n• ');
+      Alert.alert('Form Hatası', `Lütfen aşağıdaki alanları doldurun:\n\n• ${errorMessages}`);
       return;
-    }
-
-    if (!coordinates) {
-      // Use city coordinates if specific location not selected
-      useSelectedCityLocation();
     }
 
     setLoading(true);
 
     try {
-      // Resimleri tekrar sıkıştır (güvenlik için)
+      // Kullanıcı token'ını al
+      const userToken = await AsyncStorage.getItem('token');
+      if (!userToken) {
+        console.warn('Kullanıcı token\'ı bulunamadı!');
+      } else {
+        console.log('Token bulundu, uzunluk:', userToken.length);
+      }
+      
+      // Basitleştirilmiş bir formData oluşturalım - sadece zorunlu alanları içeren
+      const basicFormData = {
+        title: title.trim(),
+        description: description.trim(),
+        category, // Kategori ID'si olarak gönder, etiketini değil
+        status: "pending", // Varsayılan durum
+        location: {
+          address: address.trim(),
+          district,
+          city,
+          directionInfo: locationDescription.trim(),
+          type: "Point"
+        }
+      };
+
+      // Koordinatları ekleyelim (varsa)
+      if (coordinates) {
+        basicFormData.location.coordinates = [coordinates.longitude, coordinates.latitude];
+      } else {
+        // Koordinat yoksa hata mesajı göster ve işlemi durdur
+        Alert.alert('Konum Hatası', 'Lütfen konum seçiniz');
+        setLoading(false);
+        return;
+      }
+
+      console.log('Sorun verisi hazırlanıyor:', JSON.stringify(basicFormData, null, 2));
+      
+      // Resim işleme adımı
       let processedImages = [];
       
       if (images.length > 0) {
         try {
+          console.log(`${images.length} fotoğraf işleniyor...`);
+          
+          // Base64 kodlu görüntüleri al (images artık hem URI hem base64 içeriyor)
           for (const img of images) {
-            const uri = typeof img === 'object' ? img.uri : img;
-            const compressedUri = await compressImage(uri);
-            processedImages.push(compressedUri);
+            if (img.base64) {
+              processedImages.push(img.base64);
+              console.log(`Resim base64 formatında bulundu, uzunluk: ${img.base64.length.toString().substring(0, 6)}...`);
+            }
           }
+          
+          console.log(`${processedImages.length} adet base64 formatlı resim hazırlandı`);
         } catch (err) {
-          console.error('Son sıkıştırmada hata:', err);
-          // Hataya rağmen orijinal resimleri kullan
-          processedImages = images.map(img => typeof img === 'object' ? img.uri : img);
+          console.error('Resim işleme hatası:', err);
+          processedImages = [];
         }
       }
 
-      const formData = {
-        title,
-        description,
-        category,
-        location: {
-          address,
-          district,
-          city,
-          coordinates: coordinates ? [coordinates.longitude, coordinates.latitude] : undefined,
-          type: 'Point'
-        },
-        images: processedImages
-      };
+      // Tüm işlenmiş resimleri formData'ya ekle
+      if (processedImages.length > 0) {
+        basicFormData.images = processedImages; // Tüm resimleri ekle
+        console.log(`${processedImages.length} adet resim formData'ya eklendi`);
+      }
 
-      console.log('Gönderilen veri:', JSON.stringify({
-        ...formData, 
-        images: `${formData.images.length} fotoğraf`
-      }, null, 2));
+      console.log('Sorun bildirimi gönderiliyor...');
       
-      const response = await api.issues.create(formData);
-      
-      if (response.success) {
-        Alert.alert('Başarılı', 'Sorun başarıyla bildirildi!', [
-          { text: 'Tamam', onPress: () => navigation.navigate('Issues') }
-        ]);
+      try {
+        const response = await api.issues.create(basicFormData);
         
-        // Reset form
-        setTitle('');
-        setDescription('');
-        setCategory('');
-        setImages([]);
-        setAddress('');
-        setCoordinates(null);
+        if (response.success) {
+          Alert.alert('Başarılı', 'Sorun başarıyla bildirildi!', [
+            { text: 'Tamam', onPress: () => navigation.navigate('Issues') }
+          ]);
+          
+          // Reset form
+          setTitle('');
+          setDescription('');
+          setCategory('');
+          setImages([]);
+          setAddress('');
+          setLocationDescription('');
+          setCoordinates(null);
+        } else {
+          throw new Error(response.message || 'API başarılı yanıt vermedi');
+        }
+      } catch (error) {
+        console.error('Sorun bildirimi hatası:', error);
         
-      } else {
-        Alert.alert('Hata', response.message || 'Bir hata oluştu.');
+        // Son çare olarak httpClient kullan
+        try {
+          console.log('Alternatif yöntem deneniyor...');
+          
+          // API endpoint'ini belirle
+          const apiEndpoint = "/issues";
+          
+          // httpClient kullan - axios yerine
+          const rawResponse = await httpClient.post(apiEndpoint, basicFormData);
+          
+          console.log('Alternatif yanıt:', rawResponse);
+          
+          Alert.alert('Başarılı', 'Sorun başarıyla bildirildi!', [
+            { text: 'Tamam', onPress: () => navigation.navigate('Issues') }
+          ]);
+          
+          // Reset form
+          setTitle('');
+          setDescription('');
+          setCategory('');
+          setImages([]);
+          setAddress('');
+          setLocationDescription('');
+          setCoordinates(null);
+        } catch (finalError) {
+          console.error('Son çare hata:', finalError);
+          
+          if (finalError.response) {
+            console.error('Yanıt detayları:', finalError.response.status, JSON.stringify(finalError.response.data));
+          }
+          
+          // Kullanıcı oturumunu yenilemesini iste
+          Alert.alert(
+            'Yetki Hatası',
+            'Sorun gönderilirken yetkilendirme hatası oluştu. Lütfen uygulamadan çıkıp tekrar giriş yapın.',
+            [
+              { text: 'Tamam' }
+            ]
+          );
+        }
       }
     } catch (error) {
-      console.error('Sorun gönderme hatası:', error);
-      Alert.alert('Hata', 'Sorun bildirilirken bir hata oluştu: ' + (error.message || 'Bilinmeyen hata'));
+      console.error('ANA FONKSIYON HATASI:', error);
+      Alert.alert('Hata', 'Sorun gönderme işlemi başarısız oldu.');
     } finally {
       setLoading(false);
     }
   };
 
   const categories = [
-    { value: 'infrastructure', label: 'Altyapı' },
-    { value: 'environmental', label: 'Çevre' },
-    { value: 'transportation', label: 'Ulaşım' },
-    { value: 'safety', label: 'Güvenlik' },
-    { value: 'education', label: 'Eğitim' },
-    { value: 'health', label: 'Sağlık' },
-    { value: 'other', label: 'Diğer' }
+    { value: 'Altyapı', label: 'Altyapı' },
+    { value: 'Çevre', label: 'Çevre' },
+    { value: 'Ulaşım', label: 'Ulaşım' },
+    { value: 'Güvenlik', label: 'Güvenlik' },
+    { value: 'Temizlik', label: 'Temizlik' },
+    { value: 'Diğer', label: 'Diğer' }
   ];
 
   // Add state for picker modals
@@ -472,7 +639,7 @@ const CreateIssueScreen = ({ navigation }) => {
         <Text style={styles.title}>Yeni Sorun Bildirimi</Text>
         
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Başlık</Text>
+          <Text style={styles.label}>Başlık <Text style={styles.required}>*</Text></Text>
           <TextInput
             style={styles.input}
             value={title}
@@ -482,7 +649,7 @@ const CreateIssueScreen = ({ navigation }) => {
         </View>
         
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Açıklama</Text>
+          <Text style={styles.label}>Açıklama <Text style={styles.required}>*</Text></Text>
           <TextInput
             style={[styles.input, styles.textArea]}
             value={description}
@@ -493,9 +660,8 @@ const CreateIssueScreen = ({ navigation }) => {
           />
         </View>
         
-        {/* Kategori - Özelleştirilmiş buton */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Kategori</Text>
+          <Text style={styles.label}>Kategori <Text style={styles.required}>*</Text></Text>
           <CustomPickerButton 
             label="Kategori" 
             value={category} 
@@ -504,9 +670,8 @@ const CreateIssueScreen = ({ navigation }) => {
           />
         </View>
         
-        {/* Şehir - Özelleştirilmiş buton */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Şehir</Text>
+          <Text style={styles.label}>Şehir <Text style={styles.required}>*</Text></Text>
           <CustomPickerButton 
             label="Şehir" 
             value={city} 
@@ -515,9 +680,8 @@ const CreateIssueScreen = ({ navigation }) => {
           />
         </View>
         
-        {/* İlçe - Özelleştirilmiş buton */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>İlçe</Text>
+          <Text style={styles.label}>İlçe <Text style={styles.required}>*</Text></Text>
           <CustomPickerButton 
             label="İlçe" 
             value={district} 
@@ -526,7 +690,6 @@ const CreateIssueScreen = ({ navigation }) => {
           />
         </View>
         
-        {/* Picker Modal */}
         <Modal
           visible={pickerVisible}
           transparent={true}
@@ -613,12 +776,24 @@ const CreateIssueScreen = ({ navigation }) => {
         </Modal>
         
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Adres</Text>
+          <Text style={styles.label}>Adres <Text style={styles.required}>*</Text></Text>
           <TextInput
             style={[styles.input, styles.textArea]}
             value={address}
             onChangeText={setAddress}
             placeholder="Sorunun tam adresi"
+            multiline
+            numberOfLines={3}
+          />
+        </View>
+        
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Adres Tarifi <Text style={styles.required}>*</Text></Text>
+          <TextInput
+            style={[styles.input, styles.textArea]}
+            value={locationDescription}
+            onChangeText={setLocationDescription}
+            placeholder="Yetkililerin konumu daha kolay bulabilmesi için ekstra bilgiler yazabilirsiniz. Örn: Apartmanın arkasındaki yeşil alan, parkın doğu girişi, vb."
             multiline
             numberOfLines={3}
           />
@@ -633,27 +808,27 @@ const CreateIssueScreen = ({ navigation }) => {
             {locationLoading ? (
               <ActivityIndicator size="small" color="#fff" />
             ) : (
-              <Text style={styles.buttonText}>Konumumu Kullan</Text>
+              <>
+                <Ionicons name="locate-outline" size={20} color="#fff" style={styles.buttonIcon} />
+                <Text style={styles.buttonText}>Konumumu Kullan</Text>
+              </>
             )}
           </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={[styles.locationButton, styles.secondaryButton, !city && styles.disabledButton]} 
-            onPress={useSelectedCityLocation}
-            disabled={!city}
-          >
-            <Text style={[styles.buttonText, styles.secondaryButtonText]}>Şehir Merkezini Kullan</Text>
-          </TouchableOpacity>
         </View>
+        
+        <Text style={styles.label}>Konum <Text style={styles.required}>*</Text></Text>
         
         {locationError && (
           <Text style={styles.errorText}>{locationError}</Text>
         )}
         
-        {coordinates && (
+        {/* Konum koordinat alanı */}
+        {coordinates ? (
           <Text style={styles.coordinatesText}>
             Konum: {coordinates.latitude.toFixed(6)}, {coordinates.longitude.toFixed(6)}
           </Text>
+        ) : (
+          <Text style={styles.errorText}>Lütfen konum seçiniz</Text>
         )}
         
         <View style={styles.imageSection}>
@@ -664,58 +839,84 @@ const CreateIssueScreen = ({ navigation }) => {
               style={[
                 styles.photoButton, 
                 styles.galleryButton,
-                images.length >= 3 && styles.disabledButton
+                (images.length >= 3 || imageLoading) && styles.disabledButton
               ]} 
               onPress={pickImageFromGallery}
-              disabled={images.length >= 3}
+              disabled={images.length >= 3 || imageLoading}
             >
-              <Ionicons name="images-outline" size={20} color="#fff" />
-              <Text style={styles.buttonText}>
-                {getAddPhotoLabel()}
-              </Text>
+              {imageLoading ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="images-outline" size={20} color="#fff" />
+                  <Text style={styles.buttonText}>
+                    {getAddPhotoLabel()}
+                  </Text>
+                </>
+              )}
             </TouchableOpacity>
             
             <TouchableOpacity 
               style={[
                 styles.photoButton, 
                 styles.cameraButton,
-                images.length >= 3 && styles.disabledButton
+                (images.length >= 3 || imageLoading) && styles.disabledButton
               ]} 
               onPress={takePictureWithCamera}
-              disabled={images.length >= 3}
+              disabled={images.length >= 3 || imageLoading}
             >
-              <Ionicons name="camera-outline" size={20} color="#fff" />
-              <Text style={styles.buttonText}>
-                {getTakePhotoLabel()}
-              </Text>
+              {imageLoading ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="camera-outline" size={20} color="#fff" />
+                  <Text style={styles.buttonText}>
+                    {getTakePhotoLabel()}
+                  </Text>
+                </>
+              )}
             </TouchableOpacity>
           </View>
           
           {/* Fotoğraf ön izleme bölümü */}
           <View style={styles.imagePreviewArea}>
+            {imageLoading && (
+              <View style={styles.loadingOverlay}>
+                <ActivityIndicator size="large" color="#4CAF50" />
+                <Text style={styles.loadingText}>Fotoğraflar işleniyor...</Text>
+              </View>
+            )}
+            
             {images.length > 0 ? (
             <View style={styles.imagesContainer}>
-              {images.map((image, index) => (
-                <View 
-                  key={typeof image === 'object' ? image.id : `img-${index}`} 
-                  style={styles.imagePreview}
-                >
-                  <Image 
-                    source={{ uri: typeof image === 'object' ? image.uri : image }} 
-                    style={styles.previewImage} 
-                    onError={(e) => console.error(`Resim yükleme hatası (${index}):`, e.nativeEvent.error)}
-                  />
-                  <TouchableOpacity 
-                    style={styles.removeImageButton}
-                    onPress={() => removeImage(index)}
+              {images.map((image, index) => {
+                // URI değerini çıkart
+                const uri = image.uri || '';
+                // Benzersiz key oluştur
+                const key = image.id || `img-${index}-${Date.now()}`;
+                
+                return (
+                  <View 
+                    key={key}
+                    style={styles.imagePreview}
                   >
-                    <Ionicons name="close-circle" size={24} color="red" />
-                  </TouchableOpacity>
-                  <View style={styles.imageIndexBadge}>
-                    <Text style={styles.imageIndexText}>{index + 1}</Text>
+                    <Image 
+                      source={{ uri: uri }} 
+                      style={styles.previewImage} 
+                      onError={(e) => console.error(`Resim yükleme hatası (${index}):`, e.nativeEvent.error)}
+                    />
+                    <TouchableOpacity 
+                      style={styles.removeImageButton}
+                      onPress={() => removeImage(index)}
+                    >
+                      <Ionicons name="close-circle" size={24} color="red" />
+                    </TouchableOpacity>
+                    <View style={styles.imageIndexBadge}>
+                      <Text style={styles.imageIndexText}>{index + 1}</Text>
+                    </View>
                   </View>
-                </View>
-              ))}
+                );
+              })}
               
               {/* Boş kare ekleme */}
               {images.length < 3 && Array(3 - images.length).fill(0).map((_, i) => (
@@ -798,8 +999,6 @@ const styles = StyleSheet.create({
     height: 50,
   },
   locationButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     marginBottom: 16,
   },
   locationButton: {
@@ -807,15 +1006,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 14,
     alignItems: 'center',
-    flex: 0.48,
-  },
-  secondaryButton: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#4CAF50',
-  },
-  secondaryButtonText: {
-    color: '#4CAF50',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    width: '100%',
   },
   buttonText: {
     color: '#fff',
@@ -1036,6 +1229,31 @@ const styles = StyleSheet.create({
   pickerItem: {
     fontSize: 16,
     color: '#333',
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    zIndex: 1000,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#4CAF50',
+    fontWeight: '500',
+  },
+  required: {
+    color: 'red',
+    fontWeight: 'bold',
+  },
+  buttonIcon: {
+    marginRight: 10,
   },
 });
 

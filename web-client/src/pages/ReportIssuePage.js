@@ -9,6 +9,8 @@ import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import { toast } from 'react-hot-toast';
 import { cityCoordinates } from '../data/cityCoordinates';
+import { cities } from '../data/cities';
+import { allDistricts } from '../data/allDistricts';
 import { getAddressFromCoordinates, formatAddress, improveStreetInfo } from '../services/geocoding';
 
 // Leaflet default icon fix
@@ -68,61 +70,21 @@ const LocationMarker = ({ position, setPosition, setFormData }) => {
       const addressData = await getAddressFromCoordinates(lat, lng);
       console.log('Adres bilgisi alındı:', addressData);
       
-      // Adres bilgisini temizle ve sadeleştir
-      let simplifiedAddress = '';
+      // Sokak bilgilerini geliştir
+      const improvedAddressData = improveStreetInfo(addressData);
       
-      // 1. Önce mahalle bilgisi
-      if (addressData.neighbourhood) {
-        simplifiedAddress = addressData.neighbourhood;
-        // "Mahallesi" ekle eğer yoksa
-        if (!simplifiedAddress.includes('Mahal')) {
-          simplifiedAddress += ' Mahallesi';
-        }
-      }
+      // Adres bilgisini formatla
+      const formattedAddress = formatAddress(improvedAddressData);
       
-      // 2. Sonra ilçe (eğer mahalle ile aynı değilse)
-      if (addressData.district && 
-          addressData.district !== addressData.neighbourhood && 
-          !simplifiedAddress.includes(addressData.district)) {
-        simplifiedAddress += simplifiedAddress ? ', ' + addressData.district : addressData.district;
-      }
+      console.log('Formatlanmış adres:', formattedAddress);
       
-      // 3. Son olarak şehir (eğer ilçe ile aynı değilse)
-      if (addressData.city && 
-          addressData.city !== addressData.district && 
-          !simplifiedAddress.includes(addressData.city)) {
-        simplifiedAddress += simplifiedAddress ? ', ' + addressData.city : addressData.city;
-      }
-      
-      // Adresin kısa ve öz olduğundan emin ol
-      simplifiedAddress = simplifiedAddress.replace(/,\s*,/g, ','); // Çift virgülleri temizle
-      simplifiedAddress = simplifiedAddress.replace(/Mah\.\s+Mahallesi/g, 'Mahallesi'); // "Mah. Mahallesi" -> "Mahallesi"
-      simplifiedAddress = simplifiedAddress.replace(/Mahallesi\s+Mahallesi/g, 'Mahallesi'); // "Mahallesi Mahallesi" -> "Mahallesi"
-      
-      // Eğer en az bir bilgi yoksa, daha basit bir şekilde ele al
-      if (!simplifiedAddress) {
-        const fullParts = (addressData.fullAddress || '').split(',');
-        if (fullParts.length > 0) {
-          // Sadece ilk iki kısmı al
-          simplifiedAddress = fullParts.slice(0, 2).join(',');
-        } else {
-          simplifiedAddress = 'Konum belirlendi';
-        }
-      }
-      
-      console.log('Basitleştirilmiş adres:', simplifiedAddress);
-      
-      // Form verilerini güncelle
+      // Form verilerini güncelle - SADECE adres bilgisini güncelle
       setFormData(prev => ({
         ...prev,
-        address: simplifiedAddress,
-        district: addressData.district || ''
+        address: formattedAddress || 'Konum belirlendi'
       }));
       
-      console.log('Form verileri güncellendi:', {
-        address: simplifiedAddress,
-        district: addressData.district || ''
-      });
+      console.log('Form verileri güncellendi: Adres bilgisi formatlanarak eklendi.');
       
       toast.success('Adres bilgisi alındı', { id: 'geocoding' });
     } catch (error) {
@@ -147,43 +109,86 @@ const ReportIssuePage = () => {
     severity: 'Orta',
     address: '',
     district: '',
+    city: '',
+    locationDescription: '',
     images: []
   });
+
+  // Seçilen şehir için geçerli ilçeler
+  const [availableDistricts, setAvailableDistricts] = useState([]);
 
   const [position, setPosition] = useState(null);
   const [previewImages, setPreviewImages] = useState([]);
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Kullanıcının şehrine göre harita merkezini ayarla
+  // Şehir değiştiğinde harita merkezini güncelle ve ilçe listesini güncelle
   useEffect(() => {
-    if (user && user.city) {
-      const cityName = user.city.charAt(0).toUpperCase() + user.city.slice(1);
-      if (cityCoordinates[cityName]) {
-        // [longitude, latitude] formatından [latitude, longitude] formatına dönüştür
-        const coords = cityCoordinates[cityName];
-        setMapCenter([coords[1], coords[0]]);
-        console.log(`Harita merkezi ${cityName} olarak ayarlandı:`, [coords[1], coords[0]]);
+    if (formData.city && cityCoordinates[formData.city]) {
+      const coords = cityCoordinates[formData.city];
+      setMapCenter([coords[1], coords[0]]);
+      console.log(`Harita merkezi ${formData.city} olarak güncellendi:`, [coords[1], coords[0]]);
+      
+      // Seçilen şehir için ilçeleri ayarla
+      if (allDistricts[formData.city]) {
+        setAvailableDistricts(allDistricts[formData.city]);
+        console.log(`${formData.city} için ${allDistricts[formData.city].length} ilçe bulundu`);
+      } else {
+        setAvailableDistricts([]);
+        console.log(`${formData.city} için ilçe verisi bulunamadı`);
       }
+    } else {
+      setAvailableDistricts([]);
     }
-  }, [user]);
+  }, [formData.city]);
 
-  // Form verilerini kullanıcı profil bilgileriyle başlat
+  // İlçe seçildiğinde, haritada o ilçenin merkez konumunu yaklaşık olarak işaretle
   useEffect(() => {
-    if (user) {
-      setFormData(prev => ({
-        ...prev,
-        city: user.city || ''
-      }));
-      console.log('Kullanıcı şehri form verisine atandı:', user.city);
-    }
-  }, [user]);
+    const updatePositionBasedOnDistrict = async () => {
+      if (formData.city && formData.district) {
+        try {
+          // Geocoding API ile ilçe konumunu bulmaya çalışalım
+          const searchQuery = `${formData.district}, ${formData.city}, Türkiye`;
+          console.log(`İlçe konumu aranıyor: ${searchQuery}`);
+          
+          // Basit bir yaklaşım: OpenStreetMap Nominatim API kullanımı (gerçek projede daha gelişmiş API kullanılabilir)
+          const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}`);
+          const data = await response.json();
+          
+          if (data && data.length > 0) {
+            const firstResult = data[0];
+            const newPosition = [parseFloat(firstResult.lat), parseFloat(firstResult.lon)];
+            console.log(`İlçe konumu bulundu: ${newPosition}`);
+            
+            // Harita merkezini ve konumu güncelle
+            setMapCenter(newPosition);
+            setPosition(newPosition);
+          } else {
+            console.log(`İlçe için konum bulunamadı: ${searchQuery}`);
+            // Konum bulunamadığında şehir merkezini kullan
+            if (cityCoordinates[formData.city]) {
+              const coords = cityCoordinates[formData.city];
+              // Sadece harita merkezini güncelle, konumu işaretleme
+              setMapCenter([coords[1], coords[0]]);
+            }
+          }
+        } catch (error) {
+          console.error('İlçe konumu ararken hata:', error);
+        }
+      }
+    };
+    
+    updatePositionBasedOnDistrict();
+  }, [formData.district, formData.city]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    // Şehir alanını manuel olarak değiştirmeye izin verme
-    if (name === 'city') return;
     setFormData(prev => ({ ...prev, [name]: value }));
+    
+    // Şehir değişirse ilçeyi sıfırla
+    if (name === 'city') {
+      setFormData(prev => ({ ...prev, district: '' }));
+    }
   };
 
   const handleImageChange = async (e) => {
@@ -290,8 +295,25 @@ const ReportIssuePage = () => {
       return;
     }
     
-    if (!formData.address?.trim() || !formData.district?.trim()) {
-      setErrors(prev => ({ ...prev, location: 'Hem adres hem de ilçe bilgisi gereklidir' }));
+    if (!formData.city) {
+      setErrors(prev => ({ ...prev, city: 'Şehir seçilmelidir' }));
+      return;
+    }
+    
+    // İlçe kontrolünü genişletelim
+    if (!formData.district.trim()) {
+      setErrors(prev => ({ ...prev, district: 'İlçe seçilmelidir' }));
+      return;
+    }
+    
+    // İlçe değerinin mevcut listede olup olmadığını kontrol edelim
+    if (formData.city && formData.district && availableDistricts.length > 0 && !availableDistricts.includes(formData.district)) {
+      setErrors(prev => ({ ...prev, district: 'Lütfen geçerli bir ilçe seçin' }));
+      return;
+    }
+    
+    if (!formData.address?.trim()) {
+      setErrors(prev => ({ ...prev, address: 'Adres bilgisi gereklidir' }));
       return;
     }
     
@@ -300,21 +322,27 @@ const ReportIssuePage = () => {
       return;
     }
 
+    if (!formData.locationDescription?.trim()) {
+      setErrors(prev => ({ ...prev, locationDescription: 'Adres tarifi gereklidir' }));
+      return;
+    }
+
     // İstek verilerini hazırla
     try {
       setIsSubmitting(true);
       
-      // Kullanıcı bilgisinden şehir alınıyor, yoksa İstanbul varsayılan değer
-      const userCity = user?.city || 'İstanbul';
-      console.log('Kullanıcı şehri:', userCity);
+      // Artık kullanıcı bilgisinden değil, formdan şehir alınıyor
+      const userCity = formData.city;
+      console.log('Seçilen şehir:', userCity);
       
       // Lokasyon nesnesini düzgün formatta oluştur
       const locationData = {
         type: 'Point',
         address: formData.address.trim(),
         district: formData.district.trim(),
-        city: userCity, // Kullanıcının profil bilgisinden şehir bilgisi
-        coordinates: position ? [position[1], position[0]] : []
+        city: userCity, // Form verisi olarak şehir
+        coordinates: position ? [position[1], position[0]] : [],
+        directionInfo: formData.locationDescription.trim()
       };
       
       console.log('Gönderilecek location verisi:', locationData);
@@ -489,6 +517,53 @@ const ReportIssuePage = () => {
           
           {/* Sağ Kolon */}
           <div>
+            {/* Önce şehir seçimi */}
+            <div className="mb-4">
+              <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="city">
+                Şehir*
+              </label>
+              <select
+                id="city"
+                name="city"
+                value={formData.city}
+                onChange={handleChange}
+                className={`shadow appearance-none border ${errors.city ? 'border-red-500' : 'border-gray-300'} rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline`}
+              >
+                <option value="">Şehir Seçin</option>
+                {cities.map(city => (
+                  <option key={city} value={city}>{city}</option>
+                ))}
+              </select>
+              {errors.city && <p className="text-red-500 text-xs mt-1">{errors.city}</p>}
+            </div>
+            
+            {/* Sonra ilçe dropdown */}
+            <div className="mb-4">
+              <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="district">
+                İlçe*
+              </label>
+              <select
+                id="district"
+                name="district"
+                value={formData.district && availableDistricts.includes(formData.district) ? formData.district : ''}
+                onChange={handleChange}
+                className={`shadow appearance-none border ${errors.district ? 'border-red-500' : 'border-gray-300'} rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline`}
+                disabled={!formData.city} // Şehir seçilmediği sürece ilçe seçimi devre dışı
+              >
+                <option value="">İlçe Seçin</option>
+                {availableDistricts.map(district => (
+                  <option key={district} value={district}>{district}</option>
+                ))}
+              </select>
+              {!formData.city && <p className="text-xs text-gray-500 mt-1">Önce şehir seçmelisiniz</p>}
+              {formData.city && formData.district && !availableDistricts.includes(formData.district) && (
+                <p className="text-xs text-orange-500 mt-1">
+                  "{formData.district}" listede bulunamadı. Lütfen listeden bir ilçe seçin.
+                </p>
+              )}
+              {errors.district && <p className="text-red-500 text-xs mt-1">{errors.district}</p>}
+            </div>
+            
             <div className="mb-4">
               <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="address">
                 Adres*
@@ -506,35 +581,21 @@ const ReportIssuePage = () => {
             </div>
             
             <div className="mb-4">
-              <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="district">
-                İlçe*
+              <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="locationDescription">
+                Adres Tarifi <span className="text-red-500">*</span>
               </label>
-              <input
-                type="text"
-                id="district"
-                name="district"
-                value={formData.district}
+              <textarea
+                id="locationDescription"
+                name="locationDescription"
+                value={formData.locationDescription}
                 onChange={handleChange}
-                className={`shadow appearance-none border ${errors.district ? 'border-red-500' : 'border-gray-300'} rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline`}
-                placeholder="İlçe"
+                className={`shadow appearance-none border ${errors.locationDescription ? 'border-red-500' : 'border-gray-300'} rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline`}
+                placeholder="Yetkililerin konumu daha kolay bulabilmesi için ekstra bilgiler yazabilirsiniz. Örn: Apartmanın arkasındaki yeşil alan, parkın doğu girişi, vb."
+                rows="2"
               />
-              {errors.district && <p className="text-red-500 text-xs mt-1">{errors.district}</p>}
-            </div>
-            
-            <div className="mb-4">
-              <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="city">
-                Şehir (Otomatik)
-              </label>
-              <input
-                type="text"
-                id="city"
-                name="city"
-                value={formData.city || (user?.city || 'İstanbul')}
-                disabled
-                className="shadow appearance-none border border-gray-300 rounded w-full py-2 px-3 text-gray-500 leading-tight bg-gray-100"
-              />
+              {errors.locationDescription && <p className="text-red-500 text-xs mt-1">{errors.locationDescription}</p>}
               <p className="text-xs text-gray-500 mt-1">
-                Şehir bilgisi profilinizden otomatik olarak alınmaktadır.
+                Konumun daha kolay bulunabilmesi için ek açıklama bilgisi giriniz.
               </p>
             </div>
             
@@ -542,6 +603,9 @@ const ReportIssuePage = () => {
               <label className="block text-gray-700 text-sm font-bold mb-2">
                 Haritadan Konum Seçin*
               </label>
+              <p className="text-xs text-gray-600 mb-2">
+                Not: Haritadan konum seçimi sadece adres bilgisini günceller. Şehir ve ilçe seçimleriniz korunacaktır.
+              </p>
               <div className="h-[300px] w-full rounded-lg overflow-hidden border border-gray-300">
                 <MapContainer center={mapCenter} zoom={13} style={{ height: '100%', width: '100%' }}>
                   <TileLayer

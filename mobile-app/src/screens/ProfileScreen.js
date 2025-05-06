@@ -472,7 +472,7 @@ const ProfileScreen = ({ navigation }) => {
           
           <TouchableOpacity
             style={styles.newReportButton}
-            onPress={() => navigation.navigate('CreateReport')}
+            onPress={() => navigation.navigate('CreateIssue')}
           >
             <Icon name="add-circle" size={20} color="#3b82f6" />
             <Text style={styles.newReportButtonText}>Yeni Bildirim Oluştur</Text>

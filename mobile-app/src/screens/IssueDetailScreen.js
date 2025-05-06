@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator, Alert, Platform, Modal, TouchableWithoutFeedback } from 'react-native';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
@@ -18,6 +18,10 @@ const IssueDetailScreen = ({ route, navigation }) => {
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [retryAttempt, setRetryAttempt] = useState(0);
   const [usingFallback, setUsingFallback] = useState(false);
+  
+  // Fotoğraf görüntüleme state'leri
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [modalVisible, setModalVisible] = useState(false);
 
   // Debug bilgisi
   useEffect(() => {
@@ -117,7 +121,7 @@ const IssueDetailScreen = ({ route, navigation }) => {
           setIssue(updatedIssue.data);
           Alert.alert('Başarılı', 'Sorun durumu güncellendi.');
         } else {
-        setIssue({...issue, status: newStatus});
+          setIssue({...issue, status: newStatus});
           Alert.alert('Başarılı', 'Sorun durumu güncellendi ancak güncel veriler alınamadı.');
         }
       } else {
@@ -222,168 +226,208 @@ const IssueDetailScreen = ({ route, navigation }) => {
     );
   }
 
-  // Debug için veri yapısını kontrol et
-  console.log('Görüntülenen sorun:', {
-    id: issue._id,
-    title: issue.title,
-    status: issue.status,
-    category: issue.category,
-    hasLocation: !!issue.location,
-    hasImages: issue.images && issue.images.length > 0,
-    hasUser: !!issue.user
-  });
-
   // Render edilecek bileşen
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.contentContainer}>
-        {/* Başlık ve Durum */}
-        <View style={styles.header}>
-          <Text style={styles.title}>{issue.title || 'İsimsiz Sorun'}</Text>
-          <View style={[styles.statusBadge, {backgroundColor: getStatusColor(issue.status)}]}>
-            <Text style={styles.statusText}>{getStatusLabel(issue.status)}</Text>
-          </View>
-        </View>
-        
-        {/* Yedek veri uyarısı */}
-        {usingFallback && (
-          <View style={styles.fallbackWarning}>
-            <MaterialIcons name="info" size={20} color="#f39c12" />
-            <Text style={styles.fallbackText}>Sınırlı veri gösteriliyor. Bağlantı sorunu olabilir.</Text>
-            <TouchableOpacity 
-              style={styles.retryButtonSmall} 
-              onPress={handleRetry}
-            >
-              <Text style={styles.retryButtonTextSmall}>Yenile</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-        
-        {/* Kategori ve Tarih */}
-        <View style={styles.metadataContainer}>
-          <View style={styles.metadataItem}>
-            <MaterialIcons name="category" size={18} color="#666" />
-            <Text style={styles.metadataText}>{getCategoryLabel(issue.category)}</Text>
+    <>
+      <ScrollView style={styles.container}>
+        <View style={styles.contentContainer}>
+          {/* Başlık ve Durum */}
+          <View style={styles.header}>
+            <Text style={styles.title}>{issue.title || 'İsimsiz Sorun'}</Text>
+            <View style={[styles.statusBadge, {backgroundColor: getStatusColor(issue.status)}]}>
+              <Text style={styles.statusText}>{getStatusLabel(issue.status)}</Text>
+            </View>
           </View>
           
-          <View style={styles.metadataItem}>
-            <MaterialIcons name="access-time" size={18} color="#666" />
-            <Text style={styles.metadataText}>{issue.createdAt ? moment(issue.createdAt).format('LL') : 'Belirtilmemiş'}</Text>
-          </View>
-        </View>
-        
-        {/* Açıklama */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Açıklama</Text>
-          <Text style={styles.description}>{issue.description || 'Açıklama belirtilmemiş'}</Text>
-        </View>
-        
-        {/* Konum */}
-        {issue.location && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Konum</Text>
-          <View style={styles.locationContainer}>
-            <View style={styles.locationItem}>
-              <FontAwesome5 name="city" size={16} color="#666" />
-              <Text style={styles.locationText}>{issue.location?.city || 'Belirtilmemiş'}</Text>
+          {/* Yedek veri uyarısı */}
+          {usingFallback && (
+            <View style={styles.fallbackWarning}>
+              <MaterialIcons name="warning" size={24} color="#856404" />
+              <Text style={styles.fallbackText}>
+                Sunucudan güncel veriler alınamadı. Yedek veriler görüntüleniyor.
+              </Text>
+              <TouchableOpacity style={styles.retryButtonSmall} onPress={handleRetry}>
+                <Text style={styles.retryButtonTextSmall}>Yenile</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          
+          {/* Metadata */}
+          <View style={styles.metadataContainer}>
+            <View style={styles.metadataItem}>
+              <MaterialIcons name="calendar-today" size={16} color="#666" />
+              <Text style={styles.metadataText}>
+                {moment(issue.createdAt).format('D MMMM YYYY')}
+              </Text>
             </View>
             
-            <View style={styles.locationItem}>
-              <FontAwesome5 name="map-marker-alt" size={16} color="#666" />
-              <Text style={styles.locationText}>{issue.location?.district || 'Belirtilmemiş'}</Text>
+            <View style={styles.metadataItem}>
+              <MaterialIcons name="category" size={16} color="#666" />
+              <Text style={styles.metadataText}>
+                {getCategoryLabel(issue.category)}
+              </Text>
             </View>
           </View>
-          <Text style={styles.address}>{issue.location?.address || 'Adres belirtilmemiş'}</Text>
-        </View>
-        )}
-        
-        {/* Fotoğraflar */}
-        {issue.images && issue.images.length > 0 && (
+          
+          {/* Açıklama */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Fotoğraflar</Text>
-            <ScrollView horizontal={true} showsHorizontalScrollIndicator={false}>
-              {issue.images.map((image, index) => (
-                <View key={`${issueId}-image-${index}`} style={styles.imageContainer}>
-                  <Image
-                    source={{ uri: image }}
-                    style={styles.image}
-                    resizeMode="cover"
-                    onError={(e) => {
-                      console.warn(`Image loading error for index ${index}`);
+            <Text style={styles.sectionTitle}>Açıklama</Text>
+            <Text style={styles.description}>
+              {issue.description || 'Açıklama bulunamadı.'}
+            </Text>
+          </View>
+          
+          {/* Konum */}
+          {issue.location && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Konum</Text>
+              <View style={styles.locationContainer}>
+                {issue.location.city && (
+                  <View style={styles.locationItem}>
+                    <MaterialIcons name="location-city" size={16} color="#666" />
+                    <Text style={styles.locationText}>{issue.location.city}</Text>
+                  </View>
+                )}
+                
+                {issue.location.district && (
+                  <View style={styles.locationItem}>
+                    <FontAwesome5 name="map-marker-alt" size={16} color="#666" />
+                    <Text style={styles.locationText}>{issue.location.district}</Text>
+                  </View>
+                )}
+              </View>
+              
+              {issue.location.address && (
+                <Text style={styles.address}>{issue.location.address}</Text>
+              )}
+            </View>
+          )}
+          
+          {/* Fotoğraflar */}
+          {issue.images && issue.images.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Fotoğraflar</Text>
+              <ScrollView horizontal={true} showsHorizontalScrollIndicator={false}>
+                {issue.images.map((image, index) => (
+                  <TouchableOpacity 
+                    key={`${issueId}-image-${index}`} 
+                    style={styles.imageContainer}
+                    onPress={() => {
+                      setSelectedImage(image);
+                      setModalVisible(true);
                     }}
-                  />
+                  >
+                    <Image
+                      source={{ uri: image }}
+                      style={styles.image}
+                      resizeMode="cover"
+                      onError={(e) => {
+                        console.warn(`Image loading error for index ${index}`);
+                      }}
+                    />
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+          
+          {/* Kullanıcı Bilgileri */}
+          {issue.user && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Bildirim Yapan</Text>
+              <View style={styles.userContainer}>
+                <View style={styles.userAvatar}>
+                  <Text style={styles.userAvatarText}>
+                    {issue.user.name ? issue.user.name.charAt(0).toUpperCase() : '?'}
+                  </Text>
                 </View>
-              ))}
-            </ScrollView>
-          </View>
-        )}
-        
-        {/* Kullanıcı Bilgileri */}
-        {issue.user && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Bildirim Yapan</Text>
-            <View style={styles.userContainer}>
-              <View style={styles.userAvatar}>
-                <Text style={styles.userAvatarText}>
-                  {issue.user.name ? issue.user.name.charAt(0).toUpperCase() : '?'}
-                </Text>
-              </View>
-              <View style={styles.userInfo}>
-                <Text style={styles.userName}>{issue.user.name || 'Bilinmeyen Kullanıcı'}</Text>
-                <Text style={styles.userRole}>Vatandaş</Text>
+                <View style={styles.userInfo}>
+                  <Text style={styles.userName}>{issue.user.name || 'Bilinmeyen Kullanıcı'}</Text>
+                  <Text style={styles.userRole}>Vatandaş</Text>
+                </View>
               </View>
             </View>
-          </View>
-        )}
-        
-        {/* Yönetici İşlemleri */}
-        {user && user.isAdmin && (
-          <View style={styles.adminSection}>
-            <Text style={styles.sectionTitle}>Yönetici İşlemleri</Text>
-            <View style={styles.statusButtons}>
-              <TouchableOpacity 
-                style={[
-                  styles.statusButton, 
-                  {backgroundColor: getStatusColor('in_progress')},
-                  issue.status === 'in_progress' && styles.activeStatusButton,
-                  updatingStatus && styles.disabledButton
-                ]} 
-                onPress={() => handleStatusUpdate('in_progress')}
-                disabled={updatingStatus || issue.status === 'in_progress'}
-              >
-                <Text style={styles.statusButtonText}>İnceleniyor</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[
-                  styles.statusButton, 
-                  {backgroundColor: getStatusColor('resolved')},
-                  (issue.status === 'resolved' || issue.status === 'solved') && styles.activeStatusButton,
-                  updatingStatus && styles.disabledButton
-                ]} 
-                onPress={() => handleStatusUpdate('resolved')}
-                disabled={updatingStatus || issue.status === 'resolved' || issue.status === 'solved'}
-              >
-                <Text style={styles.statusButtonText}>Çözüldü</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[
-                  styles.statusButton, 
-                  {backgroundColor: getStatusColor('rejected')},
-                  issue.status === 'rejected' && styles.activeStatusButton,
-                  updatingStatus && styles.disabledButton
-                ]} 
-                onPress={() => handleStatusUpdate('rejected')}
-                disabled={updatingStatus || issue.status === 'rejected'}
-              >
-                <Text style={styles.statusButtonText}>Reddedildi</Text>
-              </TouchableOpacity>
+          )}
+          
+          {/* Yönetici İşlemleri */}
+          {user && user.isAdmin && (
+            <View style={styles.adminSection}>
+              <Text style={styles.sectionTitle}>Yönetici İşlemleri</Text>
+              <View style={styles.statusButtons}>
+                <TouchableOpacity 
+                  style={[
+                    styles.statusButton, 
+                    {backgroundColor: getStatusColor('in_progress')},
+                    issue.status === 'in_progress' && styles.activeStatusButton,
+                    updatingStatus && styles.disabledButton
+                  ]} 
+                  onPress={() => handleStatusUpdate('in_progress')}
+                  disabled={updatingStatus || issue.status === 'in_progress'}
+                >
+                  <Text style={styles.statusButtonText}>İnceleniyor</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={[
+                    styles.statusButton, 
+                    {backgroundColor: getStatusColor('resolved')},
+                    (issue.status === 'resolved' || issue.status === 'solved') && styles.activeStatusButton,
+                    updatingStatus && styles.disabledButton
+                  ]} 
+                  onPress={() => handleStatusUpdate('resolved')}
+                  disabled={updatingStatus || issue.status === 'resolved' || issue.status === 'solved'}
+                >
+                  <Text style={styles.statusButtonText}>Çözüldü</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={[
+                    styles.statusButton, 
+                    {backgroundColor: getStatusColor('rejected')},
+                    issue.status === 'rejected' && styles.activeStatusButton,
+                    updatingStatus && styles.disabledButton
+                  ]} 
+                  onPress={() => handleStatusUpdate('rejected')}
+                  disabled={updatingStatus || issue.status === 'rejected'}
+                >
+                  <Text style={styles.statusButtonText}>Reddedildi</Text>
+                </TouchableOpacity>
+              </View>
             </View>
+          )}
+        </View>
+      </ScrollView>
+      
+      {/* Fotoğraf Görüntüleme Modalı */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setModalVisible(false)}>
+          <View style={styles.modalBackground}>
+            <TouchableWithoutFeedback>
+              <View style={styles.modalImageContainer}>
+                {selectedImage && (
+                  <Image
+                    source={{ uri: selectedImage }}
+                    style={styles.modalImage}
+                    resizeMode="contain"
+                  />
+                )}
+                <TouchableOpacity 
+                  style={styles.closeButton}
+                  onPress={() => setModalVisible(false)}
+                >
+                  <MaterialIcons name="close" size={30} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
           </View>
-        )}
-      </View>
-    </ScrollView>
+        </TouchableWithoutFeedback>
+      </Modal>
+    </>
   );
 };
 
@@ -610,6 +654,31 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
   },
+  // Modal stilleri
+  modalBackground: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalImageContainer: {
+    backgroundColor: 'transparent',
+    width: '90%',
+    height: '70%',
+    overflow: 'hidden',
+  },
+  modalImage: {
+    width: '100%',
+    height: '100%',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 20,
+    padding: 5,
+  }
 });
 
 export default IssueDetailScreen; 

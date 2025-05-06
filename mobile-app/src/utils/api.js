@@ -787,73 +787,81 @@ const api = {
         console.log('- location.district:', issueData.location?.district);
         console.log('- location.type:', issueData.location?.type);
         console.log('- has images:', issueData.images && issueData.images.length > 0);
-        
-        // Validate and format location data
-        if (issueData.location) {
-          // Ensure coordinates is an array if it exists
-          if (!Array.isArray(issueData.location.coordinates)) {
-            console.warn('Location coordinates is not an array, initializing it');
-            issueData.location.coordinates = [];
+
+        // DENEME 1: Doğrudan axios ile
+        try {
+          console.log('DENEME 1: Doğrudan axios ile POST yapılıyor...');
+          
+          // Token al
+          const token = await AsyncStorage.getItem('token');
+          console.log('Token alındı, uzunluk:', token ? token.length : 0);
+          
+          // API URL'i oluştur
+          const apiUrl = `${BASE_URL}/issues`;
+          console.log('API URL:', apiUrl);
+          
+          // POST isteği yap
+          const response = await axios.post(apiUrl, issueData, {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': token ? `Bearer ${token}` : ''
+            },
+            timeout: 10000 // 10 saniye timeout
+          });
+          
+          console.log('Issue created successfully, response:', response.status, response.data);
+          return { success: true, data: response.data };
+        } catch (axiosError) {
+          console.error('DENEME 1 HATA:', axiosError.message);
+          if (axiosError.response) {
+            console.error('Yanıt detayları:', axiosError.response.status, JSON.stringify(axiosError.response.data));
           }
           
-          // If coordinates are empty or invalid, use default coordinates (Istanbul)
-          if (issueData.location.coordinates.length !== 2) {
-            console.warn('Invalid coordinates format, using default Istanbul coordinates');
-            issueData.location.coordinates = [28.9784, 41.0082]; // Istanbul coordinates
-          }
-          
-          // Set default type if not specified
-          if (!issueData.location.type) {
-            issueData.location.type = 'Point';
-          }
-        } else {
-          // Create a default location object if none provided
-          console.warn('No location data provided, creating default');
-          issueData.location = {
-            address: '',
-            district: '',
-            city: '',
-            type: 'Point',
-            coordinates: [28.9784, 41.0082] // Istanbul coordinates
-          };
-        }
-        
-        // Fotoğrafları base64'e dönüştür
-        if (issueData.images && issueData.images.length > 0) {
-          console.log(`${issueData.images.length} fotoğraf işleniyor...`);
-          
-          const processedImages = [];
-          
-          for (let i = 0; i < issueData.images.length; i++) {
-            const uri = issueData.images[i];
-            console.log(`Fotoğraf ${i+1} işleniyor: ${uri.substring(0, 30)}...`);
-            
-            try {
-              // URI'leri Base64'e dönüştürme
-              const base64Image = await uriToBase64(uri);
-              processedImages.push(base64Image);
-              console.log(`Fotoğraf ${i+1} işlendi, boyut: ~${Math.round(base64Image.length / 1024)} KB`);
-            } catch (imgError) {
-              console.error(`Fotoğraf ${i+1} işlenemedi:`, imgError);
+          // Hata durumunda client.post ile de deneyelim
+          console.log('DENEME 2: Standart client ile deneniyor...');
+          try {
+            const clientResponse = await client.post('/issues', issueData);
+            console.log('Issue created successfully with client, response:', clientResponse.status, clientResponse.data);
+            return { success: true, data: clientResponse.data };
+          } catch (clientError) {
+            console.error('DENEME 2 HATA:', clientError.message);
+            if (clientError.response) {
+              console.error('Client yanıt detayları:', clientError.response.status, JSON.stringify(clientError.response.data));
             }
-          }
-          
-          // İşlenen fotoğrafları ana veriye ekle
-          if (processedImages.length > 0) {
-            issueData.images = processedImages;
-            console.log(`${processedImages.length} fotoğraf işlendi ve yüklemeye hazır.`);
-          } else {
-            // Eğer hiçbir fotoğraf işlenemediyse, fotoğrafları kaldır
-            delete issueData.images;
-            console.warn('Hiçbir fotoğraf işlenemedi, fotoğraflar çıkarıldı.');
+            
+            // İki deneme de başarısız oldu, hata döndür
+            throw clientError || axiosError;
           }
         }
-        
-        const response = await client.post('/issues', issueData);
-        console.log('Issue created successfully, response:', response.data);
-        return { success: true, data: response.data };
       } catch (error) {
         console.error('Error creating issue:', error);
+        
+        // Detaylı hata bilgisi
+        if (error.response) {
+          console.error('HTTP status:', error.response.status);
+          console.error('Response data:', error.response.data);
+          
+          // 401/403 hataları için özel mesaj
+          if (error.response.status === 401 || error.response.status === 403) {
+            return { 
+              success: false, 
+              message: 'Yetkilendirme hatası: Lütfen tekrar giriş yapın', 
+              error: error.response.data,
+              authError: true
+            };
+          }
+          
+          // 400 hatası için özel mesaj
+          if (error.response.status === 400) {
+            return { 
+              success: false, 
+              message: 'Gönderilen verilerde hata: ' + (error.response.data.message || 'Geçersiz veri'), 
+              error: error.response.data,
+              dataError: true
+            };
+          }
+        }
+        
         return handleApiError(error);
       }
     },
