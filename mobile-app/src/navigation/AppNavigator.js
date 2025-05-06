@@ -13,6 +13,7 @@ import HomeScreen from '../screens/HomeScreen';
 import IssuesScreen from '../screens/IssuesScreen';
 import MyIssuesScreen from '../screens/MyIssuesScreen';
 import CreateReportScreen from '../screens/CreateReportScreen';
+import CreateIssueScreen from '../screens/CreateIssueScreen';
 import ReportDetailScreen from '../screens/ReportDetailScreen';
 import IssueDetailScreen from '../screens/IssueDetailScreen';
 import ProfileScreen from '../screens/ProfileScreen';
@@ -32,8 +33,16 @@ const AuthNavigator = () => {
         cardStyle: { backgroundColor: '#fff' }
       }}
     >
-      <Stack.Screen name="Login" component={LoginScreen} />
-      <Stack.Screen name="Register" component={RegisterScreen} />
+      <Stack.Screen 
+        name="Login" 
+        component={LoginScreen} 
+        key="login-screen" 
+      />
+      <Stack.Screen 
+        name="Register" 
+        component={RegisterScreen} 
+        key="register-screen" 
+      />
     </Stack.Navigator>
   );
 };
@@ -78,16 +87,19 @@ const TabNavigator = () => {
         name="Home" 
         component={HomeScreen} 
         options={{ tabBarLabel: 'Ana Sayfa' }}
+        key="home-tab"
       />
       <Tab.Screen 
         name="Issues" 
         component={IssuesScreen} 
         options={{ tabBarLabel: 'Sorunlar' }}
+        key="issues-tab"
       />
       <Tab.Screen 
         name="Profile" 
         component={ProfileScreen} 
         options={{ tabBarLabel: 'Profilim' }}
+        key="profile-tab"
       />
     </Tab.Navigator>
   );
@@ -102,11 +114,36 @@ const MainNavigator = () => {
         cardStyle: { backgroundColor: '#fff' }
       }}
     >
-      <Stack.Screen name="Tabs" component={TabNavigator} />
-      <Stack.Screen name="CreateReport" component={CreateReportScreen} />
-      <Stack.Screen name="ReportDetail" component={ReportDetailScreen} />
-      <Stack.Screen name="IssueDetail" component={IssueDetailScreen} />
-      <Stack.Screen name="MyIssues" component={MyIssuesScreen} />
+      <Stack.Screen 
+        name="Tabs" 
+        component={TabNavigator} 
+        key="tabs-screen" 
+      />
+      <Stack.Screen 
+        name="CreateReport" 
+        component={CreateReportScreen} 
+        key="create-report-screen" 
+      />
+      <Stack.Screen 
+        name="CreateIssue" 
+        component={CreateIssueScreen} 
+        key="create-issue-screen" 
+      />
+      <Stack.Screen 
+        name="ReportDetail" 
+        component={ReportDetailScreen} 
+        key="report-detail-screen" 
+      />
+      <Stack.Screen 
+        name="IssueDetail" 
+        component={IssueDetailScreen} 
+        key="issue-detail-screen" 
+      />
+      <Stack.Screen 
+        name="MyIssues" 
+        component={MyIssuesScreen} 
+        key="my-issues-screen" 
+      />
     </Stack.Navigator>
   );
 };
@@ -122,6 +159,7 @@ const AppNavigator = () => {
 
   return (
     <NavigationContainer
+      key="main-navigation-container"
       theme={{
         colors: {
           background: '#ffffff',

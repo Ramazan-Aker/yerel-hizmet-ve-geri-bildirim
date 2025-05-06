@@ -11,7 +11,9 @@ import {
   Image,
   ScrollView,
   Dimensions,
-  SafeAreaView
+  SafeAreaView,
+  StatusBar,
+  Alert
 } from 'react-native';
 import RNPickerSelect from 'react-native-picker-select';
 import { useAuth } from '../hooks/useAuth';
@@ -324,6 +326,11 @@ const IssuesScreen = ({ navigation }) => {
     });
   };
 
+  // Yeni bildirim oluşturma sayfasına git
+  const navigateToCreateIssue = () => {
+    navigation.navigate('CreateIssue');
+  };
+
   // Her bir sorun kartını render et
   const renderIssueItem = ({ item }) => (
     <TouchableOpacity 
@@ -602,12 +609,12 @@ const IssuesScreen = ({ navigation }) => {
         )
       )}
 
-      {/* Yeni Sorun Bildirme Butonu */}
-      <TouchableOpacity
-        style={styles.floatingButton}
-        onPress={() => navigation.navigate('CreateReport')}
+      {/* Yeni Sorun Ekleme Butonu */}
+      <TouchableOpacity 
+        style={styles.fab}
+        onPress={navigateToCreateIssue}
       >
-        <Icon name="add" size={30} color="#fff" />
+        <Icon name="add" size={24} color="#fff" />
       </TouchableOpacity>
     </SafeAreaView>
   );
@@ -799,21 +806,22 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 4,
   },
-  floatingButton: {
+  fab: {
     position: 'absolute',
-    bottom: 20,
-    right: 20,
-    backgroundColor: '#3b82f6',
     width: 56,
     height: 56,
     borderRadius: 28,
-    justifyContent: 'center',
+    backgroundColor: '#3b82f6',
+    right: 20,
+    bottom: 20,
     alignItems: 'center',
-    elevation: 5,
+    justifyContent: 'center',
+    elevation: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    zIndex: 100,
   },
   connectionStatusBar: {
     backgroundColor: '#ef4444',

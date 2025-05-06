@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, ActivityIndicator, Image } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, ActivityIndicator, Image, Platform, Modal, TouchableWithoutFeedback } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
 import * as Camera from 'expo-camera';
 import * as Location from 'expo-location';
+import * as FileSystem from 'expo-file-system';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import { cities } from '../data/cities';
@@ -15,10 +17,10 @@ const CreateIssueScreen = ({ navigation }) => {
   const { user } = useAuth();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [category, setCategory] = useState('infrastructure');
+  const [category, setCategory] = useState('');
   const [images, setImages] = useState([]);
-  const [city, setCity] = useState(user?.city || '');
-  const [district, setDistrict] = useState(user?.district || '');
+  const [city, setCity] = useState('');
+  const [district, setDistrict] = useState('');
   const [address, setAddress] = useState('');
   const [loading, setLoading] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -127,23 +129,41 @@ const CreateIssueScreen = ({ navigation }) => {
     return `Kamera ile Çek (${images.length}/3)`;
   };
 
+  // Fotoğrafları sıkıştırma ve yeniden boyutlandırma
+  const compressImage = async (uri) => {
+    try {
+      console.log('Resim sıkıştırılıyor:', uri.substring(0, 30) + '...');
+      
+      // Önce dosya boyutunu kontrol et
+      const fileInfo = await FileSystem.getInfoAsync(uri);
+      console.log('Orijinal dosya boyutu:', (fileInfo.size / 1024 / 1024).toFixed(2) + ' MB');
+      
+      // Resim sıkıştırma ve boyutlandırma işlemi
+      const manipResult = await manipulateAsync(
+        uri,
+        [{ resize: { width: 1080 } }], // 1080 genişliğe yeniden boyutlandır (yükseklik otomatik ayarlanır)
+        { compress: 0.7, format: SaveFormat.JPEG } // %70 sıkıştırma oranı
+      );
+      
+      // Yeni boyutu kontrol et
+      const compressedInfo = await FileSystem.getInfoAsync(manipResult.uri);
+      console.log('Sıkıştırılmış dosya boyutu:', (compressedInfo.size / 1024 / 1024).toFixed(2) + ' MB');
+      
+      return manipResult.uri;
+    } catch (error) {
+      console.error('Resim sıkıştırma hatası:', error);
+      return uri; // Hata durumunda orijinal URI'yi döndür
+    }
+  };
+
   // Galeriden fotoğraf seçme
   const pickImageFromGallery = async () => {
     try {
-      setImages(prevImages => {
-        // Mevcut fotoğraf sayısını doğrudan alın
-        const currentImagesCount = prevImages.length;
-        console.log('FOTOĞRAF EKLEME BAŞLADI, Mevcut sayı:', currentImagesCount);
-        
-        // En fazla 3 resim kontrolü
-        if (currentImagesCount >= 3) {
-          Alert.alert('Limit', 'En fazla 3 fotoğraf ekleyebilirsiniz.');
-          return prevImages; // Değişiklik yok, aynı değeri döndür
-        }
-        
-        // Async işlemler içinde yeni setImages çağrısı yapacağız
-        return prevImages;
-      });
+      // Mevcut fotoğraf sayısını kontrol et
+      if (images.length >= 3) {
+        Alert.alert('Limit', 'En fazla 3 fotoğraf ekleyebilirsiniz.');
+        return;
+      }
       
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       
@@ -152,60 +172,70 @@ const CreateIssueScreen = ({ navigation }) => {
         return;
       }
       
+      // Kaç fotoğraf daha seçilebileceğini hesapla
+      const remainingSlots = 3 - images.length;
+      
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
+        allowsEditing: false, // Çoklu seçim için editing kapalı olmalı
         aspect: [4, 3],
-        quality: 0.8,
-        allowsMultipleSelection: false, // Tek seferde bir resim ekleyelim
+        quality: 0.7, // Kalite düşürüldü
+        allowsMultipleSelection: true, // Birden fazla resim seçmeye izin ver
+        selectionLimit: remainingSlots, // En fazla kalan slot kadar seçilebilsin
       });
       
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        // Yeni fotoğrafı al
-        const newUri = result.assets[0].uri;
-        console.log('YENİ FOTOĞRAF SEÇİLDİ:', newUri.substring(0, 30) + '...');
+        // Yükleme göstergesi
+        setLoading(true);
         
-        // Fonksiyonel güncelleme kullanarak state'i güncelle
-        setImages(prevImages => {
-          // Eğer önceki resimlerle beraber 3'ü geçecekse eklemeyelim
-          if (prevImages.length >= 3) {
-            Alert.alert('Limit', 'En fazla 3 fotoğraf ekleyebilirsiniz.');
-            return prevImages;
-          }
+        try {
+          // Her resmi sıkıştır
+          const compressedImages = await Promise.all(
+            result.assets.map(async (asset) => {
+              const compressedUri = await compressImage(asset.uri);
+              return {
+                uri: compressedUri,
+                id: `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` // Benzersiz ID oluştur
+              };
+            })
+          );
           
-          // Yeni array oluştur ve yeni URI'yi ekle
-          const updatedImages = [...prevImages, newUri];
-          console.log('GÜNCELLENEN FOTOĞRAFLAR:', updatedImages.length);
-          return updatedImages;
-        });
+          console.log(`${compressedImages.length} YENİ FOTOĞRAF SEÇİLDİ VE SIKIŞTIRILDI`);
+          
+          // State'i güncelle - mevcut images'ı kopyala ve yenilerini ekle
+          const updatedImages = [...images, ...compressedImages];
+          console.log('GÜNCELLEME ÖNCESİ:', images.length, 'fotoğraf');
+          console.log('GÜNCELLEME SONRASI:', updatedImages.length, 'fotoğraf');
+          
+          // Doğrudan set et
+          setImages(updatedImages);
+        } catch (error) {
+          console.error('Resim sıkıştırma işlemi başarısız:', error);
+          Alert.alert('Hata', 'Resimler işlenirken bir hata oluştu.');
+        } finally {
+          setLoading(false);
+        }
       }
     } catch (error) {
       console.error('Galeriden fotoğraf seçme hatası:', error);
       Alert.alert('Hata', 'Fotoğraf seçilirken bir hata oluştu.');
+      setLoading(false);
     }
   };
 
   // Kamera ile fotoğraf çekme
   const takePictureWithCamera = async () => {
     try {
-      setImages(prevImages => {
-        // Mevcut fotoğraf sayısını doğrudan alın
-        const currentImagesCount = prevImages.length;
-        console.log('KAMERA BAŞLADI, Mevcut sayı:', currentImagesCount);
-        
-        // En fazla 3 resim kontrolü
-        if (currentImagesCount >= 3) {
-          Alert.alert('Limit', 'En fazla 3 fotoğraf ekleyebilirsiniz.');
-          return prevImages; // Değişiklik yok, aynı değeri döndür
-        }
-        
-        // Async işlemler içinde yeni setImages çağrısı yapacağız
-        return prevImages;
-      });
+      // Mevcut fotoğraf sayısını kontrol et
+      if (images.length >= 3) {
+        Alert.alert('Limit', 'En fazla 3 fotoğraf ekleyebilirsiniz.');
+        return;
+      }
       
-      const { status } = await Camera.requestCameraPermissionsAsync();
+      // Kamera izinlerini kontrol et - Güncel expo-camera API'si ile
+      const cameraPermission = await ImagePicker.requestCameraPermissionsAsync();
       
-      if (status !== 'granted') {
+      if (cameraPermission.status !== 'granted') {
         Alert.alert('İzin Gerekli', 'Kamera erişim izni vermeniz gerekiyor.');
         return;
       }
@@ -213,50 +243,53 @@ const CreateIssueScreen = ({ navigation }) => {
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: true,
         aspect: [4, 3],
-        quality: 0.8,
+        quality: 0.7, // Kalite düşürüldü
       });
       
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        // Yeni fotoğrafı al
-        const newUri = result.assets[0].uri;
-        console.log('YENİ FOTOĞRAF ÇEKİLDİ:', newUri.substring(0, 30) + '...');
+        // Yükleme göstergesi
+        setLoading(true);
         
-        // Fonksiyonel güncelleme kullanarak state'i güncelle
-        setImages(prevImages => {
-          // Eğer önceki resimlerle beraber 3'ü geçecekse eklemeyelim
-          if (prevImages.length >= 3) {
-            Alert.alert('Limit', 'En fazla 3 fotoğraf ekleyebilirsiniz.');
-            return prevImages;
-          }
+        try {
+          // Resmi sıkıştır
+          const newUri = result.assets[0].uri;
+          const compressedUri = await compressImage(newUri);
           
-          // Yeni array oluştur ve yeni URI'yi ekle
-          const updatedImages = [...prevImages, newUri];
-          console.log('GÜNCELLENEN FOTOĞRAFLAR:', updatedImages.length);
-          return updatedImages;
-        });
+          const newImageWithId = {
+            uri: compressedUri,
+            id: `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` // Benzersiz ID oluştur
+          };
+          
+          console.log('YENİ FOTOĞRAF ÇEKİLDİ VE SIKIŞTIRILDI');
+          
+          // Mevcut tüm fotoğrafları ve yeni eklenen fotoğrafı içeren yeni bir dizi oluştur
+          const updatedImages = [...images, newImageWithId];
+          console.log('KAMERA - GÜNCELLEME ÖNCESİ:', images.length, 'fotoğraf');
+          console.log('KAMERA - GÜNCELLEME SONRASI:', updatedImages.length, 'fotoğraf');
+          
+          // State'i güncelle
+          setImages(updatedImages);
+        } catch (error) {
+          console.error('Resim sıkıştırma işlemi başarısız:', error);
+          Alert.alert('Hata', 'Resim işlenirken bir hata oluştu.');
+        } finally {
+          setLoading(false);
+        }
       }
     } catch (error) {
       console.error('Kamera ile fotoğraf çekme hatası:', error);
       Alert.alert('Hata', 'Fotoğraf çekilirken bir hata oluştu.');
+      setLoading(false);
     }
   };
 
-  // Fotoğraf silme fonksiyonu - fonksiyonel güncelleme kullanıyoruz
+  // Fotoğraf silme fonksiyonu
   const removeImage = (index) => {
-    // Fonksiyonel güncelleme kullanarak state'i güncelle
-    setImages(prevImages => {
-      console.log('SİLME ÖNCESİ FOTOĞRAF SAYISI:', prevImages.length);
-      
-      // Yeni bir kopya oluştur
-      const updatedImages = [...prevImages];
-      
-      // Belirtilen indeksteki fotoğrafı çıkart
-      updatedImages.splice(index, 1);
-      console.log('SİLME SONRASI FOTOĞRAF SAYISI:', updatedImages.length);
-      
-      // Yeni diziyi döndür
-      return updatedImages;
-    });
+    // Yeni bir kopya oluştur ve seçilen fotoğrafı kaldır
+    const updatedImages = [...images];
+    updatedImages.splice(index, 1);
+    setImages(updatedImages);
+    console.log('FOTOĞRAF SİLİNDİ, YENİ SAYISI:', updatedImages.length);
   };
 
   const handleSubmit = async () => {
@@ -273,6 +306,23 @@ const CreateIssueScreen = ({ navigation }) => {
     setLoading(true);
 
     try {
+      // Resimleri tekrar sıkıştır (güvenlik için)
+      let processedImages = [];
+      
+      if (images.length > 0) {
+        try {
+          for (const img of images) {
+            const uri = typeof img === 'object' ? img.uri : img;
+            const compressedUri = await compressImage(uri);
+            processedImages.push(compressedUri);
+          }
+        } catch (err) {
+          console.error('Son sıkıştırmada hata:', err);
+          // Hataya rağmen orijinal resimleri kullan
+          processedImages = images.map(img => typeof img === 'object' ? img.uri : img);
+        }
+      }
+
       const formData = {
         title,
         description,
@@ -284,10 +334,13 @@ const CreateIssueScreen = ({ navigation }) => {
           coordinates: coordinates ? [coordinates.longitude, coordinates.latitude] : undefined,
           type: 'Point'
         },
-        images
+        images: processedImages
       };
 
-      console.log('Gönderilen veri:', JSON.stringify(formData, null, 2));
+      console.log('Gönderilen veri:', JSON.stringify({
+        ...formData, 
+        images: `${formData.images.length} fotoğraf`
+      }, null, 2));
       
       const response = await api.issues.create(formData);
       
@@ -299,7 +352,7 @@ const CreateIssueScreen = ({ navigation }) => {
         // Reset form
         setTitle('');
         setDescription('');
-        setCategory('infrastructure');
+        setCategory('');
         setImages([]);
         setAddress('');
         setCoordinates(null);
@@ -309,7 +362,7 @@ const CreateIssueScreen = ({ navigation }) => {
       }
     } catch (error) {
       console.error('Sorun gönderme hatası:', error);
-      Alert.alert('Hata', error.message || 'Sorun bildirilirken bir hata oluştu.');
+      Alert.alert('Hata', 'Sorun bildirilirken bir hata oluştu: ' + (error.message || 'Bilinmeyen hata'));
     } finally {
       setLoading(false);
     }
@@ -325,8 +378,96 @@ const CreateIssueScreen = ({ navigation }) => {
     { value: 'other', label: 'Diğer' }
   ];
 
+  // Add state for picker modals
+  const [pickerVisible, setPickerVisible] = useState(false);
+  const [currentPicker, setCurrentPicker] = useState(null);
+  
+  // Add temporary states for picker values
+  const [tempCategory, setTempCategory] = useState('');
+  const [tempCity, setTempCity] = useState('');
+  const [tempDistrict, setTempDistrict] = useState('');
+
+  // Function to open the specific picker
+  const openPicker = (picker) => {
+    setCurrentPicker(picker);
+    // Initialize temp values with current values
+    if (picker === 'category') setTempCategory(category || '');
+    else if (picker === 'city') setTempCity(city || '');
+    else if (picker === 'district') setTempDistrict(district || '');
+    setPickerVisible(true);
+  };
+
+  // Function to close the picker
+  const closePicker = (saveValue = false) => {
+    if (saveValue && currentPicker) {
+      // Save the selected temp value based on picker type
+      switch (currentPicker) {
+        case 'category':
+          if (tempCategory !== category) {
+            setCategory(tempCategory);
+          }
+          break;
+        case 'city':
+          if (tempCity !== city) {
+            setCity(tempCity);
+            // Reset district if city changes
+            setDistrict('');
+          }
+          break;
+        case 'district':
+          if (tempDistrict !== district) {
+            setDistrict(tempDistrict);
+          }
+          break;
+      }
+    }
+    setPickerVisible(false);
+    setTimeout(() => {
+      setCurrentPicker(null);
+    }, 200); // Kısa bir gecikme ekleyerek animasyonun tamamlanmasını bekleyin
+  };
+
+  // Log images length after every render
+  useEffect(() => {
+    console.log('RENDER: images.length =', images.length);
+    if (images.length > 0) {
+      // Görüntünün URI'sini al (nesne veya dize olabilir)
+      const firstImageUri = typeof images[0] === 'object' ? images[0].uri : images[0];
+      console.log('RENDER: ilk resim URI =', firstImageUri.substring(0, 30) + '...');
+    }
+  }, [images]);
+
+  // Custom Picker Button Component
+  const CustomPickerButton = ({ label, value, onPress, placeholder }) => {
+    // Kategori için görüntülenecek değeri bul
+    let displayValue = value;
+    if (label === "Kategori" && value) {
+      const foundCategory = categories.find(c => c.value === value);
+      displayValue = foundCategory ? foundCategory.label : '';
+    }
+    
+    return (
+      <TouchableOpacity
+        style={[
+          styles.customPickerButton,
+          !displayValue && styles.customPickerButtonEmpty
+        ]}
+        onPress={onPress}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.pickerButtonLabel}>{label}</Text>
+        <View style={styles.pickerValueContainer}>
+          <Text style={displayValue ? styles.pickerValue : styles.pickerPlaceholder}>
+            {displayValue || placeholder}
+          </Text>
+          <Ionicons name="chevron-down" size={20} color="#666" />
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
       <View style={styles.formContainer}>
         <Text style={styles.title}>Yeni Sorun Bildirimi</Text>
         
@@ -352,53 +493,124 @@ const CreateIssueScreen = ({ navigation }) => {
           />
         </View>
         
+        {/* Kategori - Özelleştirilmiş buton */}
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Kategori</Text>
-          <View style={styles.pickerContainer}>
-            <Picker
-              selectedValue={category}
-              onValueChange={(itemValue) => setCategory(itemValue)}
-              style={styles.picker}
-            >
-              {categories.map((cat) => (
-                <Picker.Item key={cat.value} label={cat.label} value={cat.value} />
-              ))}
-            </Picker>
-          </View>
+          <CustomPickerButton 
+            label="Kategori" 
+            value={category} 
+            placeholder="Kategori Seçin"
+            onPress={() => openPicker('category')} 
+          />
         </View>
         
+        {/* Şehir - Özelleştirilmiş buton */}
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Şehir</Text>
-          <View style={styles.pickerContainer}>
-            <Picker
-              selectedValue={city}
-              onValueChange={(itemValue) => setCity(itemValue)}
-              style={styles.picker}
-            >
-              <Picker.Item label="Şehir seçin" value="" />
-              {cities.map((cityName) => (
-                <Picker.Item key={cityName} label={cityName} value={cityName} />
-              ))}
-            </Picker>
-          </View>
+          <CustomPickerButton 
+            label="Şehir" 
+            value={city} 
+            placeholder="Şehir Seçin"
+            onPress={() => openPicker('city')} 
+          />
         </View>
         
+        {/* İlçe - Özelleştirilmiş buton */}
         <View style={styles.inputGroup}>
           <Text style={styles.label}>İlçe</Text>
-          <View style={styles.pickerContainer}>
-            <Picker
-              selectedValue={district}
-              onValueChange={(itemValue) => setDistrict(itemValue)}
-              style={styles.picker}
-              enabled={districts.length > 0}
-            >
-              <Picker.Item label={districts.length > 0 ? "İlçe seçin" : "Önce şehir seçin"} value="" />
-              {districts.map((districtName) => (
-                <Picker.Item key={districtName} label={districtName} value={districtName} />
-              ))}
-            </Picker>
-          </View>
+          <CustomPickerButton 
+            label="İlçe" 
+            value={district} 
+            placeholder={districts.length > 0 ? "İlçe Seçin" : "Önce şehir seçin"}
+            onPress={() => districts.length > 0 ? openPicker('district') : null} 
+          />
         </View>
+        
+        {/* Picker Modal */}
+        <Modal
+          visible={pickerVisible}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => closePicker(false)}
+        >
+          <TouchableWithoutFeedback onPress={() => closePicker(false)}>
+            <View style={styles.modalOverlay}>
+              <TouchableWithoutFeedback>
+                <View style={styles.modalContent}>
+                  <View style={styles.modalHeader}>
+                    <TouchableOpacity 
+                      onPress={() => closePicker(false)} 
+                      style={styles.modalCloseButton}
+                    >
+                      <Text style={styles.modalCloseText}>İptal</Text>
+                    </TouchableOpacity>
+                    <Text style={styles.modalTitle}>
+                      {currentPicker === 'category' ? 'Kategori Seçin' : 
+                       currentPicker === 'city' ? 'Şehir Seçin' : 
+                       currentPicker === 'district' ? 'İlçe Seçin' : ''}
+                    </Text>
+                    <TouchableOpacity 
+                      onPress={() => closePicker(true)} 
+                      style={styles.modalSaveButton}
+                    >
+                      <Text style={styles.modalSaveText}>Tamam</Text>
+                    </TouchableOpacity>
+                  </View>
+                  
+                  <View style={styles.pickerContainer}>
+                    {currentPicker === 'category' && (
+                      <Picker
+                        selectedValue={tempCategory}
+                        onValueChange={(value) => setTempCategory(value)}
+                        style={[styles.modalPicker, Platform.OS === 'android' ? styles.androidPicker : {}]}
+                        itemStyle={styles.pickerItem}
+                        mode={Platform.OS === 'android' ? 'dropdown' : 'dialog'}
+                        dropdownIconColor="#333"
+                      >
+                        <Picker.Item label="Kategori seçin" value="" color="#999" />
+                        {categories.map((cat) => (
+                          <Picker.Item key={cat.value} label={cat.label} value={cat.value} color="#333" />
+                        ))}
+                      </Picker>
+                    )}
+                    
+                    {currentPicker === 'city' && (
+                      <Picker
+                        selectedValue={tempCity}
+                        onValueChange={(value) => setTempCity(value)}
+                        style={[styles.modalPicker, Platform.OS === 'android' ? styles.androidPicker : {}]}
+                        itemStyle={styles.pickerItem}
+                        mode={Platform.OS === 'android' ? 'dropdown' : 'dialog'}
+                        dropdownIconColor="#333"
+                      >
+                        <Picker.Item label="Şehir seçin" value="" color="#999" />
+                        {cities.map((cityName) => (
+                          <Picker.Item key={cityName} label={cityName} value={cityName} color="#333" />
+                        ))}
+                      </Picker>
+                    )}
+                    
+                    {currentPicker === 'district' && (
+                      <Picker
+                        selectedValue={tempDistrict}
+                        onValueChange={(value) => setTempDistrict(value)}
+                        style={[styles.modalPicker, Platform.OS === 'android' ? styles.androidPicker : {}]}
+                        itemStyle={styles.pickerItem}
+                        mode={Platform.OS === 'android' ? 'dropdown' : 'dialog'}
+                        dropdownIconColor="#333"
+                      >
+                        <Picker.Item label="İlçe seçin" value="" color="#999" />
+                        {districts.map((districtName) => (
+                          <Picker.Item key={districtName} label={districtName} value={districtName} color="#333" />
+                        ))}
+                      </Picker>
+                    )}
+                  </View>
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
         
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Adres</Text>
@@ -445,7 +657,7 @@ const CreateIssueScreen = ({ navigation }) => {
         )}
         
         <View style={styles.imageSection}>
-          <Text style={styles.label}>Fotoğraflar (Maksimum 3)</Text>
+          <Text style={styles.label}>Fotoğraflar (Maksimum 3) - Mevcut: {images.length}</Text>
           
           <View style={styles.photoButtonsContainer}>
             <TouchableOpacity 
@@ -476,21 +688,32 @@ const CreateIssueScreen = ({ navigation }) => {
               <Text style={styles.buttonText}>
                 {getTakePhotoLabel()}
               </Text>
-          </TouchableOpacity>
+            </TouchableOpacity>
           </View>
           
           {/* Fotoğraf ön izleme bölümü */}
+          <View style={styles.imagePreviewArea}>
             {images.length > 0 ? (
             <View style={styles.imagesContainer}>
-              {images.map((uri, index) => (
-                <View key={index} style={styles.imagePreview}>
-                  <Image source={{ uri }} style={styles.previewImage} />
+              {images.map((image, index) => (
+                <View 
+                  key={typeof image === 'object' ? image.id : `img-${index}`} 
+                  style={styles.imagePreview}
+                >
+                  <Image 
+                    source={{ uri: typeof image === 'object' ? image.uri : image }} 
+                    style={styles.previewImage} 
+                    onError={(e) => console.error(`Resim yükleme hatası (${index}):`, e.nativeEvent.error)}
+                  />
                   <TouchableOpacity 
                     style={styles.removeImageButton}
                     onPress={() => removeImage(index)}
                   >
                     <Ionicons name="close-circle" size={24} color="red" />
                   </TouchableOpacity>
+                  <View style={styles.imageIndexBadge}>
+                    <Text style={styles.imageIndexText}>{index + 1}</Text>
+                  </View>
                 </View>
               ))}
               
@@ -504,8 +727,9 @@ const CreateIssueScreen = ({ navigation }) => {
             ) : (
             <View style={styles.imagePreviewContainer}>
               <Text style={styles.noImageText}>Fotoğraf eklenmedi</Text>
+            </View>
+            )}
           </View>
-          )}
           
           {images.length > 0 && (
             <Text style={styles.imageCount}>
@@ -568,10 +792,7 @@ const styles = StyleSheet.create({
   },
   pickerContainer: {
     backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    overflow: 'hidden',
+    width: '100%',
   },
   picker: {
     height: 50,
@@ -695,6 +916,126 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     justifyContent: 'center',
     alignItems: 'center'
+  },
+  imagePreviewArea: {
+    marginBottom: 20,
+  },
+  imageIndexBadge: {
+    position: 'absolute',
+    top: -10,
+    left: -10,
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 2,
+  },
+  imageIndexText: {
+    color: '#555',
+    fontWeight: 'bold',
+  },
+  customPickerButton: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 10,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+  },
+  customPickerButtonEmpty: {
+    borderColor: '#ccc',
+    borderStyle: 'dashed',
+  },
+  pickerButtonLabel: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 4,
+  },
+  pickerValueContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  pickerValue: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '500',
+  },
+  pickerPlaceholder: {
+    fontSize: 16,
+    color: '#999',
+    fontStyle: 'italic',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingBottom: Platform.OS === 'ios' ? 30 : 0,
+    maxHeight: '60%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  modalCloseButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    minWidth: 60,
+    alignItems: 'center',
+  },
+  modalCloseText: {
+    color: '#ff3b30',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  modalSaveButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    minWidth: 60,
+    alignItems: 'center',
+  },
+  modalSaveText: {
+    color: '#007aff',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '500',
+    color: '#333',
+    textAlign: 'center',
+    flex: 1,
+  },
+  modalPicker: {
+    height: 215,
+    width: '100%',
+  },
+  androidPicker: {
+    color: '#333',
+    backgroundColor: '#f9f9f9',
+    height: 50,
+    marginTop: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    justifyContent: 'center',
+  },
+  pickerItem: {
+    fontSize: 16,
+    color: '#333',
   },
 });
 

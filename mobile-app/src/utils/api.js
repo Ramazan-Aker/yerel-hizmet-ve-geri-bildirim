@@ -411,11 +411,11 @@ const DEBUG_MODE = false;
 client.interceptors.request.use(
   async (config) => {
     if (DEBUG_MODE) {
-      console.log(`API İsteği: ${config.method.toUpperCase()} ${config.url}`);
-      
-      // İstek verilerini logla
-      if (config.data) {
-        console.log('İstek verisi:', config.data);
+    console.log(`API İsteği: ${config.method.toUpperCase()} ${config.url}`);
+    
+    // İstek verilerini logla
+    if (config.data) {
+      console.log('İstek verisi:', config.data);
       }
     }
     
@@ -437,30 +437,30 @@ client.interceptors.request.use(
 client.interceptors.response.use(
   (response) => {
     if (DEBUG_MODE) {
-      console.log(`API Yanıtı: ${response.status} ${response.config.url}`);
-      
-      // Response içeriğini analiz et (hata ayıklama için)
-      try {
-        if (response.data) {
-          // Veri büyükse özet bilgi göster
-          if (typeof response.data === 'object') {
-            const dataType = Array.isArray(response.data) ? 'array' : 'object';
-            const dataSize = JSON.stringify(response.data).length;
-            console.log(`Yanıt tipi: ${dataType}, boyut: ${dataSize} bytes`);
-            
-            // Sayfa bilgisi veya başarı durumu varsa göster
-            if (response.data.success !== undefined) {
-              console.log(`Yanıt başarılı: ${response.data.success}`);
-            }
-            
-            // Data array içeriyorsa uzunluğunu göster
-            if (response.data.data && Array.isArray(response.data.data)) {
-              console.log(`Veri sayısı: ${response.data.data.length}`);
-            }
+    console.log(`API Yanıtı: ${response.status} ${response.config.url}`);
+    
+    // Response içeriğini analiz et (hata ayıklama için)
+    try {
+      if (response.data) {
+        // Veri büyükse özet bilgi göster
+        if (typeof response.data === 'object') {
+          const dataType = Array.isArray(response.data) ? 'array' : 'object';
+          const dataSize = JSON.stringify(response.data).length;
+          console.log(`Yanıt tipi: ${dataType}, boyut: ${dataSize} bytes`);
+          
+          // Sayfa bilgisi veya başarı durumu varsa göster
+          if (response.data.success !== undefined) {
+            console.log(`Yanıt başarılı: ${response.data.success}`);
+          }
+          
+          // Data array içeriyorsa uzunluğunu göster
+          if (response.data.data && Array.isArray(response.data.data)) {
+            console.log(`Veri sayısı: ${response.data.data.length}`);
           }
         }
-      } catch (e) {
-        console.warn('Yanıt verisi analiz edilemedi:', e.message);
+      }
+    } catch (e) {
+      console.warn('Yanıt verisi analiz edilemedi:', e.message);
       }
     }
     
@@ -524,10 +524,10 @@ client.interceptors.response.use(
         if (DEBUG_MODE) console.error('Maksimum yeniden deneme sayısına ulaşıldı:', config.retry);
         
         // Network Error sonrası custom error
-        const customError = new Error('API bağlantısı kurulamadı');
-        customError.originalError = error;
-        
-        return Promise.reject(customError);
+      const customError = new Error('API bağlantısı kurulamadı');
+      customError.originalError = error;
+      
+      return Promise.reject(customError);
       }
       
       // Retry sayacını artır
