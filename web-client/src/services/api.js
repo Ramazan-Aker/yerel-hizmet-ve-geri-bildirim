@@ -93,10 +93,44 @@ export const authService = {
 export const issueService = {
   getAllIssues: async (filters = {}) => {
     try {
-      // Şehir için otomatik filtre ekleme kaldırıldı - kullanıcı tercihine bırakıldı
-      
       console.log('Sorunlar için API isteği gönderiliyor, filtreler:', filters);
-      const response = await apiClient.get('/issues', { params: filters });
+      
+      // Boş string değerleri temizle
+      const cleanedFilters = {};
+      Object.keys(filters).forEach(key => {
+        if (filters[key] !== '' && filters[key] !== null && filters[key] !== undefined) {
+          cleanedFilters[key] = filters[key];
+        }
+      });
+      
+      // Türkçe-İngilizce çevirileri yap
+      if (cleanedFilters.status) {
+        const statusMapping = {
+          'Yeni': 'pending',
+          'İnceleniyor': 'in_progress',
+          'Çözüldü': 'resolved',
+          'Reddedildi': 'rejected'
+        };
+        
+        if (statusMapping[cleanedFilters.status]) {
+          cleanedFilters.status = statusMapping[cleanedFilters.status];
+        }
+      }
+      
+      if (cleanedFilters.severity) {
+        const severityMapping = {
+          'Düşük': 'low',
+          'Orta': 'medium',
+          'Yüksek': 'high',
+          'Kritik': 'critical'
+        };
+        
+        if (severityMapping[cleanedFilters.severity]) {
+          cleanedFilters.severity = severityMapping[cleanedFilters.severity];
+        }
+      }
+      
+      const response = await apiClient.get('/issues', { params: cleanedFilters });
       return response.data;
     } catch (error) {
       throw error.response?.data?.message || 'Sorunlar alınamadı';
@@ -379,6 +413,32 @@ export const issueService = {
       return response.data;
     } catch (error) {
       throw error.response?.data?.message || 'Yorum eklenemedi';
+    }
+  },
+  
+  // Yoruma cevap verme fonksiyonu
+  addReply: async (issueId, commentId, replyText) => {
+    try {
+      const response = await apiClient.post(`/issues/${issueId}/comments/${commentId}/replies`, { 
+        content: replyText 
+      });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data?.message || 'Cevap eklenemedi';
+    }
+  },
+  
+  // Yorum beğenme fonksiyonu
+  likeComment: async (issueId, commentId, isReply = false) => {
+    try {
+      const endpoint = isReply 
+        ? `/issues/${issueId}/comments/replies/${commentId}/like` 
+        : `/issues/${issueId}/comments/${commentId}/like`;
+        
+      const response = await apiClient.put(endpoint);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data?.message || 'Yorum beğenilemedi';
     }
   }
 };

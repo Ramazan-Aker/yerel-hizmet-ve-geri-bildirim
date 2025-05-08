@@ -50,6 +50,9 @@ const IssueDetailPage = () => {
   const [comment, setComment] = useState('');
   const [submittingComment, setSubmittingComment] = useState(false);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [replyTo, setReplyTo] = useState(null);
+  const [replyText, setReplyText] = useState('');
+  const [submittingReply, setSubmittingReply] = useState(false);
 
   useEffect(() => {
     const fetchIssue = async () => {
@@ -117,6 +120,44 @@ const IssueDetailPage = () => {
       alert('Yorum gönderilirken bir hata oluştu: ' + (err.message || err));
     } finally {
       setSubmittingComment(false);
+    }
+  };
+
+  const handleSubmitReply = async (commentId) => {
+    if (!replyText.trim()) return;
+    
+    setSubmittingReply(true);
+    
+    try {
+      // API'ye cevap gönder - backend'de buna uygun endpoint oluşturulmalı
+      await issueService.addReply(id, commentId, replyText);
+      
+      // Güncel verileri yeniden yükle
+      const response = await issueService.getIssueById(id);
+      setIssue(response.data);
+      
+      // Form durumunu sıfırla
+      setReplyTo(null);
+      setReplyText('');
+    } catch (err) {
+      console.error('Cevap gönderme hatası:', err);
+      alert('Cevap gönderilirken bir hata oluştu: ' + (err.message || err));
+    } finally {
+      setSubmittingReply(false);
+    }
+  };
+
+  const handleLikeComment = async (commentId) => {
+    try {
+      // API'ye beğeni gönder - backend'de buna uygun endpoint oluşturulmalı
+      await issueService.likeComment(id, commentId);
+      
+      // Güncel verileri yeniden yükle
+      const response = await issueService.getIssueById(id);
+      setIssue(response.data);
+    } catch (err) {
+      console.error('Beğeni hatası:', err);
+      alert('Yorum beğenilirken bir hata oluştu: ' + (err.message || err));
     }
   };
 
@@ -297,39 +338,63 @@ const IssueDetailPage = () => {
           <div className="mb-8">
             <h2 className="text-xl font-semibold mb-3">Konum</h2>
             <div className="bg-white rounded-lg border border-gray-200 p-5">
-              <div className="flex flex-col md:flex-row justify-between gap-4">
-                <div>
-                  <div className="mb-3">
-                    <span className="text-gray-500 text-sm">İl:</span>
-                    <p className="font-medium">{issue.location?.city || 'Belirtilmemiş'}</p>
+              {issue.location ? (
+                <div className="flex flex-col md:flex-row justify-between gap-4">
+                  <div className="flex flex-col space-y-2">
+                    <div className="flex items-center">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      <span className="text-gray-700">
+                        {issue.location.city && issue.location.district
+                          ? `${issue.location.city}, ${issue.location.district}` 
+                          : 'Şehir/İlçe bilgisi yok'}
+                      </span>
+                    </div>
+                    
+                    {issue.location.address && (
+                      <div className="flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                        </svg>
+                        <span className="text-gray-700">{issue.location.address}</span>
+                      </div>
+                    )}
+                    
+                    {issue.location.directionInfo && (
+                      <div className="flex items-start mt-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-500 mr-2 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                        </svg>
+                        <div>
+                          <span className="font-medium text-gray-700">Adres Tarifi:</span>
+                          <p className="text-gray-700 whitespace-pre-line mt-1">{issue.location.directionInfo}</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <div className="mb-3">
-                    <span className="text-gray-500 text-sm">İlçe:</span>
-                    <p className="font-medium">{issue.location?.district || 'Belirtilmemiş'}</p>
-                  </div>
-                  <div>
-                    <span className="text-gray-500 text-sm">Adres:</span>
-                    <p className="font-medium">{issue.location?.address || 'Belirtilmemiş'}</p>
-                  </div>
+                  
+                  {/* Harita - koordinatlar varsa göster */}
+                  {issue.location.coordinates && issue.location.coordinates.length === 2 && (
+                    <div className="w-full md:w-96 h-64 overflow-hidden rounded-lg border border-gray-200 mt-4 md:mt-0">
+                      <MapContainer 
+                        center={[issue.location.coordinates[1], issue.location.coordinates[0]]} 
+                        zoom={15} 
+                        style={{ height: '100%', width: '100%' }}
+                      >
+                        <TileLayer
+                          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                        />
+                        <Marker position={[issue.location.coordinates[1], issue.location.coordinates[0]]} />
+                      </MapContainer>
+                    </div>
+                  )}
                 </div>
-                
-                {/* Harita - koordinatlar varsa göster */}
-                {issue.location && issue.location.coordinates && issue.location.coordinates.length === 2 && (
-                  <div className="w-full md:w-96 h-64 overflow-hidden rounded-lg border border-gray-200">
-                    <MapContainer 
-                      center={[issue.location.coordinates[1], issue.location.coordinates[0]]} 
-                      zoom={15} 
-                      style={{ height: '100%', width: '100%' }}
-                    >
-                      <TileLayer
-                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                      />
-                      <Marker position={[issue.location.coordinates[1], issue.location.coordinates[0]]} />
-                    </MapContainer>
-                  </div>
-                )}
-              </div>
+              ) : (
+                <p className="text-gray-500 italic">Konum bilgisi bulunamadı.</p>
+              )}
             </div>
           </div>
           
@@ -340,105 +405,6 @@ const IssueDetailPage = () => {
             <div className="relative pl-6 border-l-2 border-gray-200">
               {/* Assuming updates are not provided in the dummyIssue */}
             </div>
-          </div>
-          
-          {/* Yorumlar Bölümü */}
-          <div className="mb-8">
-            <h2 className="text-xl font-semibold mb-3">Yorumlar {issue.comments && issue.comments.length > 0 && `(${issue.comments.length})`}</h2>
-            
-            {/* Yorum Formu */}
-            <form onSubmit={handleSubmitComment} className="mb-6">
-              <div className="flex space-x-3">
-                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
-                  {user?.profileImage ? (
-                    <img 
-                      src={user.profileImage} 
-                      alt={user.name} 
-                      className="w-10 h-10 rounded-full"
-                      onError={(e) => { 
-                        e.target.src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(user.name) + '&background=random'; 
-                      }}
-                    />
-                  ) : (
-                    <span className="text-lg font-bold text-gray-500">{user?.name?.charAt(0) || '?'}</span>
-                  )}
-                </div>
-                <div className="flex-grow">
-              <textarea
-                value={comment}
-                onChange={(e) => setComment(e.target.value)}
-                    placeholder="Yorumunuzu buraya yazın..."
-                    className="w-full border border-gray-300 rounded-lg p-3 h-24 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    disabled={submittingComment || !user}
-              ></textarea>
-                  
-                  {!user && (
-                    <p className="text-sm text-red-500 mt-1">
-                      Yorum yapabilmek için <Link to="/login" className="font-bold underline">giriş yapmalısınız</Link>.
-                    </p>
-                  )}
-                  
-                  <div className="flex justify-end">
-              <button
-                type="submit"
-                      className="mt-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                      disabled={submittingComment || !comment.trim() || !user}
-              >
-                      {submittingComment ? (
-                        <>
-                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>
-                          Gönderiliyor...
-                        </>
-                      ) : 'Gönder'}
-              </button>
-                  </div>
-                </div>
-              </div>
-            </form>
-            
-            {/* Yorumlar Listesi */}
-            {issue.comments && issue.comments.length > 0 ? (
-              <div className="space-y-6">
-                {issue.comments.map((comment, index) => (
-                  <div key={comment._id || index} className="flex space-x-3">
-                    <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
-                      {comment.user?.profileImage ? (
-                        <img 
-                          src={comment.user.profileImage} 
-                          alt={comment.user.name}
-                          className="w-10 h-10 rounded-full" 
-                          onError={(e) => { 
-                            e.target.src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(comment.user.name) + '&background=random'; 
-                          }}
-                        />
-                      ) : (
-                        <span className="text-lg font-bold text-gray-500">{comment.user?.name?.charAt(0) || '?'}</span>
-                      )}
-                    </div>
-                    <div className="flex-grow bg-gray-50 rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <div>
-                          <span className="font-medium text-sm">{comment.user?.name || 'Anonim Kullanıcı'}</span>
-                          <span className="mx-2 text-gray-300">•</span>
-                          <span className="text-xs text-gray-500">{formatRelativeTime(comment.createdAt)}</span>
-                        </div>
-                      </div>
-                      <p className="text-gray-700 whitespace-pre-line">{comment.content || comment.text}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8 bg-gray-50 rounded-lg">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-gray-400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-                </svg>
-                <p className="text-gray-500">Henüz yorum yapılmamış. İlk yorumu siz yapın!</p>
-              </div>
-            )}
           </div>
           
           {/* Geri Düğmesi */}
@@ -457,22 +423,225 @@ const IssueDetailPage = () => {
         
         {/* Sağ kolon - Harita ve Ek Bilgiler */}
         <div>
-          {/* Harita */}
+          {/* Yorumlar Bölümü - Moved from main column to sidebar */}
           <div className="bg-white shadow-md rounded-lg overflow-hidden mb-6">
-            <h2 className="text-lg font-semibold p-4 border-b">Konum</h2>
-            <div className="h-80">
-              <MapContainer 
-                center={issue.location.coordinates} 
-                zoom={15} 
-                style={{ height: '100%', width: '100%' }}
-                scrollWheelZoom={false}
-              >
-                <TileLayer
-                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                />
-                <Marker position={issue.location.coordinates} />
-              </MapContainer>
+            <h2 className="text-lg font-semibold p-4 border-b">Yorumlar {issue.comments && issue.comments.length > 0 && `(${issue.comments.length})`}</h2>
+            <div className="p-4">
+              {/* Yorum Formu */}
+              <form onSubmit={handleSubmitComment} className="mb-6">
+                <div className="flex space-x-3">
+                  <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
+                    {user?.profileImage ? (
+                      <img 
+                        src={user.profileImage} 
+                        alt={user.name} 
+                        className="w-10 h-10 rounded-full"
+                        onError={(e) => { 
+                          e.target.src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(user.name) + '&background=random'; 
+                        }}
+                      />
+                    ) : (
+                      <span className="text-lg font-bold text-gray-500">{user?.name?.charAt(0) || '?'}</span>
+                    )}
+                  </div>
+                  <div className="flex-grow">
+                    <textarea
+                      value={comment}
+                      onChange={(e) => setComment(e.target.value)}
+                      placeholder="Yorumunuzu buraya yazın..."
+                      className="w-full border border-gray-300 rounded-lg p-3 h-24 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      disabled={submittingComment || !user}
+                    ></textarea>
+                    
+                    {!user && (
+                      <p className="text-sm text-red-500 mt-1">
+                        Yorum yapabilmek için <Link to="/login" className="font-bold underline">giriş yapmalısınız</Link>.
+                      </p>
+                    )}
+                    
+                    <div className="flex justify-end">
+                      <button
+                        type="submit"
+                        className="mt-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={submittingComment || !comment.trim() || !user}
+                      >
+                        {submittingComment ? (
+                          <>
+                            <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Gönderiliyor...
+                          </>
+                        ) : 'Gönder'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </form>
+              
+              {/* Yorumlar Listesi */}
+              {issue.comments && issue.comments.length > 0 ? (
+                <div className="space-y-6">
+                  {issue.comments.map((comment, index) => (
+                    <div key={comment._id || index} className="comment-container">
+                      <div className="flex space-x-3">
+                        <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
+                          {comment.user?.profileImage ? (
+                            <img 
+                              src={comment.user.profileImage} 
+                              alt={comment.user.name}
+                              className="w-10 h-10 rounded-full" 
+                              onError={(e) => { 
+                                e.target.src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(comment.user.name) + '&background=random'; 
+                              }}
+                            />
+                          ) : (
+                            <span className="text-lg font-bold text-gray-500">{comment.user?.name?.charAt(0) || '?'}</span>
+                          )}
+                        </div>
+                        <div className="flex-grow bg-gray-50 rounded-lg p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <div>
+                              <span className="font-medium text-sm">{comment.user?.name || 'Anonim Kullanıcı'}</span>
+                              <span className="mx-2 text-gray-300">•</span>
+                              <span className="text-xs text-gray-500">{formatRelativeTime(comment.createdAt)}</span>
+                            </div>
+                          </div>
+                          <p className="text-gray-700 whitespace-pre-line">{comment.content || comment.text}</p>
+                          
+                          {/* Beğeni ve Yanıt butonları */}
+                          <div className="flex mt-2 text-xs text-gray-500 space-x-4">
+                            <button 
+                              onClick={() => handleLikeComment(comment._id)}
+                              className={`flex items-center hover:text-blue-600 ${comment.likes?.includes(user?._id) ? 'text-blue-600 font-medium' : ''}`}
+                              disabled={!user}
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill={comment.likes?.includes(user?._id) ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
+                              </svg>
+                              {comment.likes?.length || 0} Beğeni
+                            </button>
+                            
+                            <button 
+                              onClick={() => user && setReplyTo(replyTo === comment._id ? null : comment._id)}
+                              className="flex items-center hover:text-blue-600"
+                              disabled={!user}
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                              </svg>
+                              Yanıtla
+                            </button>
+                          </div>
+                          
+                          {/* Yanıt formu */}
+                          {replyTo === comment._id && (
+                            <div className="mt-3 pl-3 border-l-2 border-gray-200">
+                              <div className="flex space-x-2 items-start">
+                                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
+                                  {user?.profileImage ? (
+                                    <img 
+                                      src={user.profileImage} 
+                                      alt={user.name} 
+                                      className="w-8 h-8 rounded-full"
+                                      onError={(e) => { 
+                                        e.target.src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(user.name) + '&background=random'; 
+                                      }}
+                                    />
+                                  ) : (
+                                    <span className="text-sm font-bold text-gray-500">{user?.name?.charAt(0) || '?'}</span>
+                                  )}
+                                </div>
+                                <div className="flex-grow">
+                                  <textarea
+                                    value={replyText}
+                                    onChange={(e) => setReplyText(e.target.value)}
+                                    placeholder={`${comment.user?.name || 'Kullanıcı'}'ye yanıt yazın...`}
+                                    className="w-full border border-gray-300 rounded-lg p-2 h-16 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    disabled={submittingReply}
+                                  ></textarea>
+                                  
+                                  <div className="flex justify-end mt-1 space-x-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setReplyTo(null)}
+                                      className="text-xs text-gray-500 hover:text-gray-700"
+                                    >
+                                      İptal
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSubmitReply(comment._id)}
+                                      className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                                      disabled={submittingReply || !replyText.trim()}
+                                    >
+                                      {submittingReply ? 'Gönderiliyor...' : 'Yanıtla'}
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* Yanıtlar (varsa) */}
+                          {comment.replies && comment.replies.length > 0 && (
+                            <div className="mt-3 pl-3 border-l-2 border-gray-200 space-y-3">
+                              {comment.replies.map((reply, replyIndex) => (
+                                <div key={reply._id || `reply-${index}-${replyIndex}`} className="flex space-x-2">
+                                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
+                                    {reply.user?.profileImage ? (
+                                      <img 
+                                        src={reply.user.profileImage} 
+                                        alt={reply.user.name}
+                                        className="w-8 h-8 rounded-full" 
+                                        onError={(e) => { 
+                                          e.target.src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(reply.user.name) + '&background=random'; 
+                                        }}
+                                      />
+                                    ) : (
+                                      <span className="text-sm font-bold text-gray-500">{reply.user?.name?.charAt(0) || '?'}</span>
+                                    )}
+                                  </div>
+                                  <div className="flex-grow bg-gray-100 rounded-lg p-3">
+                                    <div className="flex items-center mb-1">
+                                      <span className="font-medium text-xs">{reply.user?.name || 'Anonim Kullanıcı'}</span>
+                                      <span className="mx-2 text-gray-300">•</span>
+                                      <span className="text-xs text-gray-500">{formatRelativeTime(reply.createdAt)}</span>
+                                    </div>
+                                    <p className="text-gray-700 text-sm whitespace-pre-line">{reply.content || reply.text}</p>
+                                    
+                                    {/* Yanıt beğeni butonu */}
+                                    <div className="flex mt-1 text-xs text-gray-500">
+                                      <button 
+                                        onClick={() => handleLikeComment(reply._id, true)}
+                                        className={`flex items-center hover:text-blue-600 ${reply.likes?.includes(user?._id) ? 'text-blue-600 font-medium' : ''}`}
+                                        disabled={!user}
+                                      >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill={reply.likes?.includes(user?._id) ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
+                                        </svg>
+                                        {reply.likes?.length || 0} Beğeni
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 bg-gray-50 rounded-lg">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-gray-400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                  </svg>
+                  <p className="text-gray-500">Henüz yorum yapılmamış. İlk yorumu siz yapın!</p>
+                </div>
+              )}
             </div>
           </div>
           

@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator, Alert, Platform, Modal, TouchableWithoutFeedback } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator, Alert, Platform, Modal, TouchableWithoutFeedback, TextInput, KeyboardAvoidingView } from 'react-native';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
-import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
+import { MaterialIcons, FontAwesome5, Ionicons } from '@expo/vector-icons';
 import moment from 'moment';
 import 'moment/locale/tr';
 
@@ -22,6 +22,14 @@ const IssueDetailScreen = ({ route, navigation }) => {
   // Fotoğraf görüntüleme state'leri
   const [selectedImage, setSelectedImage] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
+  
+  // Yorum state'leri
+  const [commentText, setCommentText] = useState('');
+  const [addingComment, setAddingComment] = useState(false);
+  const [replyTo, setReplyTo] = useState(null);
+  const [replyText, setReplyText] = useState('');
+  const [addingReply, setAddingReply] = useState(false);
+  const [likingComment, setLikingComment] = useState(false);
 
   // Debug bilgisi
   useEffect(() => {
@@ -121,7 +129,7 @@ const IssueDetailScreen = ({ route, navigation }) => {
           setIssue(updatedIssue.data);
           Alert.alert('Başarılı', 'Sorun durumu güncellendi.');
         } else {
-          setIssue({...issue, status: newStatus});
+        setIssue({...issue, status: newStatus});
           Alert.alert('Başarılı', 'Sorun durumu güncellendi ancak güncel veriler alınamadı.');
         }
       } else {
@@ -132,6 +140,104 @@ const IssueDetailScreen = ({ route, navigation }) => {
       Alert.alert('Hata', 'Durum güncellenirken bir hata oluştu.');
     } finally {
       setUpdatingStatus(false);
+    }
+  };
+  
+  // Yorum ekleme fonksiyonu
+  const handleAddComment = async () => {
+    if (!commentText.trim()) {
+      return;
+    }
+    
+    if (!user) {
+      Alert.alert('Giriş Gerekiyor', 'Yorum yapabilmek için giriş yapmalısınız.');
+      return;
+    }
+    
+    setAddingComment(true);
+    
+    try {
+      const response = await api.issues.addComment(issueId, commentText);
+      
+      if (response.success) {
+        // Yorumlar güncel verilerle yenileniyor
+        const refreshedIssue = await api.issues.getById(issueId);
+        if (refreshedIssue.success) {
+          setIssue(refreshedIssue.data);
+        }
+        setCommentText('');
+      } else {
+        Alert.alert('Hata', response.message || 'Yorum eklenirken bir hata oluştu');
+      }
+    } catch (error) {
+      console.error('Yorum ekleme hatası:', error);
+      Alert.alert('Hata', 'Yorum eklenirken bir hata oluştu');
+    } finally {
+      setAddingComment(false);
+    }
+  };
+  
+  // Yanıt ekleme fonksiyonu
+  const handleAddReply = async (commentId) => {
+    if (!replyText.trim()) {
+      return;
+    }
+    
+    if (!user) {
+      Alert.alert('Giriş Gerekiyor', 'Yanıt yazabilmek için giriş yapmalısınız.');
+      return;
+    }
+    
+    setAddingReply(true);
+    
+    try {
+      const response = await api.issues.addReply(issueId, commentId, replyText);
+      
+      if (response.success) {
+        // Yorumlar güncel verilerle yenileniyor
+        const refreshedIssue = await api.issues.getById(issueId);
+        if (refreshedIssue.success) {
+          setIssue(refreshedIssue.data);
+        }
+        setReplyText('');
+        setReplyTo(null);
+      } else {
+        Alert.alert('Hata', response.message || 'Yanıt eklenirken bir hata oluştu');
+      }
+    } catch (error) {
+      console.error('Yanıt ekleme hatası:', error);
+      Alert.alert('Hata', 'Yanıt eklenirken bir hata oluştu');
+    } finally {
+      setAddingReply(false);
+    }
+  };
+  
+  // Beğeni ekleme/kaldırma fonksiyonu
+  const handleLikeComment = async (commentId, isReply = false) => {
+    if (!user) {
+      Alert.alert('Giriş Gerekiyor', 'Beğeni yapabilmek için giriş yapmalısınız.');
+      return;
+    }
+    
+    setLikingComment(true);
+    
+    try {
+      const response = await api.issues.likeComment(issueId, commentId, isReply);
+      
+      if (response.success) {
+        // Yorumlar güncel verilerle yenileniyor
+        const refreshedIssue = await api.issues.getById(issueId);
+        if (refreshedIssue.success) {
+          setIssue(refreshedIssue.data);
+        }
+      } else {
+        Alert.alert('Hata', response.message || 'Beğeni işleminde bir hata oluştu');
+      }
+    } catch (error) {
+      console.error('Beğeni işlemi hatası:', error);
+      Alert.alert('Hata', 'Beğeni işleminde bir hata oluştu');
+    } finally {
+      setLikingComment(false);
     }
   };
 
@@ -228,7 +334,10 @@ const IssueDetailScreen = ({ route, navigation }) => {
 
   // Render edilecek bileşen
   return (
-    <>
+    <KeyboardAvoidingView 
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={{flex: 1}}
+    >
       <ScrollView style={styles.container}>
         <View style={styles.contentContainer}>
           {/* Başlık ve Durum */}
@@ -279,28 +388,35 @@ const IssueDetailScreen = ({ route, navigation }) => {
           
           {/* Konum */}
           {issue.location && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Konum</Text>
-              <View style={styles.locationContainer}>
-                {issue.location.city && (
-                  <View style={styles.locationItem}>
-                    <MaterialIcons name="location-city" size={16} color="#666" />
-                    <Text style={styles.locationText}>{issue.location.city}</Text>
-                  </View>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Konum</Text>
+            <View style={styles.locationContainer}>
+                  {issue.location.city && (
+              <View style={styles.locationItem}>
+                      <MaterialIcons name="location-city" size={16} color="#666" />
+                      <Text style={styles.locationText}>{issue.location.city}</Text>
+              </View>
+                  )}
+              
+                  {issue.location.district && (
+              <View style={styles.locationItem}>
+                <FontAwesome5 name="map-marker-alt" size={16} color="#666" />
+                      <Text style={styles.locationText}>{issue.location.district}</Text>
+              </View>
+                  )}
+            </View>
+                
+                {issue.location.address && (
+                  <Text style={styles.address}>{issue.location.address}</Text>
                 )}
                 
-                {issue.location.district && (
-                  <View style={styles.locationItem}>
-                    <FontAwesome5 name="map-marker-alt" size={16} color="#666" />
-                    <Text style={styles.locationText}>{issue.location.district}</Text>
+                {issue.location.directionInfo && (
+                  <View style={styles.directionInfoContainer}>
+                    <Text style={styles.directionInfoLabel}>Adres Tarifi:</Text>
+                    <Text style={styles.directionInfoText}>{issue.location.directionInfo}</Text>
                   </View>
                 )}
-              </View>
-              
-              {issue.location.address && (
-                <Text style={styles.address}>{issue.location.address}</Text>
-              )}
-            </View>
+          </View>
           )}
           
           {/* Fotoğraflar */}
@@ -309,14 +425,14 @@ const IssueDetailScreen = ({ route, navigation }) => {
               <Text style={styles.sectionTitle}>Fotoğraflar</Text>
               <ScrollView horizontal={true} showsHorizontalScrollIndicator={false}>
                 {issue.images.map((image, index) => (
-                  <TouchableOpacity 
-                    key={`${issueId}-image-${index}`} 
-                    style={styles.imageContainer}
-                    onPress={() => {
-                      setSelectedImage(image);
-                      setModalVisible(true);
-                    }}
-                  >
+                    <TouchableOpacity 
+                      key={`${issueId}-image-${index}`} 
+                      style={styles.imageContainer}
+                      onPress={() => {
+                        setSelectedImage(image);
+                        setModalVisible(true);
+                      }}
+                    >
                     <Image
                       source={{ uri: image }}
                       style={styles.image}
@@ -325,11 +441,200 @@ const IssueDetailScreen = ({ route, navigation }) => {
                         console.warn(`Image loading error for index ${index}`);
                       }}
                     />
-                  </TouchableOpacity>
+                    </TouchableOpacity>
                 ))}
               </ScrollView>
             </View>
           )}
+          
+          {/* Yorumlar Bölümü */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>
+              Yorumlar {issue.comments && issue.comments.length > 0 ? `(${issue.comments.length})` : ''}
+            </Text>
+            
+            {/* Yorum Formu */}
+            {user ? (
+              <View style={styles.commentForm}>
+                <View style={styles.userAvatar}>
+                  <Text style={styles.userAvatarText}>
+                    {user.name.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+                <View style={styles.commentInputContainer}>
+                  <TextInput
+                    style={styles.commentInput}
+                    value={commentText}
+                    onChangeText={setCommentText}
+                    placeholder="Yorumunuzu buraya yazın..."
+                    multiline
+                    numberOfLines={3}
+                    maxLength={500}
+                  />
+                  <TouchableOpacity 
+                    style={[
+                      styles.commentSubmitButton, 
+                      (!commentText.trim() || addingComment) && styles.disabledButton
+                    ]}
+                    onPress={handleAddComment}
+                    disabled={!commentText.trim() || addingComment}
+                  >
+                    {addingComment ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.commentSubmitText}>Gönder</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.loginPrompt}>
+                <Text style={styles.loginPromptText}>Yorum yapmak için lütfen giriş yapın.</Text>
+                <TouchableOpacity 
+                  style={styles.loginButton}
+                  onPress={() => navigation.navigate('Login')}
+                >
+                  <Text style={styles.loginButtonText}>Giriş Yap</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            
+            {/* Yorumlar Listesi */}
+            {issue.comments && issue.comments.length > 0 ? (
+              <View style={styles.commentsList}>
+                {issue.comments.map((comment) => (
+                  <View key={comment._id} style={styles.commentItem}>
+                    <View style={styles.commentHeader}>
+                      <View style={styles.userAvatar}>
+                        <Text style={styles.userAvatarText}>
+                          {comment.user && comment.user.name ? comment.user.name.charAt(0).toUpperCase() : '?'}
+                        </Text>
+                      </View>
+                      <View style={styles.commentContent}>
+                        <View style={styles.commentMeta}>
+                          <Text style={styles.commentAuthor}>{comment.user ? comment.user.name : 'Bilinmeyen Kullanıcı'}</Text>
+                          <Text style={styles.commentTime}>{moment(comment.createdAt).fromNow()}</Text>
+                        </View>
+                        <Text style={styles.commentText}>{comment.content}</Text>
+                        
+                        {/* Beğeni ve Yanıt Butonları */}
+                        <View style={styles.commentActions}>
+                          <TouchableOpacity 
+                            style={styles.actionButton} 
+                            onPress={() => handleLikeComment(comment._id)}
+                            disabled={likingComment}
+                          >
+                            <Ionicons 
+                              name={comment.likes && user && comment.likes.includes(user._id) ? "heart" : "heart-outline"} 
+                              size={16} 
+                              color={comment.likes && user && comment.likes.includes(user._id) ? "#e74c3c" : "#777"} 
+                            />
+                            <Text style={styles.actionText}>
+                              {comment.likes && comment.likes.length > 0 ? 
+                               `${comment.likes.length} Beğeni` : 'Beğen'}
+                            </Text>
+                          </TouchableOpacity>
+                          
+                          <TouchableOpacity 
+                            style={styles.actionButton}
+                            onPress={() => setReplyTo(replyTo === comment._id ? null : comment._id)}
+                          >
+                            <Ionicons name="return-down-forward-outline" size={16} color="#777" />
+                            <Text style={styles.actionText}>Yanıtla</Text>
+                          </TouchableOpacity>
+                        </View>
+                        
+                        {/* Yanıt Formu */}
+                        {replyTo === comment._id && (
+                          <View style={styles.replyForm}>
+                            <TextInput
+                              style={styles.replyInput}
+                              value={replyText}
+                              onChangeText={setReplyText}
+                              placeholder={`${comment.user ? comment.user.name : 'Kullanıcı'}'ye yanıt yaz...`}
+                              multiline
+                              numberOfLines={2}
+                              maxLength={500}
+                            />
+                            <View style={styles.replyButtonsContainer}>
+                              <TouchableOpacity 
+                                style={styles.cancelButton}
+                                onPress={() => {
+                                  setReplyTo(null);
+                                  setReplyText('');
+                                }}
+                              >
+                                <Text style={styles.cancelButtonText}>İptal</Text>
+                              </TouchableOpacity>
+                              
+                              <TouchableOpacity 
+                                style={[
+                                  styles.replyButton,
+                                  (!replyText.trim() || addingReply) && styles.disabledButton
+                                ]}
+                                onPress={() => handleAddReply(comment._id)}
+                                disabled={!replyText.trim() || addingReply}
+                              >
+                                {addingReply ? (
+                                  <ActivityIndicator size="small" color="#fff" />
+                                ) : (
+                                  <Text style={styles.replyButtonText}>Yanıtla</Text>
+                                )}
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+                        )}
+                        
+                        {/* Yanıtlar */}
+                        {comment.replies && comment.replies.length > 0 && (
+                          <View style={styles.repliesList}>
+                            {comment.replies.map((reply) => (
+                              <View key={reply._id} style={styles.replyItem}>
+                                <View style={[styles.userAvatar, styles.smallAvatar]}>
+                                  <Text style={[styles.userAvatarText, styles.smallAvatarText]}>
+                                    {reply.user && reply.user.name ? reply.user.name.charAt(0).toUpperCase() : '?'}
+                                  </Text>
+                                </View>
+                                <View style={styles.replyContent}>
+                                  <View style={styles.commentMeta}>
+                                    <Text style={styles.commentAuthor}>{reply.user ? reply.user.name : 'Bilinmeyen Kullanıcı'}</Text>
+                                    <Text style={styles.commentTime}>{moment(reply.createdAt).fromNow()}</Text>
+                                  </View>
+                                  <Text style={styles.commentText}>{reply.content}</Text>
+                                  
+                                  {/* Yanıt Beğeni Butonu */}
+                                  <TouchableOpacity 
+                                    style={styles.actionButton} 
+                                    onPress={() => handleLikeComment(reply._id, true)}
+                                    disabled={likingComment}
+                                  >
+                                    <Ionicons 
+                                      name={reply.likes && user && reply.likes.includes(user._id) ? "heart" : "heart-outline"} 
+                                      size={14} 
+                                      color={reply.likes && user && reply.likes.includes(user._id) ? "#e74c3c" : "#777"} 
+                                    />
+                                    <Text style={[styles.actionText, {fontSize: 12}]}>
+                                      {reply.likes && reply.likes.length > 0 ? 
+                                       `${reply.likes.length} Beğeni` : 'Beğen'}
+                                    </Text>
+                                  </TouchableOpacity>
+                                </View>
+                              </View>
+                            ))}
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <View style={styles.emptyComments}>
+                <Ionicons name="chatbubble-outline" size={40} color="#ccc" />
+                <Text style={styles.emptyCommentsText}>Henüz yorum yapılmamış. İlk yorumu siz yapın!</Text>
+              </View>
+            )}
+          </View>
           
           {/* Kullanıcı Bilgileri */}
           {issue.user && (
@@ -427,7 +732,7 @@ const IssueDetailScreen = ({ route, navigation }) => {
           </View>
         </TouchableWithoutFeedback>
       </Modal>
-    </>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -678,7 +983,196 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     borderRadius: 20,
     padding: 5,
-  }
+  },
+  commentForm: {
+    flexDirection: 'row',
+    marginBottom: 15,
+    marginTop: 10,
+  },
+  commentInputContainer: {
+    flex: 1,
+    marginLeft: 10,
+  },
+  commentInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#f9f9f9',
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  commentSubmitButton: {
+    backgroundColor: '#4CAF50',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignSelf: 'flex-end',
+    marginTop: 8,
+  },
+  commentSubmitText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  loginPrompt: {
+    backgroundColor: '#f0f0f0',
+    padding: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  loginPromptText: {
+    color: '#666',
+    marginBottom: 8,
+  },
+  loginButton: {
+    backgroundColor: '#2196F3',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+  loginButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  commentsList: {
+    marginTop: 15,
+  },
+  commentItem: {
+    marginBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+    paddingBottom: 15,
+  },
+  commentHeader: {
+    flexDirection: 'row',
+  },
+  commentContent: {
+    flex: 1,
+    marginLeft: 10,
+  },
+  commentMeta: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 5,
+  },
+  commentAuthor: {
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  commentTime: {
+    color: '#999',
+    fontSize: 12,
+  },
+  commentText: {
+    color: '#333',
+    marginBottom: 8,
+  },
+  commentActions: {
+    flexDirection: 'row',
+    marginTop: 5,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 15,
+  },
+  actionText: {
+    color: '#777',
+    marginLeft: 4,
+    fontSize: 13,
+  },
+  replyForm: {
+    marginTop: 10,
+    marginLeft: 5,
+    borderLeftWidth: 2,
+    borderLeftColor: '#ddd',
+    paddingLeft: 10,
+  },
+  replyInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#f9f9f9',
+    minHeight: 60,
+    textAlignVertical: 'top',
+  },
+  replyButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 8,
+  },
+  cancelButton: {
+    marginRight: 10,
+    padding: 8,
+  },
+  cancelButtonText: {
+    color: '#666',
+  },
+  replyButton: {
+    backgroundColor: '#2196F3',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+  replyButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  repliesList: {
+    marginTop: 10,
+    marginLeft: 5,
+    borderLeftWidth: 2,
+    borderLeftColor: '#ddd',
+    paddingLeft: 10,
+  },
+  replyItem: {
+    flexDirection: 'row',
+    marginBottom: 10,
+  },
+  replyContent: {
+    flex: 1,
+    marginLeft: 8,
+  },
+  smallAvatar: {
+    width: 30,
+    height: 30,
+  },
+  smallAvatarText: {
+    fontSize: 14,
+  },
+  emptyComments: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+    backgroundColor: '#f9f9f9',
+    borderRadius: 8,
+    marginTop: 10,
+  },
+  emptyCommentsText: {
+    color: '#999',
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  directionInfoContainer: {
+    marginTop: 5,
+    padding: 10,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  directionInfoLabel: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  directionInfoText: {
+    fontSize: 14,
+    color: '#666',
+  },
 });
 
 export default IssueDetailScreen; 

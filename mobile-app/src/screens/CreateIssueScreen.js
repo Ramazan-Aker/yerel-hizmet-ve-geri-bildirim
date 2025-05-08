@@ -148,7 +148,7 @@ const CreateIssueScreen = ({ navigation }) => {
       
       // Orijinal boyutu kontrol et
       console.log('Orijinal dosya boyutu:', (fileInfo.size / 1024 / 1024).toFixed(2) + ' MB');
-      
+        
       // Boyut zaten küçükse (200KB'den az) sıkıştırmaya gerek yok
       let finalUri = uri;
       if (fileInfo.size > 200 * 1024) {
@@ -180,7 +180,7 @@ const CreateIssueScreen = ({ navigation }) => {
     } catch (error) {
       console.error('Resim sıkıştırma hatası:', error);
       return null; // Hata durumunda null döndür
-    }
+        }
   };
 
   // URI'yi base64'e dönüştür
@@ -287,10 +287,10 @@ const CreateIssueScreen = ({ navigation }) => {
     try {
       // Mevcut fotoğraf sayısını kontrol et
       if (images.length >= 3) {
-        Alert.alert('Limit', 'En fazla 3 fotoğraf ekleyebilirsiniz.');
+          Alert.alert('Limit', 'En fazla 3 fotoğraf ekleyebilirsiniz.');
         return;
-      }
-      
+        }
+        
       // Kamera izinlerini kontrol et - Güncel expo-camera API'si ile
       const cameraPermission = await ImagePicker.requestCameraPermissionsAsync();
       
@@ -310,9 +310,9 @@ const CreateIssueScreen = ({ navigation }) => {
       if (!result.canceled && result.assets && result.assets.length > 0) {
         try {
           // Resmi sıkıştır ve base64'e dönüştür
-          const newUri = result.assets[0].uri;
+        const newUri = result.assets[0].uri;
           console.log('Fotoğraf çekildi, işleniyor:', newUri.substring(0, 30) + '...');
-          
+        
           // Önce resmi sıkıştır
           const compressedUri = await compressImage(newUri);
           
@@ -386,7 +386,7 @@ const CreateIssueScreen = ({ navigation }) => {
     if (!city) validationErrors.city = 'Şehir zorunludur';
     if (!district) validationErrors.district = 'İlçe zorunludur';
     if (!address) validationErrors.address = 'Adres zorunludur';
-    if (!locationDescription) validationErrors.locationDescription = 'Adres tarifi zorunludur';
+    // Adres tarifi alanı opsiyoneldir
     if (!coordinates) validationErrors.coordinates = 'Konum bilgisi zorunludur';
     
     // Eğer validasyon hataları varsa, uyarı göster ve geri dön
@@ -467,24 +467,24 @@ const CreateIssueScreen = ({ navigation }) => {
       
       try {
         const response = await api.issues.create(basicFormData);
+      
+      if (response.success) {
+        Alert.alert('Başarılı', 'Sorun başarıyla bildirildi!', [
+          { text: 'Tamam', onPress: () => navigation.navigate('Issues') }
+        ]);
         
-        if (response.success) {
-          Alert.alert('Başarılı', 'Sorun başarıyla bildirildi!', [
-            { text: 'Tamam', onPress: () => navigation.navigate('Issues') }
-          ]);
-          
-          // Reset form
-          setTitle('');
-          setDescription('');
+        // Reset form
+        setTitle('');
+        setDescription('');
           setCategory('');
-          setImages([]);
-          setAddress('');
+        setImages([]);
+        setAddress('');
           setLocationDescription('');
-          setCoordinates(null);
-        } else {
+        setCoordinates(null);
+      } else {
           throw new Error(response.message || 'API başarılı yanıt vermedi');
-        }
-      } catch (error) {
+      }
+    } catch (error) {
         console.error('Sorun bildirimi hatası:', error);
         
         // Son çare olarak httpClient kullan
@@ -612,8 +612,8 @@ const CreateIssueScreen = ({ navigation }) => {
       const foundCategory = categories.find(c => c.value === value);
       displayValue = foundCategory ? foundCategory.label : '';
     }
-    
-    return (
+
+  return (
       <TouchableOpacity
         style={[
           styles.customPickerButton,
@@ -720,9 +720,9 @@ const CreateIssueScreen = ({ navigation }) => {
                     </TouchableOpacity>
                   </View>
                   
-                  <View style={styles.pickerContainer}>
+          <View style={styles.pickerContainer}>
                     {currentPicker === 'category' && (
-                      <Picker
+            <Picker
                         selectedValue={tempCategory}
                         onValueChange={(value) => setTempCategory(value)}
                         style={[styles.modalPicker, Platform.OS === 'android' ? styles.androidPicker : {}]}
@@ -731,45 +731,45 @@ const CreateIssueScreen = ({ navigation }) => {
                         dropdownIconColor="#333"
                       >
                         <Picker.Item label="Kategori seçin" value="" color="#999" />
-                        {categories.map((cat) => (
+              {categories.map((cat) => (
                           <Picker.Item key={cat.value} label={cat.label} value={cat.value} color="#333" />
-                        ))}
-                      </Picker>
+              ))}
+            </Picker>
                     )}
-                    
+        
                     {currentPicker === 'city' && (
-                      <Picker
+            <Picker
                         selectedValue={tempCity}
                         onValueChange={(value) => setTempCity(value)}
                         style={[styles.modalPicker, Platform.OS === 'android' ? styles.androidPicker : {}]}
                         itemStyle={styles.pickerItem}
                         mode={Platform.OS === 'android' ? 'dropdown' : 'dialog'}
                         dropdownIconColor="#333"
-                      >
+            >
                         <Picker.Item label="Şehir seçin" value="" color="#999" />
-                        {cities.map((cityName) => (
+              {cities.map((cityName) => (
                           <Picker.Item key={cityName} label={cityName} value={cityName} color="#333" />
-                        ))}
-                      </Picker>
+              ))}
+            </Picker>
                     )}
-                    
+        
                     {currentPicker === 'district' && (
-                      <Picker
+            <Picker
                         selectedValue={tempDistrict}
                         onValueChange={(value) => setTempDistrict(value)}
                         style={[styles.modalPicker, Platform.OS === 'android' ? styles.androidPicker : {}]}
                         itemStyle={styles.pickerItem}
                         mode={Platform.OS === 'android' ? 'dropdown' : 'dialog'}
                         dropdownIconColor="#333"
-                      >
+            >
                         <Picker.Item label="İlçe seçin" value="" color="#999" />
-                        {districts.map((districtName) => (
+              {districts.map((districtName) => (
                           <Picker.Item key={districtName} label={districtName} value={districtName} color="#333" />
-                        ))}
-                      </Picker>
+              ))}
+            </Picker>
                     )}
-                  </View>
-                </View>
+          </View>
+        </View>
               </TouchableWithoutFeedback>
             </View>
           </TouchableWithoutFeedback>
@@ -788,7 +788,7 @@ const CreateIssueScreen = ({ navigation }) => {
         </View>
         
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Adres Tarifi <Text style={styles.required}>*</Text></Text>
+          <Text style={styles.label}>Adres Tarifi</Text>
           <TextInput
             style={[styles.input, styles.textArea]}
             value={locationDescription}
@@ -810,7 +810,7 @@ const CreateIssueScreen = ({ navigation }) => {
             ) : (
               <>
                 <Ionicons name="locate-outline" size={20} color="#fff" style={styles.buttonIcon} />
-                <Text style={styles.buttonText}>Konumumu Kullan</Text>
+              <Text style={styles.buttonText}>Konumumu Kullan</Text>
               </>
             )}
           </TouchableOpacity>
@@ -848,10 +848,10 @@ const CreateIssueScreen = ({ navigation }) => {
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
                 <>
-                  <Ionicons name="images-outline" size={20} color="#fff" />
-                  <Text style={styles.buttonText}>
-                    {getAddPhotoLabel()}
-                  </Text>
+              <Ionicons name="images-outline" size={20} color="#fff" />
+              <Text style={styles.buttonText}>
+                {getAddPhotoLabel()}
+              </Text>
                 </>
               )}
             </TouchableOpacity>
@@ -869,13 +869,13 @@ const CreateIssueScreen = ({ navigation }) => {
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
                 <>
-                  <Ionicons name="camera-outline" size={20} color="#fff" />
-                  <Text style={styles.buttonText}>
-                    {getTakePhotoLabel()}
-                  </Text>
+              <Ionicons name="camera-outline" size={20} color="#fff" />
+              <Text style={styles.buttonText}>
+                {getTakePhotoLabel()}
+              </Text>
                 </>
               )}
-            </TouchableOpacity>
+          </TouchableOpacity>
           </View>
           
           {/* Fotoğraf ön izleme bölümü */}
@@ -905,15 +905,15 @@ const CreateIssueScreen = ({ navigation }) => {
                       style={styles.previewImage} 
                       onError={(e) => console.error(`Resim yükleme hatası (${index}):`, e.nativeEvent.error)}
                     />
-                    <TouchableOpacity 
-                      style={styles.removeImageButton}
-                      onPress={() => removeImage(index)}
-                    >
-                      <Ionicons name="close-circle" size={24} color="red" />
-                    </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={styles.removeImageButton}
+                    onPress={() => removeImage(index)}
+                  >
+                    <Ionicons name="close-circle" size={24} color="red" />
+                  </TouchableOpacity>
                     <View style={styles.imageIndexBadge}>
                       <Text style={styles.imageIndexText}>{index + 1}</Text>
-                    </View>
+                </View>
                   </View>
                 );
               })}
@@ -928,8 +928,8 @@ const CreateIssueScreen = ({ navigation }) => {
             ) : (
             <View style={styles.imagePreviewContainer}>
               <Text style={styles.noImageText}>Fotoğraf eklenmedi</Text>
-            </View>
-            )}
+          </View>
+          )}
           </View>
           
           {images.length > 0 && (

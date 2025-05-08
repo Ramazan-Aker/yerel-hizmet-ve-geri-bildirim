@@ -652,7 +652,7 @@ const api = {
   
   // Bildirim işlemleri - reports yerine issues kullanıyoruz
   issues: {
-    getAll: async () => {
+    getAll: async (params = {}) => {
       try {
         // API bağlantısını kontrol et
         await checkAndPingApi();
@@ -680,7 +680,7 @@ const api = {
         // API isteği
         const response = await client.get('/issues', {
           headers: { Authorization: `Bearer ${token}` },
-          params: userCity ? { city: userCity } : {} // Kullanıcı şehrine göre filtrele
+          params: { ...params, city: userCity }
         });
         
         console.log(`API yanıtı: ${response.data.data?.length || 0} sorun bulundu`);
@@ -703,14 +703,14 @@ const api = {
       }
     },
     
-    getById: async (issueId) => {
+    getById: async (id) => {
       try {
         // Demo modunda ise ilgili demo verisini döndür
         if (isDemoMode) {
-          console.log(`Demo modunda ${issueId} ID'li sorun detayları getiriliyor...`);
+          console.log(`Demo modunda ${id} ID'li sorun detayları getiriliyor...`);
           
           // Demo verileri içinden ilgili ID'yi bul
-          const demoIssue = demoData.issues.find(issue => issue._id === issueId);
+          const demoIssue = demoData.issues.find(issue => issue._id === id);
           
           // Eğer varsa döndür, yoksa ilk veriyi döndür (boş olmaması için)
           if (demoIssue) {
@@ -721,10 +721,10 @@ const api = {
         }
         
         const token = await AsyncStorage.getItem('token');
-        console.log(`${issueId} ID'li sorun detayları getiriliyor...`);
+        console.log(`${id} ID'li sorun detayları getiriliyor...`);
         
         // API çağrısı
-        const response = await client.get(`/issues/${issueId}`, {
+        const response = await client.get(`/issues/${id}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         
@@ -752,7 +752,7 @@ const api = {
           };
         }
       } catch (error) {
-        console.error(`Error fetching issue ${issueId}:`, error);
+        console.error(`Error fetching issue ${id}:`, error);
         console.error('Hata detayları:', error.response?.data || error.message);
         
         // Hata durumunda ve demo modu aktifse demo verileri döndür
@@ -760,7 +760,7 @@ const api = {
           console.log('Demo modunda sorun detayları getiriliyor (hata sonrası)...');
           return { 
             success: true, 
-            data: demoData.issues.find(issue => issue._id === issueId) || demoData.issues[0],
+            data: demoData.issues.find(issue => issue._id === id) || demoData.issues[0],
             isDemoMode: true
           };
         }
@@ -787,7 +787,7 @@ const api = {
         console.log('- location.district:', issueData.location?.district);
         console.log('- location.type:', issueData.location?.type);
         console.log('- has images:', issueData.images && issueData.images.length > 0);
-
+        
         // DENEME 1: Doğrudan axios ile
         try {
           console.log('DENEME 1: Doğrudan axios ile POST yapılıyor...');
@@ -815,8 +815,8 @@ const api = {
           console.error('DENEME 1 HATA:', axiosError.message);
           if (axiosError.response) {
             console.error('Yanıt detayları:', axiosError.response.status, JSON.stringify(axiosError.response.data));
-          }
-          
+        }
+        
           // Hata durumunda client.post ile de deneyelim
           console.log('DENEME 2: Standart client ile deneniyor...');
           try {
@@ -835,7 +835,7 @@ const api = {
         }
       } catch (error) {
         console.error('Error creating issue:', error);
-        
+          
         // Detaylı hata bilgisi
         if (error.response) {
           console.error('HTTP status:', error.response.status);
@@ -862,7 +862,7 @@ const api = {
           }
         }
         
-        return handleApiError(error);
+        return handleApiError(error, 'Sorun oluşturulurken bir hata oluştu');
       }
     },
     update: (id, issueData) => client.put(`/issues/${id}`, issueData),
@@ -903,7 +903,113 @@ const api = {
         };
       }
     },
-    addComment: (issueId, comment) => client.post(`/issues/${issueId}/comments`, comment),
+    addComment: async (issueId, commentText) => {
+      try {
+        // API hazırlığı
+        const token = await AsyncStorage.getItem('token');
+        if (!token) {
+          return { success: false, message: 'Token bulunamadı. Lütfen tekrar giriş yapın.' };
+        }
+        
+        const response = await axios.post(
+          `${BASE_URL}/issues/${issueId}/comments`,
+          { content: commentText },
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            }
+          }
+        );
+        
+        if (response.data && response.data.success) {
+          return {
+            success: true,
+            data: response.data.data
+          };
+        } else {
+          return {
+            success: false,
+            message: response.data?.message || 'Yorum eklenirken bir hata oluştu'
+          };
+        }
+      } catch (error) {
+        return handleApiError(error, 'Yorum eklenirken bir hata oluştu');
+      }
+    },
+    addReply: async (issueId, commentId, replyText) => {
+      try {
+        // API hazırlığı
+        const token = await AsyncStorage.getItem('token');
+        if (!token) {
+          return { success: false, message: 'Token bulunamadı. Lütfen tekrar giriş yapın.' };
+        }
+        
+        const response = await axios.post(
+          `${BASE_URL}/issues/${issueId}/comments/${commentId}/replies`,
+          { content: replyText },
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            }
+          }
+        );
+        
+        if (response.data && response.data.success) {
+          return {
+            success: true,
+            data: response.data.data
+          };
+        } else {
+          return {
+            success: false,
+            message: response.data?.message || 'Yanıt eklenirken bir hata oluştu'
+          };
+        }
+      } catch (error) {
+        return handleApiError(error, 'Yanıt eklenirken bir hata oluştu');
+      }
+    },
+    likeComment: async (issueId, commentId, isReply = false) => {
+      try {
+        // API hazırlığı
+        const token = await AsyncStorage.getItem('token');
+        if (!token) {
+          return { success: false, message: 'Token bulunamadı. Lütfen tekrar giriş yapın.' };
+        }
+        
+        // Endpoint belirleme
+        const endpoint = isReply 
+          ? `${BASE_URL}/issues/${issueId}/comments/replies/${commentId}/like`
+          : `${BASE_URL}/issues/${issueId}/comments/${commentId}/like`;
+        
+        const response = await axios.put(
+          endpoint,
+          {},
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            }
+          }
+        );
+        
+        if (response.data && response.data.success) {
+          return {
+            success: true,
+            data: response.data.data
+          };
+        } else {
+          return {
+            success: false,
+            message: response.data?.message || 'Beğeni işleminde bir hata oluştu'
+          };
+        }
+      } catch (error) {
+        return handleApiError(error, 'Beğeni işleminde bir hata oluştu');
+      }
+    },
     uploadImage: (issueId, formData) => client.post(`/issues/${issueId}/images`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
@@ -967,13 +1073,13 @@ const api = {
 };
 
 // Yardımcı fonksiyonlar
-const handleApiError = (error) => {
+const handleApiError = (error, defaultMessage) => {
   console.error('API Error:', error);
   
   if (error.response && error.response.data) {
     return {
       success: false,
-      message: error.response.data.message || 'Bir hata oluştu',
+      message: error.response.data.message || defaultMessage,
       error: error.response.data
     };
   } else if (error.isDemoMode) {
@@ -985,7 +1091,7 @@ const handleApiError = (error) => {
   } else {
     return {
       success: false,
-      message: error.message || 'Beklenmeyen bir hata oluştu'
+      message: error.message || defaultMessage
     };
   }
 };

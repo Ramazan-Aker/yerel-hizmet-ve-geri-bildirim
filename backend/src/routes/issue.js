@@ -8,7 +8,11 @@ const {
   deleteIssue,
   updateIssueStatus,
   upvoteIssue,
-  getMyIssues
+  getMyIssues,
+  addComment,
+  addReply,
+  likeComment,
+  likeReply
 } = require('../controllers/issueController');
 const { protect, authorize } = require('../middleware/authMiddleware');
 
@@ -30,5 +34,18 @@ router.route('/:id/status')
 
 router.route('/:id/upvote')
   .put(protect, upvoteIssue);
+
+// Yorum route'ları
+router.route('/:id/comments')
+  .post(protect, addComment);
+
+router.route('/:id/comments/:commentId/replies')
+  .post(protect, addReply);
+
+router.route('/:id/comments/:commentId/like')
+  .put(protect, likeComment);
+
+router.route('/:id/comments/replies/:replyId/like')
+  .put(protect, likeReply);
 
 module.exports = router;

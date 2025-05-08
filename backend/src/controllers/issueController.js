@@ -221,22 +221,63 @@ exports.getIssues = async (req, res) => {
     // Filtreleme parametreleri
     const filter = {};
     
-    if (req.query.category) {
+    // Temel filtreler
+    if (req.query.category && req.query.category !== 'Tümü') {
       filter.category = req.query.category;
     }
     
-    if (req.query.status) {
+    if (req.query.status && req.query.status !== 'Tümü') {
+      // Durum hem Türkçe hem İngilizce olabilir
       filter.status = req.query.status;
     }
     
-    if (req.query.district) {
+    if (req.query.district && req.query.district !== '') {
       filter['location.district'] = req.query.district;
     }
     
-    // Şehir filtresi kaldırıldı - tüm şehirler gösterilecek
+    // Şehir filtresi - artık opsiyonel
+    if (req.query.city && req.query.city !== '') {
+      filter['location.city'] = req.query.city;
+    }
     
-    if (req.query.severity) {
+    // Önem derecesi filtresi
+    if (req.query.severity && req.query.severity !== '' && req.query.severity !== 'Tümü') {
       filter.severity = req.query.severity;
+    }
+    
+    // Tarih aralığı filtreleme
+    if (req.query.startDate && req.query.startDate !== '') {
+      filter.createdAt = { $gte: new Date(req.query.startDate) };
+    }
+    
+    if (req.query.endDate && req.query.endDate !== '') {
+      if (!filter.createdAt) {
+        filter.createdAt = {};
+      }
+      // Bitiş tarihini günün sonuna ayarla
+      const endDate = new Date(req.query.endDate);
+      endDate.setHours(23, 59, 59, 999);
+      filter.createdAt.$lte = endDate;
+    }
+    
+    // Kullanıcı filtreleme - sadece kullanıcının kendi sorunları
+    if (req.query.userId && req.query.userId !== '') {
+      filter.user = req.query.userId;
+    }
+    
+    // Fotoğraf filtreleme - sadece fotoğraflı sorunlar
+    if (req.query.hasPhotos === 'true') {
+      filter.images = { $exists: true, $not: { $size: 0 } };
+    }
+    
+    // Arama filtresi (başlık, açıklama veya adres)
+    if (req.query.search && req.query.search !== '') {
+      const searchRegex = new RegExp(req.query.search, 'i');
+      filter.$or = [
+        { title: searchRegex },
+        { description: searchRegex },
+        { 'location.address': searchRegex }
+      ];
     }
 
     console.log('Uygulanan filtreler:', filter);
@@ -244,12 +285,37 @@ exports.getIssues = async (req, res) => {
     // Toplam sayı hesaplama
     const total = await Issue.countDocuments(filter);
     
-    // Sorgu
-    const issues = await Issue.find(filter)
+    // Sorgu ve sıralama
+    let issuesQuery = Issue.find(filter)
       .populate('user', 'name')
-      .sort({ createdAt: -1 })
       .skip(startIndex)
       .limit(limit);
+    
+    // Sıralama seçenekleri
+    const sortOption = req.query.sort || 'newest';
+    switch (sortOption) {
+      case 'newest':
+        issuesQuery = issuesQuery.sort({ createdAt: -1 });
+        break;
+      case 'oldest':
+        issuesQuery = issuesQuery.sort({ createdAt: 1 });
+        break;
+      case 'upvotes':
+        issuesQuery = issuesQuery.sort({ upvotes: -1 });
+        break;
+      case 'severity':
+        // Önem derecesi alfabetik olarak sıralanır - özel bir sıralama gerekebilir
+        issuesQuery = issuesQuery.sort({ severity: -1 });
+        break;
+      case 'most_comments':
+        // Yorum sayısına göre sıralama
+        issuesQuery = issuesQuery.sort({ 'comments.length': -1 });
+        break;
+      default:
+        issuesQuery = issuesQuery.sort({ createdAt: -1 });
+    }
+    
+    const issues = await issuesQuery.exec();
 
     console.log(`${issues.length} sorun bulundu.`);
 
@@ -282,7 +348,11 @@ exports.getIssue = async (req, res) => {
     const issue = await Issue.findById(req.params.id)
       .populate('user', 'name')
       .populate('assignedTo', 'name role')
-      .populate('officialResponse.respondent', 'name role');
+      .populate('officialResponse.respondent', 'name role')
+      .populate('comments.user', 'name profileImage')
+      .populate('comments.replies.user', 'name profileImage')
+      .populate('comments.likes', 'name')
+      .populate('comments.replies.likes', 'name');
 
     if (!issue) {
       return res.status(404).json({
@@ -510,6 +580,261 @@ exports.getMyIssues = async (req, res) => {
     });
   } catch (error) {
     console.error('Kullanıcı sorunları alınırken hata:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Sunucu hatası'
+    });
+  }
+};
+
+// @desc    Soruna yorum ekleme
+// @route   POST /api/issues/:id/comments
+// @access  Private
+exports.addComment = async (req, res) => {
+  try {
+    const { content } = req.body;
+
+    if (!content || content.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        message: 'Yorum içeriği zorunludur'
+      });
+    }
+
+    const issue = await Issue.findById(req.params.id);
+
+    if (!issue) {
+      return res.status(404).json({
+        success: false,
+        message: 'Sorun bulunamadı'
+      });
+    }
+
+    // Yeni yorum oluştur
+    const newComment = {
+      user: req.user.id,
+      content,
+      createdAt: Date.now(),
+      likes: []
+    };
+
+    // Yorumu ekle
+    issue.comments.unshift(newComment);
+    await issue.save();
+
+    // Populasyon işlemi ile kullanıcı bilgilerini ekle
+    await issue.populate({
+      path: 'comments.user',
+      select: 'name profileImage'
+    });
+
+    res.status(201).json({
+      success: true,
+      data: issue.comments[0]
+    });
+  } catch (error) {
+    console.error('Yorum eklenirken hata:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Sunucu hatası'
+    });
+  }
+};
+
+// @desc    Yoruma cevap ekleme
+// @route   POST /api/issues/:id/comments/:commentId/replies
+// @access  Private
+exports.addReply = async (req, res) => {
+  try {
+    const { content } = req.body;
+
+    if (!content || content.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cevap içeriği zorunludur'
+      });
+    }
+
+    const issue = await Issue.findById(req.params.id);
+
+    if (!issue) {
+      return res.status(404).json({
+        success: false,
+        message: 'Sorun bulunamadı'
+      });
+    }
+
+    // Yorumu bul
+    const comment = issue.comments.id(req.params.commentId);
+
+    if (!comment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Yorum bulunamadı'
+      });
+    }
+
+    // Yorumda replies dizisi yoksa oluştur
+    if (!comment.replies) {
+      comment.replies = [];
+    }
+
+    // Yeni cevap oluştur
+    const newReply = {
+      user: req.user.id,
+      content,
+      createdAt: Date.now(),
+      likes: []
+    };
+
+    // Cevabı ekle
+    comment.replies.unshift(newReply);
+    await issue.save();
+
+    // Populasyon işlemi ile kullanıcı bilgilerini ekle
+    await issue.populate({
+      path: 'comments.replies.user',
+      select: 'name profileImage'
+    });
+
+    res.status(201).json({
+      success: true,
+      data: comment.replies[0]
+    });
+  } catch (error) {
+    console.error('Cevap eklenirken hata:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Sunucu hatası'
+    });
+  }
+};
+
+// @desc    Yorumu beğenme
+// @route   PUT /api/issues/:id/comments/:commentId/like
+// @access  Private
+exports.likeComment = async (req, res) => {
+  try {
+    const issue = await Issue.findById(req.params.id);
+
+    if (!issue) {
+      return res.status(404).json({
+        success: false,
+        message: 'Sorun bulunamadı'
+      });
+    }
+
+    // Yorumu bul
+    const comment = issue.comments.id(req.params.commentId);
+
+    if (!comment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Yorum bulunamadı'
+      });
+    }
+
+    // Likes dizisi yoksa oluştur
+    if (!comment.likes) {
+      comment.likes = [];
+    }
+
+    // Kullanıcı zaten beğenmiş mi kontrol et
+    const userLikeIndex = comment.likes.indexOf(req.user.id);
+
+    if (userLikeIndex > -1) {
+      // Kullanıcı zaten beğenmiş, beğeniyi kaldır
+      comment.likes.splice(userLikeIndex, 1);
+    } else {
+      // Beğeniyi ekle
+      comment.likes.push(req.user.id);
+    }
+
+    await issue.save();
+
+    res.status(200).json({
+      success: true,
+      data: {
+        likes: comment.likes,
+        likeCount: comment.likes.length
+      }
+    });
+  } catch (error) {
+    console.error('Yorum beğenilirken hata:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Sunucu hatası'
+    });
+  }
+};
+
+// @desc    Cevabı beğenme
+// @route   PUT /api/issues/:id/comments/replies/:replyId/like
+// @access  Private
+exports.likeReply = async (req, res) => {
+  try {
+    const issue = await Issue.findById(req.params.id);
+
+    if (!issue) {
+      return res.status(404).json({
+        success: false,
+        message: 'Sorun bulunamadı'
+      });
+    }
+
+    // İç içe döngülerle cevabı bul
+    let targetReply = null;
+    let parentComment = null;
+
+    // Her yorumu kontrol et
+    for (const comment of issue.comments) {
+      if (comment.replies && comment.replies.length > 0) {
+        // Cevapları kontrol et
+        for (const reply of comment.replies) {
+          if (reply._id.toString() === req.params.replyId) {
+            targetReply = reply;
+            parentComment = comment;
+            break;
+          }
+        }
+      }
+      if (targetReply) break;
+    }
+
+    if (!targetReply) {
+      return res.status(404).json({
+        success: false,
+        message: 'Cevap bulunamadı'
+      });
+    }
+
+    // Likes dizisi yoksa oluştur
+    if (!targetReply.likes) {
+      targetReply.likes = [];
+    }
+
+    // Kullanıcı zaten beğenmiş mi kontrol et
+    const userLikeIndex = targetReply.likes.indexOf(req.user.id);
+
+    if (userLikeIndex > -1) {
+      // Kullanıcı zaten beğenmiş, beğeniyi kaldır
+      targetReply.likes.splice(userLikeIndex, 1);
+    } else {
+      // Beğeniyi ekle
+      targetReply.likes.push(req.user.id);
+    }
+
+    await issue.save();
+
+    res.status(200).json({
+      success: true,
+      data: {
+        likes: targetReply.likes,
+        likeCount: targetReply.likes.length
+      }
+    });
+  } catch (error) {
+    console.error('Cevap beğenilirken hata:', error);
     res.status(500).json({
       success: false,
       message: 'Sunucu hatası'

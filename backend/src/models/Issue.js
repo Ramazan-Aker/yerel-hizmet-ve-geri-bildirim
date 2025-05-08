@@ -1,5 +1,60 @@
 const mongoose = require('mongoose');
 
+// Cevap (Reply) şeması
+const ReplySchema = mongoose.Schema(
+  {
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    content: {
+      type: String,
+      required: [true, 'Cevap içeriği gerekli'],
+      trim: true,
+      maxlength: [500, 'Cevap 500 karakterden fazla olamaz']
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now
+    },
+    likes: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+      }
+    ]
+  }
+);
+
+// Yorum (Comment) şeması
+const CommentSchema = mongoose.Schema(
+  {
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    content: {
+      type: String,
+      required: [true, 'Yorum içeriği gerekli'],
+      trim: true,
+      maxlength: [500, 'Yorum 500 karakterden fazla olamaz']
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now
+    },
+    likes: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+      }
+    ],
+    replies: [ReplySchema]
+  }
+);
+
 const IssueSchema = mongoose.Schema(
   {
     title: {
@@ -69,6 +124,7 @@ const IssueSchema = mongoose.Schema(
       type: Number,
       default: 0
     },
+    comments: [CommentSchema],
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',

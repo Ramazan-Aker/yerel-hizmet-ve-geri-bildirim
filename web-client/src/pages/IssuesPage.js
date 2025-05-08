@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, ZoomControl, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import { useAuth } from '../hooks/useAuth';
 import { issueService } from '../services/api';
+import FilterPanel from '../components/FilterPanel';
 
 // Leaflet default icon fix
 delete L.Icon.Default.prototype._getIconUrl;
@@ -16,10 +17,108 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadow,
 });
 
-// Placeholder resimleri için daha güvenilir bir kaynak kullan
-const placeholderImage = 'https://placehold.co/500x500/eee/999?text=Resim+Yok';
+// Mavi "kullanıcı konumu" ikonu
+const userLocationIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41]
+});
 
-// Status Renk Kodları
+// Harita içeriği güncelleyen bileşen
+function MapUpdater({ issues }) {
+  const map = useMap();
+  
+  useEffect(() => {
+    if (issues && issues.length > 0) {
+      try {
+        const bounds = L.latLngBounds(
+          issues.map(issue => {
+            const coords = issue.location.coordinates;
+            return [coords[1], coords[0]]; // Leaflet uses [lat, lng]
+          })
+        );
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13 });
+      } catch (err) {
+        console.error('Harita sınırları ayarlanırken hata:', err);
+        // Default Türkiye merkezi
+        map.setView([39.9334, 32.8597], 6);
+      }
+    } else {
+      // Default Türkiye merkezi
+      map.setView([39.9334, 32.8597], 6);
+    }
+  }, [issues, map]);
+  
+  return null;
+}
+
+// Kullanıcının konumunu gösteren bileşen
+const LocationMarker = ({ onLocationFound }) => {
+  const [position, setPosition] = useState(null);
+  const [isLocating, setIsLocating] = useState(false);
+  const map = useMap();
+
+  const locateUser = () => {
+    setIsLocating(true);
+    map.locate({ setView: true, maxZoom: 13 });
+  };
+
+  useEffect(() => {
+    map.on('locationfound', (e) => {
+      setPosition(e.latlng);
+      setIsLocating(false);
+      if (onLocationFound) {
+        onLocationFound(e.latlng);
+      }
+    });
+
+    map.on('locationerror', (e) => {
+      console.error('Konum bulunamadı:', e.message);
+      alert('Konumunuz bulunamadı. Lütfen konum izinlerinizi kontrol edin.');
+      setIsLocating(false);
+    });
+
+    return () => {
+      map.off('locationfound');
+      map.off('locationerror');
+    };
+  }, [map, onLocationFound]);
+
+  return (
+    <div className="leaflet-top leaflet-right" style={{ marginTop: '80px', marginRight: '10px' }}>
+      <div className="leaflet-control leaflet-bar">
+        <button 
+          onClick={locateUser}
+          className="bg-white p-2 rounded-lg shadow flex items-center justify-center"
+          title="Konumumu göster"
+          disabled={isLocating}
+        >
+          {isLocating ? (
+            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          )}
+        </button>
+      </div>
+      {position && (
+        <Marker position={position} icon={userLocationIcon}>
+          <Popup>Bulunduğunuz konum</Popup>
+        </Marker>
+      )}
+    </div>
+  );
+};
+
+// Varsayılan görsel
+const placeholderImage = 'https://via.placeholder.com/300x200?text=Görsel+Yok';
+
+// Durumlar için renk kodları
 const statusColors = {
   'Yeni': 'bg-blue-100 text-blue-800',
   'İnceleniyor': 'bg-yellow-100 text-yellow-800',
@@ -31,7 +130,7 @@ const statusColors = {
   'rejected': 'bg-red-100 text-red-800'
 };
 
-// Severity Renk Kodları
+// Önem derecesi için renk kodları
 const severityColors = {
   'Düşük': 'bg-gray-100 text-gray-800',
   'Orta': 'bg-yellow-100 text-yellow-800',
@@ -43,39 +142,40 @@ const severityColors = {
   'critical': 'bg-red-100 text-red-800'
 };
 
-// Status Translation
+// Durum çevirileri
 const statusTranslation = {
   'pending': 'Yeni',
   'in_progress': 'İnceleniyor',
   'resolved': 'Çözüldü',
-  'rejected': 'Reddedildi'
+  'rejected': 'Reddedildi',
+  'open': 'Yeni',
+  'Yeni': 'Yeni',
+  'İnceleniyor': 'İnceleniyor',
+  'Çözüldü': 'Çözüldü',
+  'Reddedildi': 'Reddedildi'
 };
 
-// Severity Translation
+// Önem seviyesi çevirileri
 const severityTranslation = {
   'low': 'Düşük',
   'medium': 'Orta',
   'high': 'Yüksek',
-  'critical': 'Kritik'
+  'critical': 'Kritik',
+  'Düşük': 'Düşük',
+  'Orta': 'Orta',
+  'Yüksek': 'Yüksek',
+  'Kritik': 'Kritik'
 };
 
-const categories = [
-  'Tümü',
-  'Altyapı',
-  'Üstyapı',
-  'Çevre',
-  'Ulaşım',
-  'Güvenlik',
-  'Temizlik',
-  'Diğer'
-];
-
-const statuses = [
-  'Tümü',
-  'Yeni',
-  'İnceleniyor',
-  'Çözüldü',
-  'Reddedildi'
+// Türkiye'deki ilçeler listesi (örnek)
+const allDistricts = [
+  'Adalar', 'Arnavutköy', 'Ataşehir', 'Avcılar', 'Bağcılar', 'Bahçelievler', 
+  'Bakırköy', 'Başakşehir', 'Bayrampaşa', 'Beşiktaş', 'Beykoz', 'Beylikdüzü', 
+  'Beyoğlu', 'Büyükçekmece', 'Çatalca', 'Çekmeköy', 'Esenler', 'Esenyurt', 
+  'Eyüp', 'Fatih', 'Gaziosmanpaşa', 'Güngören', 'Kadıköy', 'Kağıthane', 
+  'Kartal', 'Küçükçekmece', 'Maltepe', 'Pendik', 'Sancaktepe', 'Sarıyer',
+  'Silivri', 'Sultanbeyli', 'Sultangazi', 'Şile', 'Şişli', 'Tuzla', 
+  'Ümraniye', 'Üsküdar', 'Zeytinburnu'
 ];
 
 const IssuesPage = () => {
@@ -85,6 +185,8 @@ const IssuesPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [viewMode, setViewMode] = useState('list'); // 'list' or 'map'
+  const [districts, setDistricts] = useState([]);
+  const [isApplyingFilters, setIsApplyingFilters] = useState(false);
   
   // Filter states
   const [filters, setFilters] = useState({
@@ -97,20 +199,29 @@ const IssuesPage = () => {
   // Sort state
   const [sortBy, setSortBy] = useState('newest');
 
-  // Kullanıcının şehri değiştiğinde artık filtre uygulamıyoruz
-  useEffect(() => {
-    console.log('Tüm şehirlerdeki sorunlar gösteriliyor');
-  }, [user]);
+  // Memoize API query params to avoid unnecessary re-renders
+  const apiQueryParams = useMemo(() => {
+    const params = {};
+    
+    if (filters.search) params.search = filters.search;
+    if (filters.category !== 'Tümü') params.category = filters.category;
+    if (filters.status !== 'Tümü') params.status = filters.status;
+    if (filters.district) params.district = filters.district;
+    
+    // Sorting
+    params.sort = sortBy;
+    
+    return params;
+  }, [filters, sortBy]);
 
-  // Get issues from API
+  // Fetch issues on first load or when filters are applied
   useEffect(() => {
     const fetchIssues = async () => {
       try {
         setLoading(true);
         
-        // Tüm sorunları getir, filtre yok
-        console.log('Tüm sorunlar getiriliyor, filtreleme yok');
-        const response = await issueService.getAllIssues();
+        console.log('Sorunlar için API isteği gönderiliyor, parametreler:', apiQueryParams);
+        const response = await issueService.getAllIssues(apiQueryParams);
         
         if (response && response.data) {
           // Format issues data
@@ -141,6 +252,15 @@ const IssuesPage = () => {
           setIssues(formattedIssues);
           setFilteredIssues(formattedIssues);
           console.log('Sorunlar başarıyla yüklendi:', formattedIssues.length);
+          
+          // Districleri topla
+          const uniqueDistricts = [...new Set(
+            formattedIssues
+              .filter(issue => issue.location && issue.location.district)
+              .map(issue => issue.location.district)
+          )].sort();
+          
+          setDistricts(uniqueDistricts.length > 0 ? uniqueDistricts : allDistricts);
         } else {
           setError('Sorunlar yüklenemedi');
         }
@@ -149,94 +269,27 @@ const IssuesPage = () => {
         setError('Sorunlar yüklenirken bir hata oluştu.');
       } finally {
         setLoading(false);
+        setIsApplyingFilters(false);
       }
     };
 
     fetchIssues();
-  }, []);
+  }, [apiQueryParams, isApplyingFilters]);
 
-  // Apply filters - şehir filtresi kaldırıldı
-  useEffect(() => {
-    let result = [...issues];
-    
-    // Apply search filter
-    if (filters.search) {
-      const searchLower = filters.search.toLowerCase();
-      result = result.filter(issue => 
-        issue.title.toLowerCase().includes(searchLower) ||
-        issue.description.toLowerCase().includes(searchLower) ||
-        (issue.location && issue.location.address && issue.location.address.toLowerCase().includes(searchLower))
-      );
-    }
-    
-    // Apply category filter
-    if (filters.category !== 'Tümü') {
-      result = result.filter(issue => {
-        const category = issue.category || '';
-        return category.toLowerCase() === filters.category.toLowerCase();
-      });
-    }
-    
-    // Apply status filter
-    if (filters.status !== 'Tümü') {
-      result = result.filter(issue => {
-        const status = issue.status || '';
-        const translatedStatus = statusTranslation[status] || status;
-        return translatedStatus === filters.status;
-      });
-    }
-    
-    // Apply district filter
-    if (filters.district) {
-      result = result.filter(issue => 
-        issue.location && 
-        issue.location.district && 
-        issue.location.district.toLowerCase().includes(filters.district.toLowerCase())
-      );
-    }
-    
-    // Apply sorting
-    result = sortIssues(result, sortBy);
-    
-    console.log('Filtrelenmiş sonuç sayısı:', result.length);
-    setFilteredIssues(result);
-  }, [issues, filters, sortBy]);
-
-  // Handle filter changes
-  const handleFilterChange = (e) => {
-    const { name, value } = e.target;
-    setFilters(prev => ({
-      ...prev,
-      [name]: value
-    }));
+  // Apply filters function - triggers API call by changing isApplyingFilters
+  const applyFilters = () => {
+    setIsApplyingFilters(true);
   };
 
-  // Handle sort changes
-  const handleSortChange = (e) => {
-    setSortBy(e.target.value);
-  };
-
-  // Sort issues based on criteria
-  const sortIssues = (issues, criteria) => {
-    const sorted = [...issues];
-    
-    switch (criteria) {
-      case 'newest':
-        return sorted.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-      case 'oldest':
-        return sorted.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-      case 'upvotes':
-        return sorted.sort((a, b) => (b.upvotes || 0) - (a.upvotes || 0));
-      case 'severity':
-        const severityOrder = { 'critical': 3, 'high': 2, 'medium': 1, 'low': 0 };
-        return sorted.sort((a, b) => {
-          const severityA = a.severity || 'low';
-          const severityB = b.severity || 'low';
-          return severityOrder[severityB] - severityOrder[severityA];
-        });
-      default:
-        return sorted;
-    }
+  // Reset filters
+  const resetFilters = () => {
+    setFilters({
+      search: '',
+      category: 'Tümü',
+      status: 'Tümü',
+      district: ''
+    });
+    setIsApplyingFilters(true);
   };
 
   // Format date
@@ -292,78 +345,17 @@ const IssuesPage = () => {
         </Link>
       </div>
 
-      {/* Şehir filtresi kaldırıldı */}
+      {/* Gelişmiş filtreleme paneli */}
+      <FilterPanel 
+        filters={filters} 
+        setFilters={setFilters} 
+        sortBy={sortBy} 
+        setSortBy={setSortBy} 
+        districts={districts}
+        applyFilters={applyFilters}
+        resetFilters={resetFilters}
+      />
 
-      {/* Filtreler */}
-      <div className="bg-white shadow-md rounded-lg p-4 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="search">
-              Ara
-            </label>
-            <input
-              type="text"
-              id="search"
-              name="search"
-              value={filters.search}
-              onChange={handleFilterChange}
-              placeholder="Başlık, açıklama veya adrese göre ara"
-              className="shadow appearance-none border border-gray-300 rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-            />
-          </div>
-          
-          <div>
-            <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="category">
-              Kategori
-            </label>
-            <select
-              id="category"
-              name="category"
-              value={filters.category}
-              onChange={handleFilterChange}
-              className="shadow appearance-none border border-gray-300 rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-            >
-              {categories.map(category => (
-                <option key={category} value={category}>{category}</option>
-              ))}
-            </select>
-          </div>
-          
-          <div>
-            <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="status">
-              Durum
-            </label>
-            <select
-              id="status"
-              name="status"
-              value={filters.status}
-              onChange={handleFilterChange}
-              className="shadow appearance-none border border-gray-300 rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-            >
-              {statuses.map(status => (
-                <option key={status} value={status}>{status}</option>
-              ))}
-            </select>
-          </div>
-          
-          <div>
-            <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="district">
-              İlçe
-            </label>
-            <input
-              type="text"
-              id="district"
-              name="district"
-              value={filters.district}
-              onChange={handleFilterChange}
-              placeholder="İlçe adı girin"
-              className="shadow appearance-none border border-gray-300 rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Görünüm ve Sıralama Seçenekleri */}
       <div className="flex flex-col sm:flex-row justify-between items-center mb-6">
         <div className="mb-4 sm:mb-0">
           <span className="text-gray-700 mr-2">Görünüm:</span>
@@ -390,20 +382,6 @@ const IssuesPage = () => {
             </button>
           </div>
         </div>
-        
-        <div className="flex items-center">
-          <span className="text-gray-700 mr-2">Sırala:</span>
-          <select
-            value={sortBy}
-            onChange={handleSortChange}
-            className="shadow border border-gray-300 rounded-md py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-          >
-            <option value="newest">En Yeni</option>
-            <option value="oldest">En Eski</option>
-            <option value="upvotes">En Çok Oylanan</option>
-            <option value="severity">Önem Derecesi</option>
-          </select>
-        </div>
       </div>
 
       {/* Sonuçlar */}
@@ -416,138 +394,135 @@ const IssuesPage = () => {
       {/* Liste Görünümü */}
       {viewMode === 'list' && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredIssues.map((issue) => (
-            <div key={issue._id} className="bg-white shadow-md rounded-lg overflow-hidden">
-              {issue.images && issue.images.length > 0 && (
-                <div className="h-48 overflow-hidden">
-                  <img
-                    src={issue.images[0]}
-                    alt={issue.title}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-              )}
-              
-              <div className="p-4">
-                <div className="flex justify-between items-start mb-2">
-                  <div>
-                    <span className={`inline-block px-2 py-1 text-xs font-semibold rounded-full ${statusColors[issue.status]}`}>
-                      {getStatusDisplayText(issue.status)}
-                    </span>
-                    <span className={`inline-block ml-2 px-2 py-1 text-xs font-semibold rounded-full ${severityColors[issue.severity]}`}>
-                      {getSeverityDisplayText(issue.severity)}
-                    </span>
-                  </div>
-                  <span className="text-gray-500 text-sm">
-                    {formatDate(issue.createdAt)}
+          {filteredIssues.map(issue => (
+            <Link 
+              key={issue._id} 
+              to={`/issues/${issue._id}`}
+              className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition"
+            >
+              <div className="relative h-48 overflow-hidden">
+                <img 
+                  src={issue.images && issue.images[0] ? issue.images[0] : placeholderImage} 
+                  alt={issue.title} 
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    e.target.onerror = null;
+                    e.target.src = placeholderImage;
+                  }}
+                />
+                <div className="absolute top-0 right-0 m-2 flex space-x-1">
+                  <span className={`px-2 py-1 rounded-full text-xs font-semibold ${statusColors[issue.status] || 'bg-gray-100 text-gray-800'}`}>
+                    {getStatusDisplayText(issue.status)}
+                  </span>
+                  <span className={`px-2 py-1 rounded-full text-xs font-semibold ${severityColors[issue.severity] || 'bg-gray-100 text-gray-800'}`}>
+                    {getSeverityDisplayText(issue.severity)}
                   </span>
                 </div>
-                
-                <h2 className="text-xl font-semibold mb-2">
-                  <Link to={`/issues/${issue._id}`} className="text-blue-600 hover:text-blue-800">
-                    {issue.title}
-                  </Link>
-                </h2>
-                
-                <p className="text-gray-600 text-sm mb-4 line-clamp-2">
-                  {issue.description}
-                </p>
-                
+              </div>
+              <div className="p-4">
+                <h2 className="text-xl font-semibold text-gray-800 mb-2 line-clamp-2">{issue.title}</h2>
+                <p className="text-gray-600 text-sm mb-3 line-clamp-2">{issue.description}</p>
                 <div className="flex justify-between items-center">
-                  <div className="text-gray-500 text-sm">
-                    <span className="inline-block px-2 py-1 bg-gray-100 rounded-full text-xs mr-2">
-                      {issue.category}
-                    </span>
-                    <span>{issue.location?.district}</span>
-                  </div>
-                  
-                  <div className="flex items-center">
-                    <button className="text-gray-500 hover:text-blue-600 mr-2">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <span className="text-sm text-gray-500">
+                    {formatDate(issue.createdAt)}
+                  </span>
+                  <div className="flex items-center space-x-2">
+                    <span className="flex items-center text-blue-600">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
                         <path fillRule="evenodd" d="M3.293 9.707a1 1 0 010-1.414l6-6a1 1 0 011.414 0l6 6a1 1 0 01-1.414 1.414L11 5.414V17a1 1 0 11-2 0V5.414L4.707 9.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
                       </svg>
-                    </button>
-                    <span className="text-gray-700 font-medium">{issue.upvotes || 0}</span>
+                      {issue.upvotes || 0}
+                    </span>
+                    <span className="flex items-center text-gray-600">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M18 5v8a2 2 0 01-2 2h-5l-5 4v-4H4a2 2 0 01-2-2V5a2 2 0 012-2h12a2 2 0 012 2zM7 8H5v2h2V8zm2 0h2v2H9V8zm6 0h-2v2h2V8z" clipRule="evenodd" />
+                      </svg>
+                      {issue.comments ? issue.comments.length : 0}
+                    </span>
                   </div>
                 </div>
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       )}
 
       {/* Harita Görünümü */}
       {viewMode === 'map' && (
-        <div className="bg-white shadow-md rounded-lg overflow-hidden h-[600px]">
-          <MapContainer center={[41.0082, 28.9784]} zoom={12} style={{ height: '100%', width: '100%' }}>
+        <div className="bg-white rounded-lg shadow-md overflow-hidden" style={{ height: '70vh' }}>
+          <MapContainer 
+            center={[39.9334, 32.8597]} // Türkiye ortası
+            zoom={6} 
+            style={{ height: '100%', width: '100%' }}
+            whenCreated={(map) => {
+              // Auto-zoom to fit all markers when map is loaded
+              if (filteredIssues.length > 0) {
+                const bounds = L.latLngBounds(
+                  filteredIssues.map(issue => {
+                    const coords = issue.location.coordinates;
+                    return [coords[1], coords[0]]; // Leaflet uses [lat, lng]
+                  })
+                );
+                map.fitBounds(bounds, { padding: [50, 50] });
+              }
+            }}
+          >
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
             
-            {filteredIssues.length > 0 ? (
-              filteredIssues.map((issue) => {
-                // Debug - konumları log'la
-                console.log(`Haritada gösterilecek sorun: ${issue._id}`, issue.location.coordinates);
+            <MapUpdater issues={filteredIssues} />
+            <LocationMarker onLocationFound={(latlng) => console.log('Konum bulundu:', latlng)} />
+            
+            {filteredIssues.map(issue => {
+              // Location coordinates are in [longitude, latitude] format in MongoDB
+              // But Leaflet uses [latitude, longitude] format
+              const position = issue.location && issue.location.coordinates ? 
+                [issue.location.coordinates[1], issue.location.coordinates[0]] : 
+                [41.0082, 28.9784]; // Default to Istanbul
                 
-                // Her sorun için koordinatlar olduğunu garantiledik
-                if (issue.location && issue.location.coordinates && 
-                    Array.isArray(issue.location.coordinates) && 
-                    issue.location.coordinates.length === 2) {
-                  
-                  let position;
-                  
-                  // Check if coordinates are numbers
-                  const coord1 = parseFloat(issue.location.coordinates[0]);
-                  const coord2 = parseFloat(issue.location.coordinates[1]);
-                  
-                  if (isNaN(coord1) || isNaN(coord2)) {
-                    console.error(`Sorun ${issue._id} için geçersiz koordinatlar:`, issue.location.coordinates);
-                    return null;
-                  }
-                  
-                  // Leaflet [lat, lng] bekler, MongoDB [lng, lat] kullanır
-                  // MongoDB GeoJSON spesifikasyonu: https://docs.mongodb.com/manual/reference/geojson/
-                  position = [coord2, coord1];
-                  console.log(`Sorun ${issue._id} için haritada kullanılan koordinatlar:`, position);
-                  
-                  return (
-                    <Marker key={issue._id} position={position}>
-                      <Popup>
-                        <div className="w-60">
-                          <div className="mb-2">
-                            <span className={`inline-block px-2 py-1 text-xs font-semibold rounded-full ${statusColors[issue.status]}`}>
-                              {getStatusDisplayText(issue.status)}
-                            </span>
-                            <span className={`inline-block ml-1 px-2 py-1 text-xs font-semibold rounded-full ${severityColors[issue.severity]}`}>
-                              {getSeverityDisplayText(issue.severity)}
-                            </span>
-                          </div>
-                          
-                          <h3 className="text-lg font-semibold mb-1">{issue.title}</h3>
-                          
-                          <p className="text-gray-600 text-sm mb-2 line-clamp-2">
-                            {issue.description}
-                          </p>
-                          
-                          <div className="text-xs text-gray-500 mb-2">
-                            {issue.location.address}, {issue.location.district}
-                          </div>
-                          
-                          <Link 
-                            to={`/issues/${issue._id}`}
-                            className="block w-full text-center bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-1 px-2 rounded transition"
-                          >
-                            Detayları Gör
-                          </Link>
-                        </div>
-                      </Popup>
-                    </Marker>
-                  );
-                }
-                return null;
-              })
-            ) : (
+              return (
+                <Marker
+                  key={issue._id}
+                  position={position}
+                >
+                  <Popup>
+                    <div className="w-64">
+                      <div className="relative h-32 mb-2">
+                        <img 
+                          src={issue.images[0]} 
+                          alt={issue.title}
+                          className="w-full h-full object-cover rounded"
+                          onError={(e) => {
+                            e.target.onerror = null;
+                            e.target.src = placeholderImage;
+                          }}
+                        />
+                      </div>
+                      <h3 className="text-lg font-bold mb-1">{issue.title}</h3>
+                      <p className="text-sm text-gray-600 mb-2 line-clamp-2">{issue.description}</p>
+                      <div className="flex space-x-1 mb-2">
+                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${statusColors[issue.status] || 'bg-gray-100 text-gray-800'}`}>
+                          {getStatusDisplayText(issue.status)}
+                        </span>
+                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${severityColors[issue.severity] || 'bg-gray-100 text-gray-800'}`}>
+                          {getSeverityDisplayText(issue.severity)}
+                        </span>
+                      </div>
+                      <Link 
+                        to={`/issues/${issue._id}`}
+                        className="block w-full bg-blue-600 hover:bg-blue-700 text-white text-center py-1 px-3 rounded"
+                      >
+                        Detayları Gör
+                      </Link>
+                    </div>
+                  </Popup>
+                </Marker>
+              );
+            })}
+            
+            {filteredIssues.length === 0 && (
               // Filtrelenmiş sonuç yoksa mesaj göster
               <div className="absolute z-[1000] top-4 left-0 right-0 mx-auto w-max bg-white p-3 shadow-md rounded-lg">
                 <p className="text-red-600">Filtreleme kriterlerine uygun sorun bulunamadı.</p>
@@ -557,16 +532,9 @@ const IssuesPage = () => {
         </div>
       )}
 
-      {/* Sayfalama (ileride eklenebilir) */}
-      {filteredIssues.length > 0 && (
-        <div className="mt-8 flex justify-center">
-          {/* Pagination component will be added here */}
-        </div>
-      )}
-
       {/* Sonuç Bulunamadı */}
       {filteredIssues.length === 0 && (
-        <div className="bg-white shadow-md rounded-lg p-8 text-center">
+        <div className="bg-white shadow-md rounded-lg p-8 text-center mt-6">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 mx-auto text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
@@ -575,14 +543,7 @@ const IssuesPage = () => {
             Arama kriterlerinize uygun sorun bulunamadı. Lütfen farklı filtreler deneyin.
           </p>
           <button
-            onClick={() => {
-              setFilters({
-                search: '',
-                category: 'Tümü',
-                status: 'Tümü',
-                district: ''
-              });
-            }}
+            onClick={resetFilters}
             className="bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded-lg transition"
           >
             Filtreleri Temizle

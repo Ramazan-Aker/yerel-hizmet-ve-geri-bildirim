@@ -93,8 +93,8 @@ export const getAddressFromCoordinates = async (lat, lng) => {
         building: buildingInfo || '',
         pointOfInterest: pointOfInterest || '',
         neighbourhood: data.address.neighbourhood || data.address.suburb || '',
-        district: data.address.city_district || data.address.district || data.address.town || data.address.municipality || '',
-        city: data.address.city || data.address.state || '',
+        district: data.address.city_district || data.address.district || data.address.town || data.address.municipality || data.address.county || data.address.village || data.address.city || '',
+        city: data.address.city || data.address.state || data.address.county || data.address.region || '',
         postalCode: data.address.postcode || '',
         rawData: data
       };
@@ -151,7 +151,9 @@ async function getAddressFromGoogleMaps(lat, lng) {
       
     const district = components.find(comp => 
       comp.types.includes('administrative_area_level_2') || 
-      comp.types.includes('locality'))?.long_name || '';
+      comp.types.includes('locality') ||
+      comp.types.includes('sublocality_level_2') ||
+      comp.types.includes('postal_town'))?.long_name || '';
       
     const city = components.find(comp => 
       comp.types.includes('administrative_area_level_1'))?.long_name || '';
