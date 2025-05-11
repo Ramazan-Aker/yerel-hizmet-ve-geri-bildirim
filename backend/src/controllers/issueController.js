@@ -282,17 +282,82 @@ exports.getIssues = async (req, res) => {
 
     console.log('Uygulanan filtreler:', filter);
 
+    // Sıralama seçenekleri
+    const sortOption = req.query.sort || 'newest';
+    
+    // En çok yorumlanan filtresi için özel işlem yapıyoruz
+    if (sortOption === 'most_comments') {
+      try {
+        console.log('En çok yorumlanan filtresine göre sıralama yapılıyor...');
+        
+        // Tüm sorunları normal şekilde, yorumlarıyla birlikte getir
+        // Sayfalama burada yapmıyoruz, manuel yapacağız
+        const allIssues = await Issue.find(filter)
+          .populate('user', 'name')
+          .lean(); // Daha hızlı işlem için lean() kullanıyoruz
+        
+        // Her soruna yorum sayısı alanı ekle
+        const issuesWithCommentCount = allIssues.map(issue => {
+          // Yorumların sayısını hesapla (eğer varsa)
+          const commentCount = issue.comments ? issue.comments.length : 0;
+          
+          // Yeni bir commentCount alanı ekle
+          return {
+            ...issue,
+            commentCount
+          };
+        });
+        
+        // Yorum sayısına göre sırala (çoktan aza)
+        issuesWithCommentCount.sort((a, b) => b.commentCount - a.commentCount);
+        
+        // Sayfalama uygula
+        const paginatedIssues = issuesWithCommentCount.slice(startIndex, startIndex + limit);
+        
+        // Debug: Yorum sayılarını kontrol et
+        console.log('Sıralama sonrası ilk 5 sorun:');
+        for (let i = 0; i < Math.min(5, paginatedIssues.length); i++) {
+          const issue = paginatedIssues[i];
+          console.log(`  ID: ${issue._id}, Başlık: "${issue.title}", Yorum sayısı: ${issue.commentCount}`);
+        }
+        
+        // Toplam sayı hesaplama
+        const total = allIssues.length;
+        
+        // Sayfalama bilgisi
+        const pagination = {
+          current: page,
+          total: Math.ceil(total / limit),
+          count: paginatedIssues.length
+        };
+        
+        console.log(`Toplam ${total} sorundan, ${paginatedIssues.length} sorun döndürülüyor (yorum sayısına göre sıralı).`);
+        
+        return res.status(200).json({
+          success: true,
+          pagination,
+          data: paginatedIssues
+        });
+      } catch (error) {
+        console.error('En çok yorumlanan sıralaması yapılırken hata:', error);
+        
+        // Hatada standart sıralamaya dön
+        console.log('Hata nedeniyle varsayılan sıralamaya (en yeni) dönülüyor.');
+        sortOption = 'newest';
+      }
+    }
+    
+    // Diğer sıralama seçenekleri için normal akış
     // Toplam sayı hesaplama
     const total = await Issue.countDocuments(filter);
     
-    // Sorgu ve sıralama
+    // Standart sorgu ve sıralama
     let issuesQuery = Issue.find(filter)
       .populate('user', 'name')
       .skip(startIndex)
       .limit(limit);
     
-    // Sıralama seçenekleri
-    const sortOption = req.query.sort || 'newest';
+    // Normal sıralama seçenekleri
     switch (sortOption) {
       case 'newest':
         issuesQuery = issuesQuery.sort({ createdAt: -1 });
@@ -306,10 +371,6 @@ exports.getIssues = async (req, res) => {
       case 'severity':
         // Önem derecesi alfabetik olarak sıralanır - özel bir sıralama gerekebilir
         issuesQuery = issuesQuery.sort({ severity: -1 });
-        break;
-      case 'most_comments':
-        // Yorum sayısına göre sıralama
-        issuesQuery = issuesQuery.sort({ 'comments.length': -1 });
         break;
       default:
         issuesQuery = issuesQuery.sort({ createdAt: -1 });

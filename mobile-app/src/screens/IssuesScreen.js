@@ -13,12 +13,14 @@ import {
   Dimensions,
   SafeAreaView,
   StatusBar,
-  Alert
+  Alert,
+  Platform
 } from 'react-native';
 import RNPickerSelect from 'react-native-picker-select';
 import { useAuth } from '../hooks/useAuth';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import MapView, { Marker, Callout } from 'react-native-maps';
+import MapView, { Marker, Callout, PROVIDER_GOOGLE } from 'react-native-maps';
+import * as Location from 'expo-location';
 import api from '../utils/api';
 import { useFocusEffect } from '@react-navigation/native';
 
@@ -31,6 +33,16 @@ const IssuesScreen = ({ navigation }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [viewMode, setViewMode] = useState('list'); // 'list' veya 'map'
   const [isDemoMode, setIsDemoMode] = useState(false);
+  
+  // Konum state'leri
+  const [userLocation, setUserLocation] = useState(null);
+  const [locationPermission, setLocationPermission] = useState(false);
+  const [mapRegion, setMapRegion] = useState({
+    latitude: 39.0128, // Türkiye'nin merkezi (yaklaşık)
+    longitude: 35.9632,
+    latitudeDelta: 5,
+    longitudeDelta: 5,
+  });
 
   // Filtre durumları
   const [filters, setFilters] = useState({
@@ -42,6 +54,9 @@ const IssuesScreen = ({ navigation }) => {
 
   // Sıralama seçeneği
   const [sortBy, setSortBy] = useState('newest');
+  
+  // Tüm şehirleri göster
+  const [showAllCities, setShowAllCities] = useState(false);
 
   // Filtrelenmiş sorunlar
   const [filteredIssues, setFilteredIssues] = useState([]);
@@ -136,7 +151,7 @@ const IssuesScreen = ({ navigation }) => {
     }
   });
 
-  // API'den sorunları getir
+  // Sorunları getir
   const fetchIssues = useCallback(async (shouldRefresh = false) => {
     try {
       if (shouldRefresh) {
@@ -145,38 +160,30 @@ const IssuesScreen = ({ navigation }) => {
         setLoading(true);
       }
 
-      console.log("Tüm sorunlar getiriliyor...");
+      console.log('Sorunlar getiriliyor...');
+      console.log('Tüm şehirleri göster:', showAllCities);
+      
       // API'den sorunları al
-      const response = await api.issues.getAll();
+      const response = await api.issues.getAll({ showAllCities });
       
       if (response.success) {
-        console.log(`${response.data.data.length} sorun bulundu`);
-        // Sorunları formatlayıp uygula
-        const formattedIssues = response.data.data.map(issue => {
-          // Koordinatları düzelt
-          let formattedIssue = {
-            ...issue,
-            // images: issue.images && issue.images.length > 0 ? issue.images : null
-          };
-          
-          // Koordinatlar yoksa varsayılan değer ata
-          if (!formattedIssue.location || !formattedIssue.location.coordinates) {
-            console.warn(`Sorun ID: ${issue._id} - Koordinatlar eksik. Varsayılan koordinatlar atanıyor.`);
-            
-            if (!formattedIssue.location) {
-              formattedIssue.location = {};
-            }
-            
-            formattedIssue.location.coordinates = [28.9784, 41.0082]; // İstanbul koordinatları
-          }
-          
-          return formattedIssue;
-        });
-
-        setIssues(formattedIssues);
-        setIsDemoMode(false);
+        console.log(`${response.data.data?.length || 0} sorun bulundu`);
+        
+        // API'nin döndüğü veri yapısını kontrol et
+        if (response.data.data) {
+          setIssues(response.data.data);
+        } else {
+          setIssues(response.data);
+        }
+        
+        if (response.isDemoMode) {
+          setIsDemoMode(true);
+        } else {
+          setIsDemoMode(false);
+        }
       } else {
         console.error('API hata döndürdü:', response.message);
+        setIssues([]);
         setIsDemoMode(true);
       }
     } catch (error) {
@@ -186,7 +193,7 @@ const IssuesScreen = ({ navigation }) => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [showAllCities]);
 
   // Ekran odaklandığında çalışır
   useFocusEffect(
@@ -205,6 +212,13 @@ const IssuesScreen = ({ navigation }) => {
   useEffect(() => {
     fetchIssues();
   }, [fetchIssues]);
+
+  // Sayfa yüklendiğinde konum izni iste
+  useEffect(() => {
+    if (viewMode === 'map') {
+      getUserLocation();
+    }
+  }, [viewMode]);
 
   // Filtreleri uygula
   useEffect(() => {
@@ -331,6 +345,14 @@ const IssuesScreen = ({ navigation }) => {
     navigation.navigate('CreateIssue');
   };
 
+  // Custom renderTouchable fonksiyonu - RNPickerSelect için dokunma alanını özelleştirir
+  const renderPickerButton = (text, onPress) => (
+    <TouchableOpacity onPress={onPress} style={styles.customPickerButton}>
+      <Text style={styles.customPickerButtonText}>{text}</Text>
+      <Icon name="arrow-drop-down" size={24} color="#3b82f6" />
+    </TouchableOpacity>
+  );
+
   // Her bir sorun kartını render et
   const renderIssueItem = ({ item }) => (
     <TouchableOpacity 
@@ -381,6 +403,56 @@ const IssuesScreen = ({ navigation }) => {
     }
   };
 
+  // Kullanıcının konumunu alma işlevi
+  const getUserLocation = async () => {
+    try {
+      // Konum izinlerini kontrol et
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      
+      if (status !== 'granted') {
+        setLocationPermission(false);
+        Alert.alert(
+          'Konum İzni Gerekli',
+          'Haritada konumunuzu gösterebilmek için konum izni vermeniz gerekiyor.',
+          [{ text: 'Tamam' }]
+        );
+        return;
+      }
+      
+      setLocationPermission(true);
+      
+      // Kullanıcının mevcut konumunu al
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      
+      const { latitude, longitude } = location.coords;
+      
+      // Kullanıcı konumunu ayarla
+      setUserLocation({
+        latitude,
+        longitude,
+      });
+      
+      // Harita bölgesini kullanıcının konumuna göre güncelle
+      setMapRegion({
+        latitude,
+        longitude,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05,
+      });
+      
+      console.log('Kullanıcı konumu alındı:', latitude, longitude);
+      
+    } catch (error) {
+      console.error('Konum alınırken hata oluştu:', error);
+      Alert.alert(
+        'Konum Hatası',
+        'Konumunuz alınırken bir hata oluştu. Lütfen konum servislerinizin açık olduğundan emin olun.'
+      );
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Connection Status Bar */}
@@ -406,55 +478,115 @@ const IssuesScreen = ({ navigation }) => {
           onChangeText={(text) => setFilters(prev => ({ ...prev, search: text }))}
         />
         
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScrollView}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterScroll}
+        >
+          {/* Tüm Şehirler Göster/Gizle Toggle */}
           <View style={styles.filterItem}>
-            <Text style={styles.filterLabel}>Kategori:</Text>
-            <View style={styles.pickerWrapper}>
-              <RNPickerSelect
-                placeholder={{}}
-                items={categoryItems}
-                onValueChange={(value) => setFilters(prev => ({ ...prev, category: value }))}
-                value={filters.category}
-                style={pickerSelectStyles}
-                useNativeAndroidPickerStyle={false}
-                Icon={() => <Icon name="arrow-drop-down" size={24} color="#3b82f6" />}
-                touchableWrapperProps={{ activeOpacity: 0.5 }}
-                pickerProps={{
-                  dropdownIconColor: '#3b82f6',
-                  mode: 'dropdown',
-                  style: { 
-                    backgroundColor: '#ffffff',
-                    color: '#000000',
-                    fontWeight: 'bold'
-                  }
+            <Text style={styles.filterLabel}>Tüm Şehirler:</Text>
+            <View style={styles.toggleContainer}>
+              <TouchableOpacity
+                style={[
+                  styles.toggleButton, 
+                  showAllCities ? styles.toggleActive : styles.toggleInactive
+                ]}
+                onPress={() => {
+                  setShowAllCities(!showAllCities);
                 }}
-              />
+              >
+                <View style={[
+                  styles.toggleIndicator,
+                  showAllCities ? styles.toggleIndicatorRight : styles.toggleIndicatorLeft
+                ]} />
+              </TouchableOpacity>
+              <Text style={styles.toggleText}>
+                {showAllCities ? 'Açık' : 'Kapalı'}
+              </Text>
             </View>
           </View>
           
           <View style={styles.filterItem}>
-            <Text style={styles.filterLabel}>Durum:</Text>
-            <View style={styles.pickerWrapper}>
-              <RNPickerSelect
-                placeholder={{}}
-                items={statusItems}
-                onValueChange={(value) => setFilters(prev => ({ ...prev, status: value }))}
-                value={filters.status}
-                style={pickerSelectStyles}
-                useNativeAndroidPickerStyle={false}
-                Icon={() => <Icon name="arrow-drop-down" size={24} color="#3b82f6" />}
-                touchableWrapperProps={{ activeOpacity: 0.5 }}
-                pickerProps={{
-                  dropdownIconColor: '#3b82f6',
-                  mode: 'dropdown',
-                  style: { 
-                    backgroundColor: '#ffffff',
-                    color: '#000000',
-                    fontWeight: 'bold'
-                  }
+            <Text style={styles.filterLabel}>Kategori:</Text>
+            {Platform.OS === 'ios' ? (
+              <View style={styles.pickerWrapper}>
+                <RNPickerSelect
+                  placeholder={{}}
+                  items={categoryItems}
+                  onValueChange={(value) => setFilters(prev => ({ ...prev, category: value }))}
+                  value={filters.category}
+                  style={{
+                    inputIOS: styles.pickerIOS,
+                    iconContainer: styles.iconContainer,
+                  }}
+                  useNativeAndroidPickerStyle={false}
+                  Icon={() => <Icon name="arrow-drop-down" size={24} color="#3b82f6" />}
+                />
+              </View>
+            ) : (
+              <TouchableOpacity 
+                style={styles.customPickerWrapper}
+                onPress={() => {
+                  // Android için özel açılır menü
+                  Alert.alert(
+                    'Kategori Seçin',
+                    '',
+                    categoryItems.map(item => ({
+                      text: item.label,
+                      onPress: () => setFilters(prev => ({ ...prev, category: item.value }))
+                    })),
+                    { cancelable: true }
+                  );
                 }}
-              />
-            </View>
+              >
+                <Text style={styles.customPickerText}>{
+                  categoryItems.find(item => item.value === filters.category)?.label || 'Tümü'
+                }</Text>
+                <Icon name="arrow-drop-down" size={24} color="#3b82f6" />
+              </TouchableOpacity>
+            )}
+          </View>
+          
+          <View style={styles.filterItem}>
+            <Text style={styles.filterLabel}>Durum:</Text>
+            {Platform.OS === 'ios' ? (
+              <View style={styles.pickerWrapper}>
+                <RNPickerSelect
+                  placeholder={{}}
+                  items={statusItems}
+                  onValueChange={(value) => setFilters(prev => ({ ...prev, status: value }))}
+                  value={filters.status}
+                  style={{
+                    inputIOS: styles.pickerIOS,
+                    iconContainer: styles.iconContainer,
+                  }}
+                  useNativeAndroidPickerStyle={false}
+                  Icon={() => <Icon name="arrow-drop-down" size={24} color="#3b82f6" />}
+                />
+              </View>
+            ) : (
+              <TouchableOpacity 
+                style={styles.customPickerWrapper}
+                onPress={() => {
+                  // Android için özel açılır menü
+                  Alert.alert(
+                    'Durum Seçin',
+                    '',
+                    statusItems.map(item => ({
+                      text: item.label,
+                      onPress: () => setFilters(prev => ({ ...prev, status: item.value }))
+                    })),
+                    { cancelable: true }
+                  );
+                }}
+              >
+                <Text style={styles.customPickerText}>{
+                  statusItems.find(item => item.value === filters.status)?.label || 'Tümü'
+                }</Text>
+                <Icon name="arrow-drop-down" size={24} color="#3b82f6" />
+              </TouchableOpacity>
+            )}
           </View>
           
           <View style={styles.filterItem}>
@@ -469,27 +601,43 @@ const IssuesScreen = ({ navigation }) => {
           
           <View style={styles.filterItem}>
             <Text style={styles.filterLabel}>Sırala:</Text>
-            <View style={styles.pickerWrapper}>
-              <RNPickerSelect
-                placeholder={{}}
-                items={sortByItems}
-                onValueChange={(value) => setSortBy(value)}
-                value={sortBy}
-                style={pickerSelectStyles}
-                useNativeAndroidPickerStyle={false}
-                Icon={() => <Icon name="arrow-drop-down" size={24} color="#3b82f6" />}
-                touchableWrapperProps={{ activeOpacity: 0.5 }}
-                pickerProps={{
-                  dropdownIconColor: '#3b82f6',
-                  mode: 'dropdown',
-                  style: { 
-                    backgroundColor: '#ffffff',
-                    color: '#000000',
-                    fontWeight: 'bold'
-                  }
+            {Platform.OS === 'ios' ? (
+              <View style={styles.pickerWrapper}>
+                <RNPickerSelect
+                  placeholder={{}}
+                  items={sortByItems}
+                  onValueChange={(value) => setSortBy(value)}
+                  value={sortBy}
+                  style={{
+                    inputIOS: styles.pickerIOS,
+                    iconContainer: styles.iconContainer,
+                  }}
+                  useNativeAndroidPickerStyle={false}
+                  Icon={() => <Icon name="arrow-drop-down" size={24} color="#3b82f6" />}
+                />
+              </View>
+            ) : (
+              <TouchableOpacity 
+                style={styles.customPickerWrapper}
+                onPress={() => {
+                  // Android için özel açılır menü
+                  Alert.alert(
+                    'Sıralama Seçin',
+                    '',
+                    sortByItems.map(item => ({
+                      text: item.label,
+                      onPress: () => setSortBy(item.value)
+                    })),
+                    { cancelable: true }
+                  );
                 }}
-              />
-            </View>
+              >
+                <Text style={styles.customPickerText}>{
+                  sortByItems.find(item => item.value === sortBy)?.label || 'En Yeni'
+                }</Text>
+                <Icon name="arrow-drop-down" size={24} color="#3b82f6" />
+              </TouchableOpacity>
+            )}
           </View>
         </ScrollView>
         
@@ -562,13 +710,24 @@ const IssuesScreen = ({ navigation }) => {
           <View style={styles.mapContainer}>
             <MapView
               style={styles.map}
-              initialRegion={{
-                latitude: 41.0082,
-                longitude: 28.9784,
-                latitudeDelta: 0.0922,
-                longitudeDelta: 0.0421,
-              }}
+              initialRegion={mapRegion}
+              region={mapRegion}
+              provider={PROVIDER_GOOGLE}
             >
+              {/* Kullanıcı konumu marker'ı */}
+              {userLocation && locationPermission && (
+                <Marker
+                  coordinate={userLocation}
+                  title="Konumunuz"
+                  pinColor="#4285F4"
+                >
+                  <View style={styles.userLocationMarker}>
+                    <View style={styles.userLocationDot} />
+                  </View>
+                </Marker>
+              )}
+              
+              {/* Sorun marker'ları */}
               {filteredIssues.map((issue) => {
                 // Koordinatları kontrol et
                 if (issue.location && issue.location.coordinates && 
@@ -605,6 +764,14 @@ const IssuesScreen = ({ navigation }) => {
                 return null;
               })}
             </MapView>
+            
+            {/* Konumum Butonu */}
+            <TouchableOpacity 
+              style={styles.myLocationButton}
+              onPress={getUserLocation}
+            >
+              <Icon name="my-location" size={24} color="#3b82f6" />
+            </TouchableOpacity>
           </View>
         )
       )}
@@ -643,7 +810,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     fontSize: 16,
   },
-  filterScrollView: {
+  filterScroll: {
     flexDirection: 'row',
     marginBottom: 12,
   },
@@ -661,6 +828,38 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginTop: 5,
     marginBottom: 10,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 6,
+    height: 45,
+    justifyContent: 'center',
+  },
+  pickerIOS: {
+    fontSize: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    color: '#000000',
+    paddingRight: 30,
+    height: 45,
+    fontWeight: '500',
+  },
+  pickerAndroid: {
+    fontSize: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    color: '#000000',
+    paddingRight: 30,
+    height: 45,
+    fontWeight: '500',
+  },
+  iconContainer: {
+    top: 12,
+    right: 10,
+  },
+  viewContainer: {
+    backgroundColor: 'transparent',
+    borderRadius: 6,
   },
   districtInput: {
     backgroundColor: '#fff',
@@ -839,6 +1038,111 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
     marginLeft: 8,
+  },
+  toggleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  toggleButton: {
+    width: 50,
+    height: 24,
+    borderRadius: 12,
+    padding: 2,
+    justifyContent: 'center',
+  },
+  toggleActive: {
+    backgroundColor: '#3b82f6',
+  },
+  toggleInactive: {
+    backgroundColor: '#ccc',
+  },
+  toggleIndicator: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1,
+    elevation: 2,
+  },
+  toggleIndicatorRight: {
+    alignSelf: 'flex-end',
+  },
+  toggleIndicatorLeft: {
+    alignSelf: 'flex-start',
+  },
+  toggleText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#333',
+    marginLeft: 8,
+  },
+  customPickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+  },
+  customPickerButtonText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+    marginRight: 8,
+  },
+  customPickerWrapper: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 6,
+    padding: 12,
+    height: 45,
+    width: 160,
+  },
+  customPickerText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#333',
+    flex: 1,
+  },
+  userLocationMarker: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(66, 133, 244, 0.2)',
+    borderWidth: 1,
+    borderColor: '#4285F4',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  userLocationDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#4285F4',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  myLocationButton: {
+    position: 'absolute',
+    bottom: 20,
+    left: 20,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    borderWidth: 1,
+    borderColor: '#ddd',
   },
 });
 

@@ -173,7 +173,7 @@ const LocationMarker = ({ position, setPosition, setFormData, setIsLocationManua
           if (possibleCity) {
             console.log(`Şehir adı benzerliğine göre ${possibleCity} olarak düzeltildi`);
             updatedData.city = possibleCity;
-          } else {
+        } else {
             // Hala bulunamadıysa, rawData içinde daha fazla bilgi arayalım
             if (improvedAddressData.rawData && improvedAddressData.rawData.address) {
               const rawAddress = improvedAddressData.rawData.address;

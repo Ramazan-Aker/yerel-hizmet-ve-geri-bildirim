@@ -401,10 +401,10 @@ const IssuesPage = () => {
               className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition"
             >
               <div className="relative h-48 overflow-hidden">
-                <img 
+                  <img
                   src={issue.images && issue.images[0] ? issue.images[0] : placeholderImage} 
-                  alt={issue.title} 
-                  className="w-full h-full object-cover"
+                    alt={issue.title}
+                    className="w-full h-full object-cover"
                   onError={(e) => {
                     e.target.onerror = null;
                     e.target.src = placeholderImage;
@@ -412,10 +412,10 @@ const IssuesPage = () => {
                 />
                 <div className="absolute top-0 right-0 m-2 flex space-x-1">
                   <span className={`px-2 py-1 rounded-full text-xs font-semibold ${statusColors[issue.status] || 'bg-gray-100 text-gray-800'}`}>
-                    {getStatusDisplayText(issue.status)}
-                  </span>
+                      {getStatusDisplayText(issue.status)}
+                    </span>
                   <span className={`px-2 py-1 rounded-full text-xs font-semibold ${severityColors[issue.severity] || 'bg-gray-100 text-gray-800'}`}>
-                    {getSeverityDisplayText(issue.severity)}
+                      {getSeverityDisplayText(issue.severity)}
                   </span>
                 </div>
               </div>
@@ -425,7 +425,7 @@ const IssuesPage = () => {
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-gray-500">
                     {formatDate(issue.createdAt)}
-                  </span>
+                    </span>
                   <div className="flex items-center space-x-2">
                     <span className="flex items-center text-blue-600">
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
@@ -481,13 +481,13 @@ const IssuesPage = () => {
               const position = issue.location && issue.location.coordinates ? 
                 [issue.location.coordinates[1], issue.location.coordinates[0]] : 
                 [41.0082, 28.9784]; // Default to Istanbul
-                
-              return (
+                  
+                  return (
                 <Marker
                   key={issue._id}
                   position={position}
                 >
-                  <Popup>
+                      <Popup>
                     <div className="w-64">
                       <div className="relative h-32 mb-2">
                         <img 
@@ -504,22 +504,22 @@ const IssuesPage = () => {
                       <p className="text-sm text-gray-600 mb-2 line-clamp-2">{issue.description}</p>
                       <div className="flex space-x-1 mb-2">
                         <span className={`px-2 py-1 rounded-full text-xs font-semibold ${statusColors[issue.status] || 'bg-gray-100 text-gray-800'}`}>
-                          {getStatusDisplayText(issue.status)}
-                        </span>
+                              {getStatusDisplayText(issue.status)}
+                            </span>
                         <span className={`px-2 py-1 rounded-full text-xs font-semibold ${severityColors[issue.severity] || 'bg-gray-100 text-gray-800'}`}>
-                          {getSeverityDisplayText(issue.severity)}
-                        </span>
-                      </div>
-                      <Link 
-                        to={`/issues/${issue._id}`}
+                              {getSeverityDisplayText(issue.severity)}
+                            </span>
+                          </div>
+                          <Link 
+                            to={`/issues/${issue._id}`}
                         className="block w-full bg-blue-600 hover:bg-blue-700 text-white text-center py-1 px-3 rounded"
-                      >
-                        Detayları Gör
-                      </Link>
-                    </div>
-                  </Popup>
-                </Marker>
-              );
+                          >
+                            Detayları Gör
+                          </Link>
+                        </div>
+                      </Popup>
+                    </Marker>
+                  );
             })}
             
             {filteredIssues.length === 0 && (

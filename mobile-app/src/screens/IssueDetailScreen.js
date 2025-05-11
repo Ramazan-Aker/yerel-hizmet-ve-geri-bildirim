@@ -1,12 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator, Alert, Platform, Modal, TouchableWithoutFeedback, TextInput, KeyboardAvoidingView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator, Alert, Platform, Modal, TouchableWithoutFeedback, TextInput, KeyboardAvoidingView, Dimensions } from 'react-native';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import { MaterialIcons, FontAwesome5, Ionicons } from '@expo/vector-icons';
 import moment from 'moment';
 import 'moment/locale/tr';
+import MapView, { Marker } from 'react-native-maps';
 
 moment.locale('tr');
+
+// Ekran genişliğini alalım
+const { width } = Dimensions.get('window');
 
 const IssueDetailScreen = ({ route, navigation }) => {
   // Route parametrelerini al (yedek verilerle birlikte)
@@ -22,6 +26,9 @@ const IssueDetailScreen = ({ route, navigation }) => {
   // Fotoğraf görüntüleme state'leri
   const [selectedImage, setSelectedImage] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
+  
+  // Harita görüntüleme state'i
+  const [mapModalVisible, setMapModalVisible] = useState(false);
   
   // Yorum state'leri
   const [commentText, setCommentText] = useState('');
@@ -410,6 +417,39 @@ const IssueDetailScreen = ({ route, navigation }) => {
                   <Text style={styles.address}>{issue.location.address}</Text>
                 )}
                 
+                {/* Harita Görünümü */}
+                {issue.location.coordinates && issue.location.coordinates.length === 2 && (
+                  <View style={styles.mapContainer}>
+                    <MapView
+                      style={styles.map}
+                      initialRegion={{
+                        latitude: issue.location.coordinates[1],
+                        longitude: issue.location.coordinates[0],
+                        latitudeDelta: 0.01,
+                        longitudeDelta: 0.01,
+                      }}
+                      scrollEnabled={false}
+                      zoomEnabled={false}
+                      rotateEnabled={false}
+                    >
+                      <Marker
+                        coordinate={{
+                          latitude: issue.location.coordinates[1],
+                          longitude: issue.location.coordinates[0],
+                        }}
+                        pinColor="#2196F3"
+                      />
+                    </MapView>
+                    <TouchableOpacity 
+                      style={styles.fullMapButton}
+                      onPress={() => setMapModalVisible(true)}
+                    >
+                      <MaterialIcons name="fullscreen" size={20} color="#fff" />
+                      <Text style={styles.fullMapButtonText}>Haritayı Büyüt</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+                
                 {issue.location.directionInfo && (
                   <View style={styles.directionInfoContainer}>
                     <Text style={styles.directionInfoLabel}>Adres Tarifi:</Text>
@@ -732,6 +772,65 @@ const IssueDetailScreen = ({ route, navigation }) => {
           </View>
         </TouchableWithoutFeedback>
       </Modal>
+      
+      {/* Harita Tam Ekran Modalı */}
+      <Modal
+        animationType="slide"
+        transparent={false}
+        visible={mapModalVisible}
+        onRequestClose={() => setMapModalVisible(false)}
+      >
+        <View style={styles.fullMapModalContainer}>
+          <View style={styles.fullMapHeader}>
+            <Text style={styles.fullMapTitle}>{issue.title}</Text>
+            <TouchableOpacity 
+              style={styles.fullMapCloseButton}
+              onPress={() => setMapModalVisible(false)}
+            >
+              <MaterialIcons name="close" size={24} color="#333" />
+            </TouchableOpacity>
+          </View>
+          
+          {issue.location && issue.location.coordinates && (
+            <MapView
+              style={styles.fullMap}
+              initialRegion={{
+                latitude: issue.location.coordinates[1],
+                longitude: issue.location.coordinates[0],
+                latitudeDelta: 0.02,
+                longitudeDelta: 0.02,
+              }}
+            >
+              <Marker
+                coordinate={{
+                  latitude: issue.location.coordinates[1],
+                  longitude: issue.location.coordinates[0],
+                }}
+                title={issue.title}
+                description={issue.location.address || ''}
+                pinColor="#2196F3"
+              />
+            </MapView>
+          )}
+          
+          <View style={styles.addressContainer}>
+            <View style={styles.addressHeader}>
+              <MaterialIcons name="location-on" size={24} color="#2196F3" />
+              <Text style={styles.addressTitle}>Adres Bilgileri</Text>
+            </View>
+            
+            <Text style={styles.addressText}>
+              {issue.location && issue.location.address ? issue.location.address : 'Adres bilgisi bulunamadı'}
+            </Text>
+            
+            {issue.location && issue.location.district && issue.location.city && (
+              <Text style={styles.addressDetail}>
+                {issue.location.district}, {issue.location.city}
+              </Text>
+            )}
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 };
@@ -855,6 +954,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#555',
     marginTop: 5,
+    marginBottom: 10,
   },
   photoInfo: {
     fontSize: 14,
@@ -1157,12 +1257,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   directionInfoContainer: {
-    marginTop: 5,
+    marginTop: 10,
+    backgroundColor: '#F5F5F5',
     padding: 10,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
+    borderRadius: 5,
   },
   directionInfoLabel: {
     fontSize: 14,
@@ -1172,6 +1270,92 @@ const styles = StyleSheet.create({
   directionInfoText: {
     fontSize: 14,
     color: '#666',
+  },
+  mapContainer: {
+    marginTop: 10,
+    marginBottom: 10,
+    borderRadius: 8,
+    overflow: 'hidden',
+    height: 200,
+  },
+  map: {
+    width: '100%',
+    height: 200,
+  },
+  fullMapButton: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    backgroundColor: 'rgba(33, 150, 243, 0.9)',
+    padding: 8,
+    borderRadius: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  fullMapButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 12,
+    marginLeft: 4,
+  },
+  fullMapModalContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  fullMapHeader: {
+    backgroundColor: '#fff',
+    padding: 15,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ddd',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+  },
+  fullMapTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    flex: 1,
+  },
+  fullMapCloseButton: {
+    padding: 5,
+  },
+  fullMap: {
+    width: '100%',
+    height: width * 1.2,
+  },
+  addressContainer: {
+    padding: 15,
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#ddd',
+  },
+  addressHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  addressTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginLeft: 10,
+  },
+  addressText: {
+    fontSize: 16,
+    color: '#333',
+    marginBottom: 5,
+    lineHeight: 22,
+  },
+  addressDetail: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 5,
   },
 });
 

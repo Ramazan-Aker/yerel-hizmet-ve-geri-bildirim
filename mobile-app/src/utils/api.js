@@ -677,10 +677,24 @@ const api = {
           console.error('Kullanıcı bilgisi alınamadı:', userError);
         }
         
-        // API isteği
+        // API isteği - eğer params içinde city parametresi varsa, onu kullan, yoksa ve userCity varsa userCity'yi kullan
+        const requestParams = { ...params };
+        
+        // Eğer client tarafından city belirtilmemişse ve kullanıcının şehri biliniyorsa, o zaman ekle
+        if (!requestParams.city && userCity && !requestParams.showAllCities) {
+          requestParams.city = userCity;
+        }
+        
+        // showAllCities parametresi API'ye gönderilmemeli
+        if (requestParams.showAllCities) {
+          delete requestParams.showAllCities;
+        }
+        
+        console.log('Sorunlar için kullanılan parametreler:', requestParams);
+        
         const response = await client.get('/issues', {
           headers: { Authorization: `Bearer ${token}` },
-          params: { ...params, city: userCity }
+          params: requestParams
         });
         
         console.log(`API yanıtı: ${response.data.data?.length || 0} sorun bulundu`);

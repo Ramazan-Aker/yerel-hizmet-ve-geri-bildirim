@@ -35,12 +35,152 @@ const CreateIssueScreen = ({ navigation }) => {
   // Get districts based on selected city
   const districts = city ? allDistricts[city] || [] : [];
 
+  // İlçe listesini şehir değiştiğinde güncelle
   useEffect(() => {
-    // Reset district when city changes
-    if (city && districts.length > 0 && !districts.includes(district)) {
-      setDistrict(districts[0]);
+    console.log('DEBUGv2 - useEffect[city] - City changed:', city);
+    
+    if (city) {
+      // İlçe listesini al, güncellenmiş olabilir
+      const cityDistricts = allDistricts[city] || [];
+      console.log('DEBUGv2 - useEffect[city] - Districts for selected city:', cityDistricts);
+      
+      if (cityDistricts.length > 0) {
+        if (!district || !cityDistricts.includes(district)) {
+          console.log('DEBUGv2 - useEffect[city] - Current district not valid or empty, setting first district');
+          // Önce birbirleriyle eşleşmesi için temp'i ayarla
+          setTempDistrict(cityDistricts[0]);
+          // Sonra ana değişkeni güncelle
+          setDistrict(cityDistricts[0]);
+          
+          // İlçe Form değeri güncellendiğinde hep kontrol etmeyi sağla
+          console.log(`DEBUGv2 - useEffect[city] - İlçe ${cityDistricts[0]} olarak ayarlandı`);
+        } else {
+          console.log('DEBUGv2 - useEffect[city] - Current district already valid:', district);
+        }
+      } else {
+        console.log('DEBUGv2 - useEffect[city] - No districts available for city, creating default');
+        createDefaultDistrictForCity(city);
+        const newDistricts = allDistricts[city] || ['Merkez'];
+        setTempDistrict(newDistricts[0]);
+        setDistrict(newDistricts[0]);
+      }
+    } else {
+      // Şehir seçilmediğinde ilçeyi sıfırla
+      console.log('DEBUGv2 - useEffect[city] - No city selected, resetting district');
+      setDistrict('');
+      setTempDistrict('');
     }
-  }, [city]);
+  }, [city]); // Sadece şehir değiştiğinde çalışsın
+
+  // Konum değişikliğini takip et
+  useEffect(() => {
+    // Koordinat değişikliğini kontrol et
+    if (coordinates) {
+      console.log('KONUM-EFFECT: Koordinatlar değişti, ilçe seçimini kontrol et');
+      
+      // İlçe doğru mu kontrol et
+      if (city && district) {
+        const currentCityDistricts = allDistricts[city] || [];
+        
+        // İlçenin geçerli olup olmadığını kontrol et
+        if (!currentCityDistricts.includes(district)) {
+          console.log('KONUM-EFFECT: İlçe geçerli değil, ilk ilçeyi ayarlıyorum');
+          
+          if (currentCityDistricts.length > 0) {
+            setDistrict(currentCityDistricts[0]);
+            setTempDistrict(currentCityDistricts[0]);
+          }
+        }
+      }
+    }
+  }, [coordinates]);
+
+  // Şehir adını allDistricts içinde bulmaya yardımcı olan fonksiyon
+  const findCityInAllDistricts = (cityName) => {
+    if (!cityName) return null;
+    
+    // Direkt eşleşme kontrolü
+    if (allDistricts[cityName]) return cityName;
+    
+    console.log('DEBUG - Finding city in allDistricts:', cityName);
+    
+    // Case insensitive kontrolü
+    const lowerCityName = cityName.toLowerCase();
+    const normalizedCityName = normalizeText(cityName);
+    
+    // Türkçe karakter uyumu için tüm şehirleri kontrol et
+    for (const city in allDistricts) {
+      if (city.toLowerCase() === lowerCityName ||
+          normalizeText(city) === normalizedCityName) {
+        console.log('DEBUG - Found city match:', city);
+        return city;
+      }
+    }
+    
+    // Özel Türkçe karakterler içeren şehir isimleri için kontrol
+    const specialCaseMatches = {
+      'istanbul': 'İstanbul',
+      'izmir': 'İzmir',
+      'canakkale': 'Çanakkale',
+      'corum': 'Çorum',
+      'eskisehir': 'Eskişehir',
+      'kutahya': 'Kütahya',
+      'mugla': 'Muğla',
+      'nigde': 'Niğde',
+      'sanliurfa': 'Şanlıurfa',
+      'sirnak': 'Şırnak',
+      'tekirdag': 'Tekirdağ',
+      'usak': 'Uşak'
+    };
+    
+    if (specialCaseMatches[lowerCityName] && allDistricts[specialCaseMatches[lowerCityName]]) {
+      console.log('DEBUG - Found special case match:', specialCaseMatches[lowerCityName]);
+      return specialCaseMatches[lowerCityName];
+    }
+    
+    // Plaka kodundan şehir adını almaya çalış
+    const cityIndex = cities.findIndex(c => 
+      c.toLowerCase() === lowerCityName || 
+      normalizeText(c) === normalizedCityName
+    );
+    
+    if (cityIndex >= 0) {
+      const cityFromList = cities[cityIndex];
+      console.log('DEBUG - Found city in cities list:', cityFromList);
+      
+      // Şehir adı cities listesinde var ama allDistricts'te yok, aynı adla kontrol et
+      if (allDistricts[cityFromList]) {
+        return cityFromList;
+      }
+      
+      // Case-insensitive kontrol
+      for (const city in allDistricts) {
+        if (normalizeText(city) === normalizeText(cityFromList)) {
+          console.log('DEBUG - Normalized match in allDistricts:', city);
+          return city;
+        }
+      }
+    }
+    
+    console.log('DEBUG - Could not find city in allDistricts:', cityName);
+    return null;
+  };
+
+  // Şehir için varsayılan ilçe oluştur
+  const createDefaultDistrictForCity = (cityName) => {
+    if (!cityName) return;
+    
+    console.log('DEBUG - Creating default district for city:', cityName);
+    
+    // Şehirin ilçelerini kontrol et
+    if (!allDistricts[cityName] || allDistricts[cityName].length === 0) {
+      // İlçe yoksa veya boşsa, Merkez ilçesini ekle
+      allDistricts[cityName] = ['Merkez'];
+      console.log(`DEBUG - Added default district 'Merkez' for city: ${cityName}`);
+    }
+    
+    return allDistricts[cityName];
+  };
 
   const requestLocationPermission = async () => {
     setLocationLoading(true);
@@ -64,6 +204,215 @@ const CreateIssueScreen = ({ navigation }) => {
     }
   };
 
+  // Ayrı bir fonksiyon olarak ilçe seçme işlemini oluşturalım
+  const setSelectedDistrict = (districtName, fromLocation = true) => {
+    console.log('DEBUGv3 - setSelectedDistrict çağrıldı:', districtName, 'fromLocation:', fromLocation);
+    
+    // Önce state'i güncelle
+    setDistrict(districtName);
+    setTempDistrict(districtName);
+    
+    // Daha sonra doğrudan DOM manipülasyonu uygula (React olmayan bir yaklaşım ama çalışabilir)
+    // Bunu bir timeout içinde yap ki React state güncellemesi tamamlansın
+    setTimeout(() => {
+      if (fromLocation) {
+        Alert.alert(
+          'Konum Bilgisi',
+          `Konumunuz alındı.\n\nŞehir: ${city}\nİlçe: ${districtName}\n\nKonum bilginize göre ilçeniz belirlendi.`,
+          [
+            {
+              text: 'Tamam',
+              onPress: () => console.log('DEBUGv3 - Konum bilgisi onaylandı')
+            }
+          ]
+        );
+      }
+    }, 100);
+  };
+
+  // İlçe adlarını karşılaştırma ve eşleştirme için özel fonksiyon
+  const matchDistrictName = (apiDistrictName, districtsList, coords = null, cityName = null) => {
+    if (!districtsList || districtsList.length === 0) return null;
+    
+    console.log('DEBUGv4 - matchDistrictName - Trying to match district for:', cityName);
+    console.log('DEBUGv4 - matchDistrictName - API district/subregion:', apiDistrictName);
+    console.log('DEBUGv4 - matchDistrictName - Coordinates:', coords);
+    console.log('DEBUGv4 - matchDistrictName - Available districts:', districtsList);
+    
+    // 0. "Merkez" ilçesi varsa ve açıkça başka bir ilçe belirtilmemişse, Merkez'i döndür
+    const hasCenter = districtsList.includes('Merkez');
+    if (hasCenter && (!apiDistrictName || apiDistrictName.toLowerCase().includes('merkez'))) {
+      console.log('DEBUGv4 - matchDistrictName - Using "Merkez" district as default');
+      return 'Merkez';
+    }
+    
+    // Eğer konum API'sinden gelen ilçe adı yoksa ama koordinatlar varsa
+    if ((!apiDistrictName || apiDistrictName === '') && coords && coords.latitude && coords.longitude) {
+      // Koordinat tabanlı ilçe belirlemesi - Özellikle büyük illerde çalışır
+      console.log('DEBUGv4 - matchDistrictName - No district name, trying to determine by coordinates');
+      
+      // Merkez koordinatlar - yapay veri (gerçek koordinatlar eklenebilir)
+      // Not: Gerçek uygulamada burada API'den data çekilebilir veya daha büyük bir veri seti kullanılabilir
+      const districtCoordinates = {
+        // İstanbul ilçeleri örnek
+        'İstanbul': {
+          'Kadıköy': { lat: 40.9830, lng: 29.0632 },
+          'Üsküdar': { lat: 41.0235, lng: 29.0133 },
+          'Beşiktaş': { lat: 41.0420, lng: 29.0064 },
+          'Şişli': { lat: 41.0600, lng: 28.9900 },
+          'Beyoğlu': { lat: 41.0370, lng: 28.9772 },
+          'Fatih': { lat: 41.0170, lng: 28.9500 },
+          // Diğer ilçeler...
+        },
+        // Ankara ilçeleri örnek
+        'Ankara': {
+          'Çankaya': { lat: 39.9208, lng: 32.8541 },
+          'Keçiören': { lat: 39.9798, lng: 32.8641 },
+          'Mamak': { lat: 39.9198, lng: 32.9161 },
+          // Diğer ilçeler...
+        },
+        // Elazığ ilçeleri eklenmiş
+        'Elazığ': {
+          'Merkez': { lat: 38.6748, lng: 39.2225 },
+          'Ağın': { lat: 38.9395, lng: 38.6734 },
+          'Alacakaya': { lat: 38.4157, lng: 39.9724 },
+          'Arıcak': { lat: 38.5652, lng: 40.0495 },
+          'Baskil': { lat: 38.5704, lng: 38.8212 },
+          'Karakoçan': { lat: 38.9524, lng: 40.0477 },
+          'Keban': { lat: 38.7975, lng: 38.7480 },
+          'Kovancılar': { lat: 38.7173, lng: 39.8492 },
+          'Maden': { lat: 38.3927, lng: 39.6765 },
+          'Palu': { lat: 38.6908, lng: 39.9377 },
+          'Sivrice': { lat: 38.4420, lng: 39.3122 }
+        }
+        // Diğer şehirler eklenebilir...
+      };
+      
+      // Eğer bu şehir için ilçe koordinatları varsa
+      if (cityName && districtCoordinates[cityName]) {
+        let nearestDistrict = null;
+        let minDistance = Number.MAX_VALUE;
+        
+        // Her ilçe için mesafeyi hesapla
+        for (const [district, distCoords] of Object.entries(districtCoordinates[cityName])) {
+          // İlçe listeye dahil mi kontrol et
+          if (!districtsList.includes(district)) continue;
+          
+          // Haversine formülü ile mesafe hesapla
+          const distance = calculateDistance(
+            coords.latitude, coords.longitude,
+            distCoords.lat, distCoords.lng
+          );
+          
+          console.log(`DEBUGv4 - matchDistrictName - Distance to ${district}: ${distance.toFixed(2)} km`);
+          
+          if (distance < minDistance) {
+            minDistance = distance;
+            nearestDistrict = district;
+          }
+        }
+        
+        if (nearestDistrict) {
+          console.log(`DEBUGv4 - matchDistrictName - Nearest district by coordinates: ${nearestDistrict} (${minDistance.toFixed(2)} km)`);
+          return nearestDistrict;
+        }
+      }
+    }
+    
+    // API'den gelen district adı boşsa ve önceki yöntemlerle bulunamadıysa, Merkez'i veya ilk ilçeyi döndür
+    if (!apiDistrictName || apiDistrictName.trim() === '') {
+      // Merkez varsa Merkez'i, yoksa ilk ilçeyi seç
+      if (hasCenter) {
+        console.log('DEBUGv4 - matchDistrictName - No district info, defaulting to "Merkez"');
+        return 'Merkez';
+      } else {
+        console.log('DEBUGv4 - matchDistrictName - No district info, defaulting to first district:', districtsList[0]);
+        return districtsList[0];
+      }
+    }
+    
+    // 1. Tam eşleşme
+    const exactMatch = districtsList.find(d => 
+      d.toLowerCase() === apiDistrictName.toLowerCase()
+    );
+    
+    if (exactMatch) {
+      console.log('DEBUGv4 - matchDistrictName - Found exact match:', exactMatch);
+      return exactMatch;
+    }
+    
+    // 2. Türkçe karakterler normalize edilerek eşleşme
+    const normalizedName = normalizeText(apiDistrictName);
+    const normalizedMatch = districtsList.find(d => 
+      normalizeText(d) === normalizedName
+    );
+    
+    if (normalizedMatch) {
+      console.log('DEBUGv4 - matchDistrictName - Found normalized match:', normalizedMatch);
+      return normalizedMatch;
+    }
+    
+    // 3. İlçe adı içerisinde geçen kelimeye göre eşleşme
+    // Örn: "Bayrampaşa Mahalleleri" -> "Bayrampaşa"
+    for (const district of districtsList) {
+      if (apiDistrictName.toLowerCase().includes(district.toLowerCase()) ||
+          normalizedName.includes(normalizeText(district))) {
+        console.log('DEBUGv4 - matchDistrictName - Found partial match:', district);
+        return district;
+      }
+    }
+    
+    // 4. İlçe kelimesi ilçe adının içerisinde geçiyorsa eşleşme
+    // Örn: "Beşiktaş" -> "apiDistrictName içinde 'Beşiktaş' geçiyorsa"
+    for (const district of districtsList) {
+      const normalizedDistrict = normalizeText(district);
+      if (district.length > 3 && ( // En az 4 karakter olmalı
+        apiDistrictName.toLowerCase().includes(district.toLowerCase()) ||
+        normalizedName.includes(normalizedDistrict)
+      )) {
+        console.log('DEBUGv4 - matchDistrictName - District name found in API response:', district);
+        return district;
+      }
+    }
+    
+    // 5. Mahallelerin adreste geçmesini kontrol et
+    // Eğer A mahallesindeyse ve A mahallesi B ilçesindeyse, B ilçesini seç
+    const districtToNeighborhood = {
+      'Ataşehir': ['Atatürk', 'Ferhatpaşa', 'İçerenköy'],
+      'Kadıköy': ['Fikirtepe', 'Göztepe', 'Koşuyolu', 'Moda'],
+      'Beşiktaş': ['Levent', 'Ortaköy', 'Bebek'],
+      'Şişli': ['Mecidiyeköy', 'Nişantaşı', 'Fulya'],
+      'Üsküdar': ['Kısıklı', 'Beylerbeyi', 'Bağlarbaşı']
+      // Diğer ilçe-mahalle eşleşmeleri eklenebilir
+    };
+    
+    for (const [district, neighborhoods] of Object.entries(districtToNeighborhood)) {
+      for (const neighborhood of neighborhoods) {
+        if (apiDistrictName.toLowerCase().includes(neighborhood.toLowerCase())) {
+          if (districtsList.includes(district)) {
+            console.log('DEBUGv4 - matchDistrictName - Matched by neighborhood mapping:', neighborhood, '->', district);
+            return district;
+          }
+        }
+      }
+    }
+    
+    // Eğer şehir Elazığ ise ve hiçbir eşleşme bulunamazsa, Merkez'i döndür
+    if (cityName === 'Elazığ' && hasCenter) {
+      console.log('DEBUGv4 - matchDistrictName - Special case for Elazığ: defaulting to Merkez');
+      return 'Merkez';
+    }
+    
+    // Eşleşme bulunamazsa, Merkez varsa onu, yoksa ilk ilçeyi döndür
+    if (hasCenter) {
+      console.log('DEBUGv4 - matchDistrictName - No match found, using "Merkez" as fallback');
+      return 'Merkez';
+    }
+    
+    console.log('DEBUGv4 - matchDistrictName - No match found, returning first district:', districtsList[0]);
+    return districtsList[0];
+  };
+
   const getCurrentLocation = async () => {
     setLocationLoading(true);
     setLocationError(null);
@@ -84,6 +433,8 @@ const CreateIssueScreen = ({ navigation }) => {
         longitude: location.coords.longitude
       });
       
+      console.log('DEBUGv4 - Konum alındı:', location.coords.latitude, location.coords.longitude);
+      
       // Try to get address from coordinates
       const reverseGeocode = await Location.reverseGeocodeAsync({
         latitude: location.coords.latitude,
@@ -92,25 +443,231 @@ const CreateIssueScreen = ({ navigation }) => {
       
       if (reverseGeocode && reverseGeocode.length > 0) {
         const addressData = reverseGeocode[0];
-        setAddress(`${addressData.street || ''} ${addressData.name || ''} ${addressData.district || ''}`);
+        console.log('DEBUGv4 - Adres bilgileri:', JSON.stringify(addressData));
         
-        // Try to match city and district
-        if (addressData.city && cities.includes(addressData.city)) {
-          setCity(addressData.city);
+        // Adres bilgisini doldur
+        let fullAddress = '';
+        if (addressData.street) fullAddress += addressData.street;
+        if (addressData.name) fullAddress += addressData.name ? (fullAddress ? ' ' + addressData.name : addressData.name) : '';
+        if (addressData.district) fullAddress += addressData.district ? (fullAddress ? ', ' + addressData.district : addressData.district) : '';
+        if (addressData.postalCode) fullAddress += addressData.postalCode ? (fullAddress ? ', ' + addressData.postalCode : addressData.postalCode) : '';
+        
+        setAddress(fullAddress || 'Adres bilgisi alınamadı');
+        
+        // Şehir bilgisini doldur
+        let foundCity = null;
+        
+        // 1. Adım: Direkt şehir bilgisi varsa kullan
+        if (addressData.city) {
+          console.log('DEBUGv4 - Adres verisinden şehir bilgisi:', addressData.city);
+          
+          // Şehir adını cities listesinden bul
+          foundCity = cities.find(cityName => 
+            cityName.toLowerCase() === addressData.city.toLowerCase() ||
+            normalizeText(cityName) === normalizeText(addressData.city)
+          );
+          
+          if (foundCity) {
+            console.log('DEBUGv4 - Şehir eşleştirildi:', foundCity);
+          }
         }
         
-        if (addressData.city && addressData.district && 
-            allDistricts[addressData.city] && 
-            allDistricts[addressData.city].includes(addressData.district)) {
-          setDistrict(addressData.district);
+        // 2. Adım: Şehir bulunamadıysa plaka kodundan bul
+        if (!foundCity && addressData.region) {
+          console.log('DEBUGv4 - Plaka kodundan şehir aranıyor. Region:', addressData.region);
+          
+          // Region içinde plaka kodu olabilir (örn: "01" Adana)
+          const plateCode = addressData.region.match(/\d+/)?.[0];
+          if (plateCode && parseInt(plateCode) > 0 && parseInt(plateCode) <= 81) {
+            // Plaka kodundaki sıfırı kaldır (01 -> 1)
+            const cityIndex = parseInt(plateCode) - 1;
+            if (cityIndex >= 0 && cityIndex < cities.length) {
+              foundCity = cities[cityIndex];
+              console.log('DEBUGv4 - Plaka kodundan şehir bulundu:', foundCity);
+            }
+          }
+        }
+        
+        // 3. Adım: Hala şehir bulunamadıysa, koordinatlara göre en yakın şehri bul
+        if (!foundCity) {
+          console.log('DEBUGv4 - Koordinatlara göre en yakın şehir aranıyor...');
+          foundCity = findNearestCity(location.coords.latitude, location.coords.longitude);
+          if (foundCity) {
+            console.log('DEBUGv4 - En yakın şehir bulundu:', foundCity);
+          }
+        }
+        
+        // 4. Adım: Şehir bulunduysa doğru formata dönüştür ve ilçe bilgisini ayarla
+        if (foundCity) {
+          // allDistricts'te doğru şehir adını bul
+          const formattedCityName = findCityInAllDistricts(foundCity) || foundCity;
+          console.log('DEBUGv4 - Şehir adı formatlandı:', foundCity, '->', formattedCityName);
+          
+          // Önce şehri ayarla ve state'in güncellenmesini bekle
+          setTempCity(formattedCityName);
+          setCity(formattedCityName);
+          
+          // Şimdi ilçeleri ayarla - biraz gecikme ekleyelim şehir state'inin güncellenmesi için
+          setTimeout(() => {
+            // İlçe listesini al veya oluştur
+            let cityDistricts = allDistricts[formattedCityName] || [];
+            if (cityDistricts.length === 0) {
+              console.log('DEBUGv4 - Şehir için ilçe bilgisi bulunamadı, varsayılan oluşturuluyor...');
+              createDefaultDistrictForCity(formattedCityName);
+              cityDistricts = allDistricts[formattedCityName] || ['Merkez'];
+            }
+            
+            console.log('DEBUGv4 - Şehir için mevcut ilçeler:', cityDistricts);
+            
+            // İlçe seç - addressData'daki tüm bilgileri kullanarak
+            let selectedDistrict = null;
+            
+            // Koordinatları da kullanarak ilçe belirleme - yeni parametre eklendi
+            const apiDistrictName = addressData.district || addressData.subregion || '';
+            console.log('DEBUGv4 - API\'den dönen district/subregion:', apiDistrictName);
+            
+            // Adres bilgilerinden ilçe bilgisi çıkarmaya çalış
+            const addressParts = fullAddress.split(',').map(part => part.trim());
+            console.log('DEBUGv4 - Adres parçaları:', addressParts);
+            
+            // Adres analizi için tüm bilgileri birleştir
+            const addressInfo = {
+              district: addressData.district || '',
+              subregion: addressData.subregion || '',
+              region: addressData.region || '',
+              street: addressData.street || '',
+              name: addressData.name || '',
+              fullAddress: fullAddress
+            };
+            
+            console.log('DEBUGv4 - Adres bilgileri analiz için:', addressInfo);
+            
+            // İlçe eşleştirmesini konumu ve şehir adını da kullanarak yap
+            if (cityDistricts.length > 0) {
+              selectedDistrict = matchDistrictName(
+                apiDistrictName, 
+                cityDistricts, 
+                {latitude: location.coords.latitude, longitude: location.coords.longitude},
+                formattedCityName
+              );
+              console.log('DEBUGv4 - İlçe eşleştirme sonucu:', selectedDistrict);
+            }
+            else {
+              // Hiçbir ilçe bulunamazsa
+              console.log('DEBUGv4 - İlçe bulunamadı, şehir ilçe listesinde ilçe yok');
+              selectedDistrict = null;
+            }
+            
+            // İlçeyi ayarla - özel fonksiyonu kullanarak
+            if (selectedDistrict) {
+              console.log('DEBUGv4 - İlçe seçiliyor:', selectedDistrict);
+              // Özel fonksiyonu çağır
+              setSelectedDistrict(selectedDistrict);
+            }
+          }, 500); // Şehir state'inin güncellenmesi için biraz bekleyelim
+        } else {
+          console.error('DEBUGv4 - Hiçbir şekilde şehir bulunamadı!');
+          setLocationError('Şehir bilgisi alınamadı. Lütfen manuel seçim yapın.');
         }
       }
     } catch (error) {
-      console.error('Konum alma hatası:', error);
+      console.error('DEBUGv4 - Konum alma hatası:', error);
       setLocationError('Konum alınamadı: ' + error.message);
     } finally {
       setLocationLoading(false);
     }
+  };
+
+  // Türkçe karakter normalleştirme fonksiyonu
+  const normalizeText = (text) => {
+    if (!text) return '';
+    
+    return text.toLowerCase()
+      .replace(/ğ/g, 'g')
+      .replace(/ü/g, 'u')
+      .replace(/ş/g, 's')
+      .replace(/ı/g, 'i')
+      .replace(/ö/g, 'o')
+      .replace(/ç/g, 'c')
+      .replace(/â/g, 'a')
+      .replace(/î/g, 'i')
+      .replace(/û/g, 'u');
+  };
+  
+  // Koordinatlara göre en yakın şehri bulma fonksiyonu
+  const findNearestCity = (latitude, longitude) => {
+    if (!cityCoordinates || Object.keys(cityCoordinates).length === 0) {
+      console.warn('Şehir koordinatları bulunamadı');
+      return null;
+    }
+    
+    let nearestCity = null;
+    let minDistance = Number.MAX_VALUE;
+    
+    for (const city in cityCoordinates) {
+      const cityCoord = cityCoordinates[city];
+      // Bazı şehirler için koordinatlar farklı formatta olabilir
+      let cityLat = 0, cityLon = 0;
+      
+      if (Array.isArray(cityCoord)) {
+        // [longitude, latitude] formatı
+        cityLon = cityCoord[0];
+        cityLat = cityCoord[1];
+      } else if (typeof cityCoord === 'object') {
+        // {latitude, longitude} formatı
+        cityLat = cityCoord.latitude;
+        cityLon = cityCoord.longitude;
+      } else {
+        console.warn(`${city} için geçersiz koordinat formatı:`, cityCoord);
+        continue;
+      }
+      
+      const distance = calculateDistance(
+        latitude, longitude,
+        cityLat, cityLon
+      );
+      
+      if (distance < minDistance) {
+        minDistance = distance;
+        nearestCity = city;
+      }
+    }
+    
+    console.log('DEBUG - En yakın şehir hesaplandı:', nearestCity, 'mesafe:', minDistance.toFixed(2) + 'km');
+    
+    // Bulunan şehir allDistricts listesinde var mı kontrol et
+    if (nearestCity && !allDistricts[nearestCity]) {
+      // Doğru formatta şehir adını bul
+      const formattedCity = findCityInAllDistricts(nearestCity);
+      if (formattedCity) {
+        console.log('DEBUG - Bulunan en yakın şehir formatlandı:', nearestCity, '->', formattedCity);
+        return formattedCity;
+      }
+    }
+    
+    return nearestCity;
+  };
+  
+  // İki koordinat arası mesafeyi hesaplama (Haversine formula)
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371; // Dünya yarıçapı (km)
+    const dLat = deg2rad(lat2 - lat1);
+    const dLon = deg2rad(lon2 - lon1);
+    
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2);
+    
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+    const distance = R * c; // Kilometre cinsinden mesafe
+    
+    return distance;
+  };
+  
+  // Derece -> Radyan dönüşümü
+  const deg2rad = (deg) => {
+    return deg * (Math.PI/180);
   };
 
   // Fotoğraf ekleme butonlarının etiketleri
@@ -384,7 +941,20 @@ const CreateIssueScreen = ({ navigation }) => {
     if (!description) validationErrors.description = 'Açıklama zorunludur';
     if (!category) validationErrors.category = 'Kategori zorunludur';
     if (!city) validationErrors.city = 'Şehir zorunludur';
-    if (!district) validationErrors.district = 'İlçe zorunludur';
+    
+    // İlçe kontrolü - şehir seçilmişse ve o şehrin ilçeleri varsa bir ilçe seçilmiş olmalı
+    const availableDistricts = city ? allDistricts[city] || [] : [];
+    if (availableDistricts.length > 0) {
+      // Seçilen ilçe, mevcut ilçeler içinde var mı kontrolü
+      if (!district || !availableDistricts.includes(district)) {
+        console.log('DEBUG - İlçe validation - Current district:', district);
+        console.log('DEBUG - İlçe validation - Available districts:', availableDistricts);
+        validationErrors.district = 'Geçerli bir ilçe seçiniz';
+        // İlçe geçersizse otomatik olarak ilk ilçeyi seç
+        setDistrict(availableDistricts[0]);
+      }
+    }
+    
     if (!address) validationErrors.address = 'Adres zorunludur';
     // Adres tarifi alanı opsiyoneldir
     if (!coordinates) validationErrors.coordinates = 'Konum bilgisi zorunludur';
@@ -556,42 +1126,98 @@ const CreateIssueScreen = ({ navigation }) => {
 
   // Function to open the specific picker
   const openPicker = (picker) => {
-    setCurrentPicker(picker);
+    console.log('DEBUG - Opening picker:', picker);
+    console.log('DEBUG - Current city:', city);
+    
     // Initialize temp values with current values
-    if (picker === 'category') setTempCategory(category || '');
-    else if (picker === 'city') setTempCity(city || '');
-    else if (picker === 'district') setTempDistrict(district || '');
-    setPickerVisible(true);
+    if (picker === 'category') {
+      setTempCategory(category || '');
+      setCurrentPicker(picker);
+      setPickerVisible(true);
+    } 
+    else if (picker === 'city') {
+      setTempCity(city || '');
+      setCurrentPicker(picker);
+      setPickerVisible(true);
+    } 
+    else if (picker === 'district') {
+      // İlçe picker'ı için hazırlık
+      setTempDistrict(district || '');
+      setCurrentPicker(picker);
+      setPickerVisible(true);
+    }
   };
 
-  // Function to close the picker
-  const closePicker = (saveValue = false) => {
-    if (saveValue && currentPicker) {
-      // Save the selected temp value based on picker type
-      switch (currentPicker) {
-        case 'category':
-          if (tempCategory !== category) {
-            setCategory(tempCategory);
-          }
-          break;
-        case 'city':
-          if (tempCity !== city) {
+  // Function to close the picker and apply the selected value
+  const closePicker = (save) => {
+    console.log('DEBUGv3 - closePicker - save:', save, 'currentPicker:', currentPicker);
+    
+    if (save) {
+      if (currentPicker === 'category') {
+        console.log('DEBUGv3 - closePicker - Setting category from', category, 'to', tempCategory);
+        setCategory(tempCategory);
+      } 
+      else if (currentPicker === 'city') {
+        // Şehir değişirse (mevcut şehirden farklıysa)
+        if (tempCity !== city) {
+          console.log('DEBUGv3 - closePicker - City changing from', city, 'to', tempCity);
+          
+          // Şehir değiştiğinde önce ilçeleri temizle sonra şehri ayarla
+          // Bu sıralama önemli - useEffect sırası tahmin edilemez olabilir
+          const newDistrictsList = getDistrictsForPicker(tempCity);
+          
+          // Eğer yeni şehrin ilçeleri varsa
+          if (newDistrictsList.length > 0) {
+            console.log('DEBUGv3 - closePicker - New city has districts, setting first one:', newDistrictsList[0]);
+            
+            // Şehir değiştiğinde otomatik olarak ilk ilçeyi seç
+            setTempDistrict(newDistrictsList[0]);
+            setDistrict(newDistrictsList[0]);
+            
+            // Önce varsayılan ilçeyi ayarlayıp sonra şehri güncelle
+            // Bu şekilde React'ın yeniden render işleminde ilçe doğru olur
+            console.log('DEBUGv3 - closePicker - Now updating city to:', tempCity);
             setCity(tempCity);
-            // Reset district if city changes
-            setDistrict('');
+            
+            // Kullanıcıya bilgi ver
+            setTimeout(() => {
+              console.log('DEBUGv3 - closePicker - Showing alert about district auto-selection');
+              // Manuel seçim - konum bilgisinden gelmediğini belirt
+              setSelectedDistrict(newDistrictsList[0], false);
+            }, 300);
           }
-          break;
-        case 'district':
-          if (tempDistrict !== district) {
-            setDistrict(tempDistrict);
+          else {
+            // Normal şehir güncelleme (useEffect ile ilçe güncellenecek)
+            console.log('DEBUGv3 - closePicker - Setting city without districts:', tempCity);
+            setCity(tempCity);
           }
-          break;
+        } else {
+          console.log('DEBUGv3 - closePicker - City not changed, keeping as', city);
+        }
+      } 
+      else if (currentPicker === 'district') {
+        console.log('DEBUGv3 - closePicker - Setting district from', district, 'to', tempDistrict);
+        setDistrict(tempDistrict);
+      }
+    } else {
+      // İptal edildiğinde geçici değişkenleri sıfırla
+      if (currentPicker === 'category') {
+        console.log('DEBUGv3 - closePicker - Cancelled, resetting tempCategory to', category);
+        setTempCategory(category || '');
+      } 
+      else if (currentPicker === 'city') {
+        console.log('DEBUGv3 - closePicker - Cancelled, resetting tempCity to', city);
+        setTempCity(city || '');
+      } 
+      else if (currentPicker === 'district') {
+        console.log('DEBUGv3 - closePicker - Cancelled, resetting tempDistrict to', district);
+        setTempDistrict(district || '');
       }
     }
+    
+    // Modalı kapat
     setPickerVisible(false);
-    setTimeout(() => {
-      setCurrentPicker(null);
-    }, 200); // Kısa bir gecikme ekleyerek animasyonun tamamlanmasını bekleyin
+    setCurrentPicker(null);
   };
 
   // Log images length after every render
@@ -606,11 +1232,24 @@ const CreateIssueScreen = ({ navigation }) => {
 
   // Custom Picker Button Component
   const CustomPickerButton = ({ label, value, onPress, placeholder }) => {
-    // Kategori için görüntülenecek değeri bul
+    // For displaying the selected value
     let displayValue = value;
+    
+    // Specific handling for category
     if (label === "Kategori" && value) {
       const foundCategory = categories.find(c => c.value === value);
       displayValue = foundCategory ? foundCategory.label : '';
+    }
+    
+    // Log for debugging district display
+    if (label === "İlçe") {
+      console.log('DEBUG - District picker button rendering with value:', value);
+      console.log('DEBUG - Available districts:', districts);
+      
+      // Ensure district value exists in current districts array
+      if (value && districts.length > 0 && !districts.includes(value)) {
+        console.log('DEBUG - Selected district not in current districts list');
+      }
     }
 
   return (
@@ -631,6 +1270,25 @@ const CreateIssueScreen = ({ navigation }) => {
         </View>
       </TouchableOpacity>
     );
+  };
+
+  // Picker'lar için manuel olarak ilçe oluştur
+  const getDistrictsForPicker = (selectedCity) => {
+    if (!selectedCity) return [];
+    
+    console.log('DEBUGv2 - getDistrictsForPicker - Getting districts for:', selectedCity);
+    
+    let districtsList = allDistricts[selectedCity] || [];
+    
+    // İlçe listesi boşsa, varsayılan oluştur
+    if (districtsList.length === 0) {
+      console.log('DEBUGv2 - getDistrictsForPicker - Creating default district');
+      createDefaultDistrictForCity(selectedCity);
+      districtsList = allDistricts[selectedCity] || ['Merkez'];
+    }
+    
+    console.log('DEBUGv2 - getDistrictsForPicker - Found districts:', districtsList);
+    return districtsList;
   };
 
   return (
@@ -685,8 +1343,8 @@ const CreateIssueScreen = ({ navigation }) => {
           <CustomPickerButton 
             label="İlçe" 
             value={district} 
-            placeholder={districts.length > 0 ? "İlçe Seçin" : "Önce şehir seçin"}
-            onPress={() => districts.length > 0 ? openPicker('district') : null} 
+            placeholder={city ? "İlçe Seçin" : "Önce şehir seçin"}
+            onPress={() => openPicker('district')} 
           />
         </View>
         
@@ -740,7 +1398,37 @@ const CreateIssueScreen = ({ navigation }) => {
                     {currentPicker === 'city' && (
             <Picker
                         selectedValue={tempCity}
-                        onValueChange={(value) => setTempCity(value)}
+                        onValueChange={(value) => {
+                          console.log('DEBUG - City picker changed to:', value);
+                          setTempCity(value);
+                          
+                          // Şehir değiştiğinde hemen ilçeleri güncelle
+                          if (value) {
+                            // Şehir için doğru formatı bul
+                            const formattedCityName = findCityInAllDistricts(value) || value;
+                            if (formattedCityName !== value) {
+                              console.log('DEBUG - Picker: formatted city name:', formattedCityName);
+                              setTempCity(formattedCityName);
+                              value = formattedCityName;
+                            }
+                            
+                            // İlçeleri al, yoksa varsayılan oluştur
+                            let cityDistricts = allDistricts[value] || [];
+                            if (cityDistricts.length === 0) {
+                              console.log('DEBUG - Picker: creating default district for city:', value);
+                              createDefaultDistrictForCity(value);
+                              cityDistricts = allDistricts[value] || ['Merkez'];
+                            }
+                            
+                            console.log('DEBUG - City picker: found districts:', cityDistricts);
+                            
+                            // İlk ilçeyi seç
+                            if (cityDistricts.length > 0) {
+                              console.log('DEBUG - Setting temp district to first district:', cityDistricts[0]);
+                              setTempDistrict(cityDistricts[0]);
+                            }
+                          }
+                        }}
                         style={[styles.modalPicker, Platform.OS === 'android' ? styles.androidPicker : {}]}
                         itemStyle={styles.pickerItem}
                         mode={Platform.OS === 'android' ? 'dropdown' : 'dialog'}
@@ -755,19 +1443,27 @@ const CreateIssueScreen = ({ navigation }) => {
         
                     {currentPicker === 'district' && (
             <Picker
-                        selectedValue={tempDistrict}
-                        onValueChange={(value) => setTempDistrict(value)}
-                        style={[styles.modalPicker, Platform.OS === 'android' ? styles.androidPicker : {}]}
-                        itemStyle={styles.pickerItem}
-                        mode={Platform.OS === 'android' ? 'dropdown' : 'dialog'}
-                        dropdownIconColor="#333"
+              selectedValue={tempDistrict}
+              onValueChange={(value) => {
+                console.log('DEBUGv2 - District picker value changed to:', value);
+                setTempDistrict(value);
+              }}
+              style={[styles.modalPicker, Platform.OS === 'android' ? styles.androidPicker : {}]}
+              itemStyle={styles.pickerItem}
+              mode={Platform.OS === 'android' ? 'dropdown' : 'dialog'}
+              dropdownIconColor="#333"
             >
-                        <Picker.Item label="İlçe seçin" value="" color="#999" />
-              {districts.map((districtName) => (
-                          <Picker.Item key={districtName} label={districtName} value={districtName} color="#333" />
+              <Picker.Item label="İlçe seçin" value="" color="#999" />
+              {getDistrictsForPicker(tempCity || city).map((districtName, index) => (
+                <Picker.Item 
+                  key={`district-${districtName}-${index}`} 
+                  label={districtName} 
+                  value={districtName} 
+                  color="#333" 
+                />
               ))}
             </Picker>
-                    )}
+          )}
           </View>
         </View>
               </TouchableWithoutFeedback>
@@ -799,28 +1495,34 @@ const CreateIssueScreen = ({ navigation }) => {
           />
         </View>
         
-        <View style={styles.locationButtons}>
+        <View style={styles.sectionTitle}>
+          <Text style={styles.sectionTitleText}>Konum Bilgileri</Text>
+        </View>
+        <View style={styles.locationSection}>
           <TouchableOpacity 
-            style={[styles.locationButton, locationLoading && styles.disabledButton]} 
+            style={styles.useMyLocationButton}
             onPress={getCurrentLocation}
             disabled={locationLoading}
           >
             {locationLoading ? (
-              <ActivityIndicator size="small" color="#fff" />
+              <ActivityIndicator size="small" color="#ffffff" />
             ) : (
               <>
-                <Ionicons name="locate-outline" size={20} color="#fff" style={styles.buttonIcon} />
-              <Text style={styles.buttonText}>Konumumu Kullan</Text>
+                <Ionicons name="location" size={20} color="#ffffff" />
+                <Text style={styles.useMyLocationButtonText}>Konumumu Kullan</Text>
               </>
             )}
           </TouchableOpacity>
-        </View>
-        
-        <Text style={styles.label}>Konum <Text style={styles.required}>*</Text></Text>
+          
+          <Text style={styles.locationInfoText}>
+            <Ionicons name="information-circle-outline" size={16} color="#3b82f6" /> 
+            "Konumumu Kullan" seçeneğine tıklayarak şehir ve ilçe bilgileriniz otomatik doldurulur.
+          </Text>
         
         {locationError && (
           <Text style={styles.errorText}>{locationError}</Text>
         )}
+        </View>
         
         {/* Konum koordinat alanı */}
         {coordinates ? (
@@ -1254,6 +1956,49 @@ const styles = StyleSheet.create({
   },
   buttonIcon: {
     marginRight: 10,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    color: '#333',
+  },
+  sectionTitleText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    color: '#333',
+  },
+  locationSection: {
+    marginBottom: 20,
+  },
+  useMyLocationButton: {
+    backgroundColor: '#4CAF50',
+    borderRadius: 8,
+    padding: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    marginBottom: 15,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  useMyLocationButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
+    marginLeft: 8,
+  },
+  locationInfoText: {
+    color: '#666',
+    marginTop: 5,
+    marginBottom: 15,
+    fontSize: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
 });
 
