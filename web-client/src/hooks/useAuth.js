@@ -8,7 +8,15 @@ export const useAuth = () => {
     throw new Error('useAuth must be used within an AuthProvider');
   }
 
-  return context;
+  // Kullanıcının admin olup olmadığını kontrol eden yardımcı fonksiyon
+  const isAdmin = () => {
+    return context.user && (context.user.role === 'admin' || context.user.role === 'municipal_worker');
+  };
+
+  return {
+    ...context,
+    isAdmin
+  };
 };
 
 export default useAuth; 

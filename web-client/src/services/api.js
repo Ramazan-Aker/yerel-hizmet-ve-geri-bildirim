@@ -470,6 +470,80 @@ export const adminService = {
     } catch (error) {
       throw error.response?.data?.message || 'Kullanıcı rolü güncellenemedi';
     }
+  },
+  
+  // Sorun detaylarını getir
+  getIssueById: async (issueId) => {
+    try {
+      const response = await apiClient.get(`/admin/issues/${issueId}`);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data?.message || 'Sorun detayları alınamadı';
+    }
+  },
+  
+  // Raporları getir
+  getReports: async (timeRange = 'last30days') => {
+    try {
+      const response = await apiClient.get('/admin/reports', {
+        params: { timeRange }
+      });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data?.message || 'Raporlar alınamadı';
+    }
+  },
+  
+  // Sorun durumunu güncelle
+  updateIssueStatus: async (issueId, status) => {
+    try {
+      const response = await apiClient.put(`/admin/issues/${issueId}/status`, { status });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data?.message || 'Sorun durumu güncellenemedi';
+    }
+  },
+  
+  // Resmi yanıt ekle
+  addOfficialResponse: async (issueId, responseText) => {
+    try {
+      const response = await apiClient.post(`/admin/issues/${issueId}/response`, { response: responseText });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data?.message || 'Resmi yanıt eklenemedi';
+    }
+  },
+  
+  // Çalışan ata
+  assignWorker: async (issueId, workerId) => {
+    try {
+      const response = await apiClient.put(`/admin/issues/${issueId}/assign`, { workerId });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data?.message || 'Çalışan atanamadı';
+    }
+  },
+  
+  // Çalışanları getir
+  getWorkers: async () => {
+    try {
+      const response = await apiClient.get('/admin/workers');
+      return response.data;
+    } catch (error) {
+      throw error.response?.data?.message || 'Çalışanlar alınamadı';
+    }
+  },
+  
+  // Yorum ekle (belediye çalışanı olarak)
+  addComment: async (issueId, commentText) => {
+    try {
+      const response = await apiClient.post(`/issues/${issueId}/comments`, { 
+        content: commentText 
+      });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data?.message || 'Yorum eklenemedi';
+    }
   }
 };
 

@@ -25,6 +25,9 @@ export const AuthProvider = ({ children }) => {
             console.log('Kullanıcı verileri alındı:', userData);
             
             if (userData && userData.data) {
+              // Kullanıcı rolünü kontrol et ve logla
+              console.log('Kullanıcı rolü:', userData.data.role);
+              
               setUser(userData.data);
               setIsAuthenticated(true);
             } else {
@@ -66,15 +69,19 @@ export const AuthProvider = ({ children }) => {
         localStorage.setItem('token', userData.token);
         
         // Kullanıcı bilgilerini state'e kaydet
-        setUser({
+        const userInfo = {
           id: userData.id,
           name: userData.name,
           email: userData.email,
           role: userData.role,
           phone: userData.phone,
           district: userData.district
-        });
+        };
         
+        // Kullanıcı rolünü kontrol et ve logla
+        console.log('Giriş yapan kullanıcı rolü:', userData.role);
+        
+        setUser(userInfo);
         setIsAuthenticated(true);
         setError(null);
         
@@ -124,6 +131,11 @@ export const AuthProvider = ({ children }) => {
     });
   };
 
+  // Kullanıcı rolü kontrolü
+  const isAdmin = () => {
+    return user && (user.role === 'admin' || user.role === 'municipal_worker');
+  };
+
   const contextValue = {
     user,
     isAuthenticated,
@@ -132,7 +144,8 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     updateUser,
-    setError
+    setError,
+    isAdmin
   };
 
   return (

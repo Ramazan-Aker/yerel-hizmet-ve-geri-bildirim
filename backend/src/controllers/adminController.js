@@ -216,6 +216,15 @@ exports.toggleUserStatus = async (req, res) => {
 // @access  Private/Admin
 exports.getDashboardStats = async (req, res) => {
   try {
+    // Şehir bazlı filtreleme için
+    let cityFilter = {};
+    
+    // Eğer kullanıcı super admin değilse ve bir şehir belirtilmişse, sadece o şehirdeki sorunları göster
+    if (req.user.role !== 'admin' && req.user.city && req.user.city !== '') {
+      console.log(`Şehir filtrelemesi yapılıyor: ${req.user.city}`);
+      cityFilter = { 'location.city': req.user.city };
+    }
+    
     // Toplam kullanıcı sayısı
     const totalUsers = await User.countDocuments();
     
@@ -229,11 +238,12 @@ exports.getDashboardStats = async (req, res) => {
       }
     ]);
     
-    // Toplam sorun sayısı
-    const totalIssues = await Issue.countDocuments();
+    // Toplam sorun sayısı (şehir filtrelemesi ile)
+    const totalIssues = await Issue.countDocuments(cityFilter);
     
-    // Sorun durumları
+    // Sorun durumları (şehir filtrelemesi ile)
     const issuesByStatus = await Issue.aggregate([
+      { $match: cityFilter },
       {
         $group: {
           _id: '$status',
@@ -242,8 +252,9 @@ exports.getDashboardStats = async (req, res) => {
       }
     ]);
     
-    // Sorun kategorileri
+    // Sorun kategorileri (şehir filtrelemesi ile)
     const issuesByCategory = await Issue.aggregate([
+      { $match: cityFilter },
       {
         $group: {
           _id: '$category',
@@ -252,14 +263,15 @@ exports.getDashboardStats = async (req, res) => {
       }
     ]);
     
-    // Son eklenen 5 sorun
-    const recentIssues = await Issue.find()
+    // Son eklenen 5 sorun (şehir filtrelemesi ile)
+    const recentIssues = await Issue.find(cityFilter)
       .sort({ createdAt: -1 })
       .limit(5)
       .populate('user', 'name');
     
-    // İlçelere göre sorunlar
+    // İlçelere göre sorunlar (şehir filtrelemesi ile)
     const issuesByDistrict = await Issue.aggregate([
+      { $match: cityFilter },
       {
         $group: {
           _id: '$location.district',
@@ -282,6 +294,454 @@ exports.getDashboardStats = async (req, res) => {
           byDistrict: issuesByDistrict,
           recent: recentIssues
         }
+      }
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: 'Sunucu hatası'
+    });
+  }
+};
+
+// @desc    Sorun detaylarını getirme (admin için)
+// @route   GET /api/admin/issues/:id
+// @access  Private/Admin
+exports.getIssueById = async (req, res) => {
+  try {
+    console.log(`Admin getIssueById çağrıldı, ID: ${req.params.id}`);
+    console.log(`İstek yapan kullanıcı:`, req.user);
+    
+    // Önce sorunu bul
+    const issue = await Issue.findById(req.params.id)
+      .populate('user', 'name email phone')
+      .populate('assignedWorker', 'name department')
+      .populate('comments.user', 'name profileImage')
+      .populate('comments.replies.user', 'name profileImage')
+      .populate('comments.likes', 'name')
+      .populate('comments.replies.likes', 'name');
+
+    console.log(`Sorgu sonucu:`, issue ? 'Sorun bulundu' : 'Sorun bulunamadı');
+    
+    if (!issue) {
+      return res.status(404).json({
+        success: false,
+        message: 'Sorun bulunamadı'
+      });
+    }
+    
+    // Yönetici sadece kendi şehrindeki sorunları görebilir
+    // Eğer yöneticinin şehri tanımlanmışsa ve sorunun şehriyle eşleşmiyorsa erişimi engelle
+    if (req.user.role !== 'admin' && req.user.city && req.user.city !== '' && issue.location && issue.location.city !== req.user.city) {
+      console.log(`Erişim engellendi: Yönetici (${req.user.city}) başka bir şehirdeki sorunu (${issue.location.city}) görüntüleyemez`);
+      return res.status(403).json({
+        success: false,
+        message: 'Bu sorunu görüntüleme yetkiniz yok. Sadece kendi şehrinizdeki sorunları görüntüleyebilirsiniz.'
+      });
+    }
+    
+    // Super admin (role=admin) tüm sorunları görebilir
+    console.log(`Erişim izni verildi: ${req.user.role === 'admin' ? 'Super admin tüm sorunları görebilir' : 'Yönetici kendi şehrindeki sorunu görüntülüyor'}`);
+
+    res.status(200).json({
+      success: true,
+      data: issue
+    });
+  } catch (error) {
+    console.error('getIssueById hatası:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Sunucu hatası'
+    });
+  }
+};
+
+// @desc    Sorun durumunu güncelleme (admin için)
+// @route   PUT /api/admin/issues/:id/status
+// @access  Private/Admin
+exports.updateIssueStatus = async (req, res) => {
+  try {
+    const { status } = req.body;
+
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        message: 'Durum belirtilmedi'
+      });
+    }
+
+    const allowedStatuses = ['pending', 'in_progress', 'resolved', 'rejected'];
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Geçersiz durum'
+      });
+    }
+
+    const issue = await Issue.findById(req.params.id);
+
+    if (!issue) {
+      return res.status(404).json({
+        success: false,
+        message: 'Sorun bulunamadı'
+      });
+    }
+
+    // Durum güncellemesi
+    issue.status = status;
+    
+    // Güncelleme kaydı ekle
+    let statusText = '';
+    switch(status) {
+      case 'pending': statusText = 'Yeni'; break;
+      case 'in_progress': statusText = 'İnceleniyor'; break;
+      case 'resolved': statusText = 'Çözüldü'; break;
+      case 'rejected': statusText = 'Reddedildi'; break;
+    }
+    
+    issue.updates.push({
+      status,
+      text: `Sorun durumu "${statusText}" olarak güncellendi.`,
+      date: Date.now(),
+      updatedBy: req.user._id
+    });
+
+    await issue.save();
+    
+    // Güncel veriyi döndür
+    const updatedIssue = await Issue.findById(req.params.id)
+      .populate('user', 'name email phone')
+      .populate('assignedWorker', 'name department')
+      .populate('comments.user', 'name profileImage')
+      .populate('comments.replies.user', 'name profileImage')
+      .populate('comments.likes', 'name')
+      .populate('comments.replies.likes', 'name');
+
+    res.status(200).json({
+      success: true,
+      data: updatedIssue
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: 'Sunucu hatası'
+    });
+  }
+};
+
+// @desc    Resmi yanıt ekleme (admin için)
+// @route   POST /api/admin/issues/:id/response
+// @access  Private/Admin
+exports.addOfficialResponse = async (req, res) => {
+  try {
+    const { response } = req.body;
+
+    if (!response) {
+      return res.status(400).json({
+        success: false,
+        message: 'Yanıt metni belirtilmedi'
+      });
+    }
+
+    const issue = await Issue.findById(req.params.id);
+
+    if (!issue) {
+      return res.status(404).json({
+        success: false,
+        message: 'Sorun bulunamadı'
+      });
+    }
+
+    // Resmi yanıt ekle
+    issue.officialResponses.push({
+      text: response,
+      respondent: req.user.name,
+      date: Date.now()
+    });
+
+    // Güncelleme kaydı ekle
+    issue.updates.push({
+      status: issue.status,
+      text: 'Resmi yanıt eklendi.',
+      date: Date.now(),
+      updatedBy: req.user._id
+    });
+
+    await issue.save();
+    
+    // Güncel veriyi döndür
+    const updatedIssue = await Issue.findById(req.params.id)
+      .populate('user', 'name email phone')
+      .populate('assignedWorker', 'name department')
+      .populate('comments.user', 'name profileImage')
+      .populate('comments.replies.user', 'name profileImage')
+      .populate('comments.likes', 'name')
+      .populate('comments.replies.likes', 'name');
+
+    res.status(200).json({
+      success: true,
+      data: updatedIssue
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: 'Sunucu hatası'
+    });
+  }
+};
+
+// @desc    Çalışan atama (admin için)
+// @route   PUT /api/admin/issues/:id/assign
+// @access  Private/Admin
+exports.assignWorker = async (req, res) => {
+  try {
+    const { workerId } = req.body;
+
+    if (!workerId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Çalışan ID belirtilmedi'
+      });
+    }
+
+    // Çalışanın varlığını kontrol et
+    const worker = await User.findById(workerId);
+    if (!worker || worker.role !== 'municipal_worker') {
+      return res.status(404).json({
+        success: false,
+        message: 'Geçerli bir belediye çalışanı bulunamadı'
+      });
+    }
+
+    const issue = await Issue.findById(req.params.id);
+
+    if (!issue) {
+      return res.status(404).json({
+        success: false,
+        message: 'Sorun bulunamadı'
+      });
+    }
+
+    // Çalışan ata
+    issue.assignedWorker = workerId;
+    
+    // Durum inceleniyor olarak güncelle (eğer yeni durumundaysa)
+    if (issue.status === 'pending') {
+      issue.status = 'in_progress';
+    }
+    
+    // Güncelleme kaydı ekle
+    issue.updates.push({
+      status: issue.status,
+      text: `Sorun "${worker.name}" çalışanına atandı.`,
+      date: Date.now(),
+      updatedBy: req.user._id
+    });
+
+    await issue.save();
+    
+    // Güncel veriyi döndür
+    const updatedIssue = await Issue.findById(req.params.id)
+      .populate('user', 'name email phone')
+      .populate('assignedWorker', 'name department')
+      .populate('comments.user', 'name profileImage')
+      .populate('comments.replies.user', 'name profileImage')
+      .populate('comments.likes', 'name')
+      .populate('comments.replies.likes', 'name');
+
+    res.status(200).json({
+      success: true,
+      data: updatedIssue
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: 'Sunucu hatası'
+    });
+  }
+};
+
+// @desc    Belediye çalışanlarını getir
+// @route   GET /api/admin/workers
+// @access  Private/Admin
+exports.getWorkers = async (req, res) => {
+  try {
+    const workers = await User.find({ 
+      role: 'municipal_worker',
+      isActive: true 
+    }).select('name department');
+
+    res.status(200).json({
+      success: true,
+      count: workers.length,
+      data: workers
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: 'Sunucu hatası'
+    });
+  }
+};
+
+// @desc    İstatistiksel raporları getir
+// @route   GET /api/admin/reports
+// @access  Private/Admin
+exports.getReports = async (req, res) => {
+  try {
+    const { timeRange = 'last30days' } = req.query;
+    
+    // Zaman aralığı için filtre oluştur
+    let dateFilter = {};
+    const now = new Date();
+    
+    switch (timeRange) {
+      case 'last7days':
+        dateFilter = { 
+          createdAt: { 
+            $gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) 
+          } 
+        };
+        break;
+      case 'last30days':
+        dateFilter = { 
+          createdAt: { 
+            $gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) 
+          } 
+        };
+        break;
+      case 'last90days':
+        dateFilter = { 
+          createdAt: { 
+            $gte: new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000) 
+          } 
+        };
+        break;
+      case 'lastYear':
+        dateFilter = { 
+          createdAt: { 
+            $gte: new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()) 
+          } 
+        };
+        break;
+      case 'all':
+      default:
+        dateFilter = {};
+        break;
+    }
+    
+    // Şehir bazlı filtreleme için
+    let cityFilter = {};
+    
+    // Eğer kullanıcı super admin değilse ve bir şehir belirtilmişse, sadece o şehirdeki sorunları göster
+    if (req.user.role !== 'admin' && req.user.city && req.user.city !== '') {
+      console.log(`Rapor için şehir filtrelemesi yapılıyor: ${req.user.city}`);
+      cityFilter = { 'location.city': req.user.city };
+    }
+    
+    // Tüm filtreleri birleştir
+    const filter = { ...dateFilter, ...cityFilter };
+    console.log('Rapor filtreleri:', filter);
+    
+    // Durum dağılımı
+    const byStatus = await Issue.aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+    
+    // Kategori dağılımı
+    const byCategory = await Issue.aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: '$category',
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { count: -1 } },
+      { $limit: 10 }
+    ]);
+    
+    // İlçe dağılımı
+    const byDistrict = await Issue.aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: '$location.district',
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { count: -1 } },
+      { $limit: 10 }
+    ]);
+    
+    // Aylık dağılım
+    const byMonth = await Issue.aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: {
+            year: { $year: '$createdAt' },
+            month: { $month: '$createdAt' }
+          },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { '_id.year': 1, '_id.month': 1 } },
+      {
+        $project: {
+          _id: {
+            $concat: [
+              { $toString: '$_id.year' },
+              '-',
+              {
+                $cond: {
+                  if: { $lt: ['$_id.month', 10] },
+                  then: { $concat: ['0', { $toString: '$_id.month' }] },
+                  else: { $toString: '$_id.month' }
+                }
+              }
+            ]
+          },
+          name: {
+            $let: {
+              vars: {
+                monthNames: [
+                  'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
+                  'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'
+                ]
+              },
+              in: {
+                $concat: [
+                  { $arrayElemAt: ['$$monthNames', { $subtract: ['$_id.month', 1] }] },
+                  ' ',
+                  { $toString: '$_id.year' }
+                ]
+              }
+            }
+          },
+          count: 1
+        }
+      }
+    ]);
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        byStatus,
+        byCategory,
+        byDistrict,
+        byMonth
       }
     });
   } catch (error) {

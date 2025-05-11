@@ -31,7 +31,15 @@ const LoginPage = () => {
       if (response && response.data) {
         // Login fonksiyonuna response.data'yı gönder
         await login(response.data);
-        navigate('/');
+        
+        // Kullanıcı rolüne göre yönlendirme yap
+        if (response.data.role === 'admin' || response.data.role === 'municipal_worker') {
+          console.log('Yönetici kullanıcısı tespit edildi, admin paneline yönlendiriliyor...');
+          navigate('/admin');
+        } else {
+          console.log('Normal kullanıcı tespit edildi, ana sayfaya yönlendiriliyor...');
+          navigate('/');
+        }
       } else {
         throw new Error('Giriş başarılı ancak kullanıcı bilgileri alınamadı');
       }
@@ -53,7 +61,13 @@ const LoginPage = () => {
       const response = await authService.login('demo@example.com', 'password123');
       if (response && response.data) {
         await login(response.data);
-        navigate('/');
+        
+        // Kullanıcı rolüne göre yönlendirme yap
+        if (response.data.role === 'admin' || response.data.role === 'municipal_worker') {
+          navigate('/admin');
+        } else {
+          navigate('/');
+        }
       }
     } catch (err) {
       setError('Demo hesabı ile giriş başarısız oldu.');

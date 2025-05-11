@@ -494,7 +494,7 @@ const CreateIssueScreen = ({ navigation }) => {
           foundCity = findNearestCity(location.coords.latitude, location.coords.longitude);
           if (foundCity) {
             console.log('DEBUGv4 - En yakın şehir bulundu:', foundCity);
-          }
+        }
         }
         
         // 4. Adım: Şehir bulunduysa doğru formata dönüştür ve ilçe bilgisini ayarla
@@ -642,7 +642,7 @@ const CreateIssueScreen = ({ navigation }) => {
       if (formattedCity) {
         console.log('DEBUG - Bulunan en yakın şehir formatlandı:', nearestCity, '->', formattedCity);
         return formattedCity;
-      }
+    }
     }
     
     return nearestCity;

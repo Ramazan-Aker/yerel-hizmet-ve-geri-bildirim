@@ -179,7 +179,7 @@ const IssuesScreen = ({ navigation }) => {
         if (response.isDemoMode) {
           setIsDemoMode(true);
         } else {
-          setIsDemoMode(false);
+        setIsDemoMode(false);
         }
       } else {
         console.error('API hata döndürdü:', response.message);
@@ -510,20 +510,20 @@ const IssuesScreen = ({ navigation }) => {
           <View style={styles.filterItem}>
             <Text style={styles.filterLabel}>Kategori:</Text>
             {Platform.OS === 'ios' ? (
-              <View style={styles.pickerWrapper}>
-                <RNPickerSelect
-                  placeholder={{}}
-                  items={categoryItems}
-                  onValueChange={(value) => setFilters(prev => ({ ...prev, category: value }))}
-                  value={filters.category}
+            <View style={styles.pickerWrapper}>
+              <RNPickerSelect
+                placeholder={{}}
+                items={categoryItems}
+                onValueChange={(value) => setFilters(prev => ({ ...prev, category: value }))}
+                value={filters.category}
                   style={{
                     inputIOS: styles.pickerIOS,
                     iconContainer: styles.iconContainer,
                   }}
-                  useNativeAndroidPickerStyle={false}
-                  Icon={() => <Icon name="arrow-drop-down" size={24} color="#3b82f6" />}
-                />
-              </View>
+                useNativeAndroidPickerStyle={false}
+                Icon={() => <Icon name="arrow-drop-down" size={24} color="#3b82f6" />}
+              />
+            </View>
             ) : (
               <TouchableOpacity 
                 style={styles.customPickerWrapper}
@@ -551,20 +551,20 @@ const IssuesScreen = ({ navigation }) => {
           <View style={styles.filterItem}>
             <Text style={styles.filterLabel}>Durum:</Text>
             {Platform.OS === 'ios' ? (
-              <View style={styles.pickerWrapper}>
-                <RNPickerSelect
-                  placeholder={{}}
-                  items={statusItems}
-                  onValueChange={(value) => setFilters(prev => ({ ...prev, status: value }))}
-                  value={filters.status}
+            <View style={styles.pickerWrapper}>
+              <RNPickerSelect
+                placeholder={{}}
+                items={statusItems}
+                onValueChange={(value) => setFilters(prev => ({ ...prev, status: value }))}
+                value={filters.status}
                   style={{
                     inputIOS: styles.pickerIOS,
                     iconContainer: styles.iconContainer,
                   }}
-                  useNativeAndroidPickerStyle={false}
-                  Icon={() => <Icon name="arrow-drop-down" size={24} color="#3b82f6" />}
-                />
-              </View>
+                useNativeAndroidPickerStyle={false}
+                Icon={() => <Icon name="arrow-drop-down" size={24} color="#3b82f6" />}
+              />
+            </View>
             ) : (
               <TouchableOpacity 
                 style={styles.customPickerWrapper}
@@ -602,20 +602,20 @@ const IssuesScreen = ({ navigation }) => {
           <View style={styles.filterItem}>
             <Text style={styles.filterLabel}>Sırala:</Text>
             {Platform.OS === 'ios' ? (
-              <View style={styles.pickerWrapper}>
-                <RNPickerSelect
-                  placeholder={{}}
-                  items={sortByItems}
-                  onValueChange={(value) => setSortBy(value)}
-                  value={sortBy}
+            <View style={styles.pickerWrapper}>
+              <RNPickerSelect
+                placeholder={{}}
+                items={sortByItems}
+                onValueChange={(value) => setSortBy(value)}
+                value={sortBy}
                   style={{
                     inputIOS: styles.pickerIOS,
                     iconContainer: styles.iconContainer,
                   }}
-                  useNativeAndroidPickerStyle={false}
-                  Icon={() => <Icon name="arrow-drop-down" size={24} color="#3b82f6" />}
-                />
-              </View>
+                useNativeAndroidPickerStyle={false}
+                Icon={() => <Icon name="arrow-drop-down" size={24} color="#3b82f6" />}
+              />
+            </View>
             ) : (
               <TouchableOpacity 
                 style={styles.customPickerWrapper}
@@ -777,7 +777,7 @@ const IssuesScreen = ({ navigation }) => {
       )}
 
       {/* Yeni Sorun Ekleme Butonu */}
-      <TouchableOpacity 
+      <TouchableOpacity
         style={styles.fab}
         onPress={navigateToCreateIssue}
       >

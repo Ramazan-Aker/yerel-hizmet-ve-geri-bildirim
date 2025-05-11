@@ -177,8 +177,26 @@ export const AuthProvider = ({ children }) => {
         const userData = data.data;
         const token = userData.token;
         
+        console.log('Token alındı:', token ? 'Evet (uzunluk: ' + token.length + ')' : 'Hayır');
+        
+        if (!token) {
+          console.error('Token bulunamadı!', userData);
+          setError('Giriş başarılı ancak token alınamadı');
+          return false;
+        }
+        
+        // Kullanıcı rolünü kontrol et
+        console.log('Kullanıcı rolü:', userData.role);
+        if (!userData.role) {
+          console.warn('Kullanıcı rolü bulunamadı! Varsayılan rol: user');
+          userData.role = 'user'; // Varsayılan rol
+        } else if (userData.role === 'admin' || userData.role === 'municipal_worker') {
+          console.log('YETKİLİ KULLANICI ROLÜ ALGILANDI:', userData.role);
+        }
+        
         // Token ve kullanıcı bilgilerini AsyncStorage'a kaydet
         await AsyncStorage.setItem('token', token);
+        console.log('Token AsyncStorage\'a kaydedildi');
         
         // Token'ı userData'dan çıkar ve user nesnesini oluştur
         const { token: _, ...userInfo } = userData;
@@ -188,11 +206,39 @@ export const AuthProvider = ({ children }) => {
           Object.entries(userInfo).filter(([_, value]) => value !== null && value !== undefined)
         );
         
+        console.log('Kullanıcı bilgileri:', safeUserInfo);
+        
         // Kullanıcı bilgilerini kaydet
         await AsyncStorage.setItem('user', JSON.stringify(safeUserInfo));
+        console.log('Kullanıcı bilgileri AsyncStorage\'a kaydedildi');
         
         // Kullanıcı bilgilerini state'e kaydet
         setUser(safeUserInfo);
+        
+        // Token'ı doğrulayalım
+        const storedToken = await AsyncStorage.getItem('token');
+        console.log('Token doğrulama:', storedToken ? 'Başarılı' : 'Başarısız');
+        
+        // Kullanıcı rolünü API üzerinden tekrar kontrol et
+        try {
+          console.log('Kullanıcı rolü API üzerinden kontrol ediliyor...');
+          const roleCheck = await api.auth.checkUserRole();
+          
+          if (roleCheck.success) {
+            console.log('API rol kontrolü başarılı, rol:', roleCheck.role);
+            
+            // Kullanıcı nesnesini güncelle
+            if (roleCheck.data) {
+              setUser(roleCheck.data);
+              console.log('Kullanıcı bilgileri rol kontrolü sonrası güncellendi');
+            }
+          } else {
+            console.warn('API rol kontrolü başarısız:', roleCheck.message);
+          }
+        } catch (roleError) {
+          console.error('Rol kontrolü sırasında hata:', roleError);
+        }
+        
         return true;
       } else {
         setError(data?.message || 'Giriş başarısız');

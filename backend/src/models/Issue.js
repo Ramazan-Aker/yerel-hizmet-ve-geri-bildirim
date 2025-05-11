@@ -55,6 +55,48 @@ const CommentSchema = mongoose.Schema(
   }
 );
 
+// Güncelleme şeması
+const UpdateSchema = mongoose.Schema(
+  {
+    status: {
+      type: String,
+      enum: ['pending', 'in_progress', 'resolved', 'rejected'],
+      required: true
+    },
+    text: {
+      type: String,
+      required: true
+    },
+    date: {
+      type: Date,
+      default: Date.now
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    }
+  }
+);
+
+// Resmi yanıt şeması
+const OfficialResponseSchema = mongoose.Schema(
+  {
+    text: {
+      type: String,
+      required: true
+    },
+    respondent: {
+      type: String,
+      required: true
+    },
+    date: {
+      type: Date,
+      default: Date.now
+    }
+  }
+);
+
 const IssueSchema = mongoose.Schema(
   {
     title: {
@@ -84,8 +126,8 @@ const IssueSchema = mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['Yeni', 'İnceleniyor', 'Çözüldü', 'Reddedildi', 'pending', 'in_progress', 'resolved', 'rejected'],
-      default: 'Yeni'
+      enum: ['pending', 'in_progress', 'resolved', 'rejected'],
+      default: 'pending'
     },
     severity: {
       type: String,
@@ -135,6 +177,11 @@ const IssueSchema = mongoose.Schema(
       ref: 'User',
       default: null
     },
+    assignedWorker: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
     officialResponse: {
       response: {
         type: String,
@@ -149,7 +196,9 @@ const IssueSchema = mongoose.Schema(
         ref: 'User',
         default: null
       }
-    }
+    },
+    updates: [UpdateSchema],
+    officialResponses: [OfficialResponseSchema]
   },
   {
     timestamps: true

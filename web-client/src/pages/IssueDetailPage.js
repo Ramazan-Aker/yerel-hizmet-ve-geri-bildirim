@@ -108,11 +108,16 @@ const IssueDetailPage = () => {
     setSubmittingComment(true);
     
     try {
-      await issueService.addComment(id, comment);
+      const response = await issueService.addComment(id, comment);
       
-      // Yorum ekledikten sonra güncel verileri yeniden yükle
-      const response = await issueService.getIssueById(id);
-      setIssue(response.data);
+      // API'den dönen tam sorunu kullan
+      if (response.issue) {
+        setIssue(response.issue);
+      } else {
+        // Eski davranış için yedek: Yorum ekledikten sonra güncel verileri yeniden yükle
+        const issueResponse = await issueService.getIssueById(id);
+        setIssue(issueResponse.data);
+      }
       
       setComment('');
     } catch (err) {

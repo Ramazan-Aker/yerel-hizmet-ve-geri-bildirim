@@ -1,13 +1,54 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { adminService } from '../services/api';
 
 const HomePage = () => {
-  const stats = [
-    { id: 1, name: 'Toplam Sorun', value: '2,500+' },
-    { id: 2, name: 'Çözümlenen Sorunlar', value: '1,830+' },
-    { id: 3, name: 'Aktif Kullanıcılar', value: '5,000+' },
-    { id: 4, name: 'Ortalama Çözüm Süresi', value: '3 gün' },
-  ];
+  const [stats, setStats] = useState([
+    { id: 1, name: 'Toplam Sorun', value: '0' },
+    { id: 2, name: 'Çözümlenen Sorunlar', value: '0' },
+    { id: 3, name: 'Aktif Kullanıcılar', value: '0' },
+    { id: 4, name: 'Ortalama Çözüm Süresi', value: '0 gün' },
+  ]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        setLoading(true);
+        // Gerçek API çağrısı yap
+        const response = await adminService.getDashboardStats();
+        console.log('Ana sayfa istatistikleri:', response);
+        
+        if (response && response.data) {
+          const issueStats = response.data.issues;
+          const userStats = response.data.users;
+          
+          // Çözülen sorunların sayısını bul
+          let resolvedCount = 0;
+          if (issueStats.byStatus && Array.isArray(issueStats.byStatus)) {
+            const resolvedItem = issueStats.byStatus.find(item => item._id === 'resolved');
+            if (resolvedItem) {
+              resolvedCount = resolvedItem.count;
+            }
+          }
+          
+          // İstatistikleri güncelle
+          setStats([
+            { id: 1, name: 'Toplam Sorun', value: issueStats.total.toString() },
+            { id: 2, name: 'Çözümlenen Sorunlar', value: resolvedCount.toString() },
+            { id: 3, name: 'Aktif Kullanıcılar', value: userStats.total.toString() },
+            { id: 4, name: 'Ortalama Çözüm Süresi', value: '3 gün' }, // Bu veri henüz API'den gelmiyor
+          ]);
+        }
+      } catch (error) {
+        console.error('İstatistikler alınırken hata:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchStats();
+  }, []);
 
   return (
     <div>
@@ -77,14 +118,20 @@ const HomePage = () => {
       <section className="bg-gray-50 py-12 rounded-lg mb-16">
         <div className="container mx-auto px-4">
           <h2 className="text-3xl font-bold text-center mb-12">Rakamlarla Platformumuz</h2>
-          <dl className="grid grid-cols-2 md:grid-cols-4 gap-8">
-            {stats.map((stat) => (
-              <div key={stat.id} className="text-center">
-                <dt className="text-lg font-medium text-gray-500">{stat.name}</dt>
-                <dd className="mt-2 text-3xl font-extrabold text-blue-600">{stat.value}</dd>
-              </div>
-            ))}
-          </dl>
+          {loading ? (
+            <div className="flex justify-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+            </div>
+          ) : (
+            <dl className="grid grid-cols-2 md:grid-cols-4 gap-8">
+              {stats.map((stat) => (
+                <div key={stat.id} className="text-center">
+                  <dt className="text-lg font-medium text-gray-500">{stat.name}</dt>
+                  <dd className="mt-2 text-3xl font-extrabold text-blue-600">{stat.value}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
         </div>
       </section>
 

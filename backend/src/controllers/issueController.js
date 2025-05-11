@@ -683,15 +683,21 @@ exports.addComment = async (req, res) => {
     issue.comments.unshift(newComment);
     await issue.save();
 
-    // Populasyon işlemi ile kullanıcı bilgilerini ekle
-    await issue.populate({
-      path: 'comments.user',
-      select: 'name profileImage'
-    });
+    // Tüm gerekli bilgileri populate edelim
+    const populatedIssue = await Issue.findById(req.params.id)
+      .populate('user', 'name')
+      .populate('assignedTo', 'name role')
+      .populate('officialResponse.respondent', 'name role')
+      .populate('comments.user', 'name profileImage')
+      .populate('comments.replies.user', 'name profileImage')
+      .populate('comments.likes', 'name')
+      .populate('comments.replies.likes', 'name');
 
+    // Hem yorumu hem de tüm sorunu gönderelim
     res.status(201).json({
       success: true,
-      data: issue.comments[0]
+      data: populatedIssue.comments[0],
+      issue: populatedIssue
     });
   } catch (error) {
     console.error('Yorum eklenirken hata:', error);

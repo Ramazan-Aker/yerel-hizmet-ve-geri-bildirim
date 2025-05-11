@@ -421,8 +421,15 @@ client.interceptors.request.use(
     
     // Kullanıcı token'ı varsa, header'a ekle
     const userToken = await AsyncStorage.getItem('token');
+    
+    // Debug için token durumunu logla
+    console.log('Token durumu:', userToken ? `Token mevcut (${userToken.substring(0, 10)}...)` : 'Token bulunamadı');
+    
     if (userToken) {
       config.headers.Authorization = `Bearer ${userToken}`;
+      console.log('Authorization header eklendi');
+    } else {
+      console.warn('Token bulunamadı, kullanıcı oturumu açık değil');
     }
     
     return config;
@@ -603,6 +610,26 @@ const api = {
       try {
         const response = await client.post('/auth/login', data);
         console.log('Login yanıtı:', response.data);
+        
+        // Yanıtı kontrol et
+        if (!response.data) {
+          console.error('API yanıtında veri yok!');
+          throw new Error('API yanıtında veri yok');
+        }
+        
+        // Token kontrolü
+        if (response.data.data && !response.data.data.token) {
+          console.error('API yanıtında token bulunamadı!', response.data);
+          throw new Error('Token bulunamadı');
+        }
+        
+        // Kullanıcı rolünü kontrol et
+        if (response.data.data && response.data.data.role) {
+          console.log('Kullanıcı rolü:', response.data.data.role);
+        } else {
+          console.warn('Kullanıcı rolü bulunamadı!');
+        }
+        
         return response;
       } catch (error) {
         console.error('Login hatası:', error);
@@ -633,6 +660,35 @@ const api = {
         return { 
           success: false, 
           message: error.response?.data?.message || 'Kullanıcı bilgileri alınamadı' 
+        };
+      }
+    },
+    
+    checkUserRole: async () => {
+      try {
+        console.log('Kullanıcı rolü kontrol ediliyor...');
+        const response = await client.get('/auth/check-role');
+        console.log('Rol kontrolü yanıtı:', response.data);
+        
+        if (response.data && response.data.success && response.data.data) {
+          // Kullanıcı bilgilerini AsyncStorage'a kaydet
+          const userData = response.data.data;
+          await AsyncStorage.setItem('user', JSON.stringify(userData));
+          
+          console.log('Güncel kullanıcı rolü:', userData.role);
+          return { 
+            success: true, 
+            data: userData,
+            role: userData.role
+          };
+        }
+        
+        return { success: false, message: 'Rol bilgisi alınamadı' };
+      } catch (error) {
+        console.error('Rol kontrolü hatası:', error);
+        return { 
+          success: false, 
+          message: error.response?.data?.message || 'Kullanıcı rolü kontrol edilemedi' 
         };
       }
     },
@@ -939,7 +995,8 @@ const api = {
         if (response.data && response.data.success) {
           return {
             success: true,
-            data: response.data.data
+            data: response.data.data,
+            issue: response.data.issue
           };
         } else {
           return {
@@ -1068,6 +1125,158 @@ const api = {
   statistics: {
     getReportStats: () => client.get('/statistics/reports'),
     getUserStats: () => client.get('/statistics/users'),
+  },
+
+  // Yetkili kullanıcılar için API fonksiyonları
+  admin: {
+    // Tüm sorunları yönetici için getir
+    getAdminIssues: async (params = {}) => {
+      try {
+        await checkAndPingApi();
+        const token = await AsyncStorage.getItem('token');
+        
+        const response = await client.get('/admin/issues', {
+          headers: { Authorization: `Bearer ${token}` },
+          params
+        });
+        
+        return {
+          success: true,
+          data: response.data.data
+        };
+      } catch (error) {
+        return handleApiError(error, 'Yönetici sorunları alınırken bir hata oluştu');
+      }
+    },
+    
+    // Sorun durumunu güncelle
+    updateIssue: async (issueId, updateData) => {
+      try {
+        const token = await AsyncStorage.getItem('token');
+        
+        const response = await client.put(`/admin/issues/${issueId}`, updateData, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        return {
+          success: true,
+          data: response.data.data
+        };
+      } catch (error) {
+        return handleApiError(error, 'Sorun güncellenirken bir hata oluştu');
+      }
+    },
+    
+    // Sorunu belediye çalışanına ata
+    assignIssue: async (issueId, workerId) => {
+      try {
+        const token = await AsyncStorage.getItem('token');
+        
+        const response = await client.put(`/admin/issues/${issueId}/assign`, 
+          { workerId }, 
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        
+        return {
+          success: true,
+          data: response.data.data
+        };
+      } catch (error) {
+        return handleApiError(error, 'Sorun atanırken bir hata oluştu');
+      }
+    },
+    
+    // Resmi yanıt ekle
+    addOfficialResponse: async (issueId, responseText) => {
+      try {
+        const token = await AsyncStorage.getItem('token');
+        
+        const response = await client.post(`/admin/issues/${issueId}/response`, 
+          { response: responseText }, 
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        
+        return {
+          success: true,
+          data: response.data.data
+        };
+      } catch (error) {
+        return handleApiError(error, 'Resmi yanıt eklenirken bir hata oluştu');
+      }
+    },
+    
+    // Belediye çalışanlarını getir
+    getWorkers: async () => {
+      try {
+        const token = await AsyncStorage.getItem('token');
+        
+        const response = await client.get('/admin/workers', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        return {
+          success: true,
+          data: response.data.data
+        };
+      } catch (error) {
+        return handleApiError(error, 'Belediye çalışanları alınırken bir hata oluştu');
+      }
+    },
+    
+    // İstatistikleri getir
+    getStats: async (timeRange = 'last30days') => {
+      try {
+        const token = await AsyncStorage.getItem('token');
+        
+        const response = await client.get('/admin/stats', {
+          headers: { Authorization: `Bearer ${token}` },
+          params: { timeRange }
+        });
+        
+        return {
+          success: true,
+          data: response.data.data
+        };
+      } catch (error) {
+        return handleApiError(error, 'İstatistikler alınırken bir hata oluştu');
+      }
+    },
+    
+    // Kullanıcı yönetimi
+    getUsers: async (params = {}) => {
+      try {
+        const token = await AsyncStorage.getItem('token');
+        
+        const response = await client.get('/admin/users', {
+          headers: { Authorization: `Bearer ${token}` },
+          params
+        });
+        
+        return {
+          success: true,
+          data: response.data.data
+        };
+      } catch (error) {
+        return handleApiError(error, 'Kullanıcılar alınırken bir hata oluştu');
+      }
+    },
+    
+    updateUser: async (userId, userData) => {
+      try {
+        const token = await AsyncStorage.getItem('token');
+        
+        const response = await client.put(`/admin/users/${userId}`, userData, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        return {
+          success: true,
+          data: response.data.data
+        };
+      } catch (error) {
+        return handleApiError(error, 'Kullanıcı güncellenirken bir hata oluştu');
+      }
+    }
   },
 
   // Bağlantı durumunu kontrol et

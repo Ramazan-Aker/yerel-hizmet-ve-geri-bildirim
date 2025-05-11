@@ -7,6 +7,9 @@ const Header = () => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
 
+  // Admin veya yetkili çalışan kontrolü
+  const isAdmin = user && (user.role === 'admin' || user.role === 'municipal_worker');
+
   // Dropdown dışına tıklandığında dropdown'ı kapat
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -71,6 +74,14 @@ const Header = () => {
                     Sorun Bildir
                   </Link>
                 </li>
+                {/* Admin veya yetkili çalışan ise yönetim paneli linki göster */}
+                {isAdmin && (
+                  <li>
+                    <Link to="/admin" className="bg-blue-800 hover:bg-blue-900 px-3 py-1 rounded transition">
+                      Yönetim Paneli
+                    </Link>
+                  </li>
+                )}
                 <li className="relative" ref={dropdownRef}>
                   <button 
                     onClick={toggleDropdown}
@@ -102,6 +113,16 @@ const Header = () => {
                       >
                         Sorunlarım
                       </Link>
+                      {/* Admin veya yetkili çalışan ise yönetim paneli linki göster */}
+                      {isAdmin && (
+                        <Link
+                          to="/admin"
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-blue-500 hover:text-white"
+                          onClick={() => setIsDropdownOpen(false)}
+                        >
+                          Yönetim Paneli
+                        </Link>
+                      )}
                       <button
                         onClick={handleLogout}
                         className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-blue-500 hover:text-white"
