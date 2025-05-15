@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -11,7 +11,8 @@ import {
   ActivityIndicator, 
   Modal,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  FlatList
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { Picker } from '@react-native-picker/picker';
@@ -32,6 +33,14 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
   const [workers, setWorkers] = useState([]);
   const [selectedWorker, setSelectedWorker] = useState('');
   
+  // Özel seçici modalleri için state'ler
+  const [statusModalVisible, setStatusModalVisible] = useState(false);
+  const [workerModalVisible, setWorkerModalVisible] = useState(false);
+  
+  // Ref'ler picker'ları programmatik olarak açmak için
+  const statusPickerRef = useRef(null);
+  const workerPickerRef = useRef(null);
+  
   // Sorunu getir
   const fetchIssue = async () => {
     try {
@@ -40,10 +49,14 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
       
       if (response.success && response.data) {
         setIssue(response.data);
+        // Durumun backend değerini kullan
         setNewStatus(response.data.status);
         setOfficialResponse(response.data.officialResponse?.response || '');
         setAssignedToName(response.data.assignedTo?.name || 'Atanmamış');
         setSelectedWorker(response.data.assignedTo?._id || '');
+        
+        console.log('Sorun durumu:', response.data.status);
+        console.log('Atanan çalışan ID:', response.data.assignedTo?._id);
       } else {
         Alert.alert('Hata', 'Sorun detayları yüklenirken bir hata oluştu.');
         navigation.goBack();
@@ -62,8 +75,10 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
     try {
       const response = await api.admin.getWorkers();
       
-      if (response.success && response.data) {
-        setWorkers(response.data.workers || []);
+      if (response.success) {
+        const workersList = response.workers || response.data?.workers || [];
+        console.log('Çalışan listesi alındı:', workersList.length);
+        setWorkers(workersList);
       } else {
         console.warn('Çalışanlar yüklenemedi:', response.message);
       }
@@ -77,10 +92,23 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
     fetchWorkers();
   }, [issueId]);
 
+  // Picker'ları açmak için yardımcı fonksiyonlar
+  const openStatusPicker = () => {
+    console.log('Durum seçici açılıyor...');
+    setStatusModalVisible(true);
+  };
+  
+  const openWorkerPicker = () => {
+    console.log('Çalışan seçici açılıyor...');
+    setWorkerModalVisible(true);
+  };
+
   // Sorunu güncelle
   const updateIssue = async () => {
     try {
       setUpdating(true);
+      console.log('Güncellenecek durum:', newStatus);
+      console.log('Atanacak çalışan ID:', selectedWorker || 'Atanmayacak');
 
       const updateData = {
         status: newStatus,
@@ -195,6 +223,32 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
     }
   };
 
+  // Status conversion for display
+  const getBackendStatusValue = (displayStatus) => {
+    switch (displayStatus) {
+      case 'Yeni':
+        return 'pending';
+      case 'İnceleniyor':
+        return 'in_progress';
+      case 'Çözüldü':
+        return 'resolved';
+      case 'Reddedildi':
+        return 'rejected';
+      default:
+        return displayStatus;
+    }
+  };
+
+  // Durum modal kontrolü debug
+  useEffect(() => {
+    console.log('Status modal durumu:', statusModalVisible);
+  }, [statusModalVisible]);
+
+  // Çalışan modal kontrolü debug
+  useEffect(() => {
+    console.log('Worker modal durumu:', workerModalVisible);
+  }, [workerModalVisible]);
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -296,51 +350,57 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
           {/* Durum Güncelleme */}
           <View style={styles.formGroup}>
             <Text style={styles.formLabel}>Durum</Text>
-            <View style={styles.pickerContainer}>
-              <Picker
-                selectedValue={newStatus}
-                onValueChange={(itemValue) => setNewStatus(itemValue)}
-                style={styles.picker}
-                mode="dropdown"
-              >
-                <Picker.Item label="Yeni" value="Yeni" />
-                <Picker.Item label="İnceleniyor" value="İnceleniyor" />
-                <Picker.Item label="Çözüldü" value="Çözüldü" />
-                <Picker.Item label="Reddedildi" value="Reddedildi" />
-              </Picker>
-            </View>
+            
+            <TouchableOpacity 
+              style={styles.customPickerButton} 
+              onPress={() => {
+                console.log('Durum seçici butonuna tıklandı');
+                setStatusModalVisible(true);
+              }}
+              activeOpacity={0.6}
+            >
+              <Text style={styles.customPickerText}>
+                {getStatusText(newStatus)}
+              </Text>
+              <Icon name="arrow-drop-down" size={24} color="#3498db" />
+            </TouchableOpacity>
+            
+            <Text style={styles.helperText}>Durumu değiştirdikten sonra "Değişiklikleri Kaydet" butonuna basın</Text>
           </View>
           
           {/* Çalışan Atama */}
           <View style={styles.formGroup}>
             <Text style={styles.formLabel}>Sorumlu Çalışan</Text>
-            <View style={styles.pickerContainer}>
-              <Picker
-                selectedValue={selectedWorker}
-                onValueChange={(itemValue) => setSelectedWorker(itemValue)}
-                style={styles.picker}
-                mode="dropdown"
-              >
-                <Picker.Item label="Seçiniz..." value="" />
-                {workers.map(worker => (
-                  <Picker.Item 
-                    key={worker._id} 
-                    label={worker.name} 
-                    value={worker._id} 
-                  />
-                ))}
-              </Picker>
-            </View>
             
             <TouchableOpacity 
-              style={styles.actionButton}
+              style={styles.customPickerButton} 
+              onPress={() => {
+                console.log('Çalışan seçici butonuna tıklandı');
+                setWorkerModalVisible(true);
+              }}
+              activeOpacity={0.6}
+            >
+              <Text style={styles.customPickerText}>
+                {selectedWorker ? 
+                  (workers.find(w => w._id === selectedWorker)?.name || 'Seçiniz...') : 
+                  'Seçiniz...'
+                }
+              </Text>
+              <Icon name="arrow-drop-down" size={24} color="#3498db" />
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[styles.actionButton, styles.separateButton, styles.assignButton]}
               onPress={assignIssue}
               disabled={updating}
             >
               {updating ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
-                <Text style={styles.actionButtonText}>Ata</Text>
+                <>
+                  <Icon name="person-add" size={18} color="#fff" style={styles.buttonIcon} />
+                  <Text style={styles.actionButtonText}>Çalışan Ata</Text>
+                </>
               )}
             </TouchableOpacity>
           </View>
@@ -359,14 +419,17 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
             />
             
             <TouchableOpacity 
-              style={styles.actionButton}
+              style={[styles.actionButton, styles.separateButton, styles.responseButton]}
               onPress={createOfficialResponse}
               disabled={updating}
             >
               {updating ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
-                <Text style={styles.actionButtonText}>Yanıt Gönder</Text>
+                <>
+                  <Icon name="send" size={18} color="#fff" style={styles.buttonIcon} />
+                  <Text style={styles.actionButtonText}>Yanıt Gönder</Text>
+                </>
               )}
             </TouchableOpacity>
           </View>
@@ -431,6 +494,123 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
             />
           )}
         </View>
+      </Modal>
+
+      {/* Durum Seçici Modal */}
+      <Modal
+        visible={statusModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setStatusModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setStatusModalVisible(false)}
+        >
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Durumu Seçin</Text>
+              <TouchableOpacity onPress={() => setStatusModalVisible(false)}>
+                <Icon name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={[
+                {label: 'Yeni', value: 'pending'},
+                {label: 'İnceleniyor', value: 'in_progress'},
+                {label: 'Çözüldü', value: 'resolved'},
+                {label: 'Reddedildi', value: 'rejected'}
+              ]}
+              keyExtractor={(item) => item.value}
+              renderItem={({item}) => (
+                <TouchableOpacity
+                  style={[
+                    styles.modalItem,
+                    newStatus === item.value && styles.modalItemSelected
+                  ]}
+                  onPress={() => {
+                    console.log(`Durum seçildi: ${item.label} (${item.value})`);
+                    setNewStatus(item.value);
+                    setStatusModalVisible(false);
+                  }}
+                >
+                  <Text 
+                    style={[
+                      styles.modalItemText,
+                      newStatus === item.value && styles.modalItemTextSelected
+                    ]}
+                  >
+                    {item.label}
+                  </Text>
+                  {newStatus === item.value && (
+                    <Icon name="check" size={22} color="#3498db" />
+                  )}
+                </TouchableOpacity>
+              )}
+              style={styles.modalList}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Çalışan Seçici Modal */}
+      <Modal
+        visible={workerModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setWorkerModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setWorkerModalVisible(false)}
+        >
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Çalışan Seçin</Text>
+              <TouchableOpacity onPress={() => setWorkerModalVisible(false)}>
+                <Icon name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={[
+                {_id: '', name: 'Seçiniz...'},
+                ...workers
+              ]}
+              keyExtractor={(item) => item._id || 'empty'}
+              renderItem={({item}) => (
+                <TouchableOpacity
+                  style={[
+                    styles.modalItem,
+                    selectedWorker === item._id && styles.modalItemSelected
+                  ]}
+                  onPress={() => {
+                    console.log(`Çalışan seçildi: ${item.name} (${item._id})`);
+                    setSelectedWorker(item._id);
+                    if (item._id) {
+                      setAssignedToName(item.name);
+                    }
+                    setWorkerModalVisible(false);
+                  }}
+                >
+                  <Text 
+                    style={[
+                      styles.modalItemText,
+                      selectedWorker === item._id && styles.modalItemTextSelected
+                    ]}
+                  >
+                    {item.name}
+                  </Text>
+                  {selectedWorker === item._id && (
+                    <Icon name="check" size={22} color="#3498db" />
+                  )}
+                </TouchableOpacity>
+              )}
+              style={styles.modalList}
+            />
+          </View>
+        </TouchableOpacity>
       </Modal>
     </KeyboardAvoidingView>
   );
@@ -534,15 +714,55 @@ const styles = StyleSheet.create({
     color: '#2c3e50',
     marginBottom: 8,
   },
-  pickerContainer: {
+  pickerTouchable: {
+    marginBottom: 8,
+  },
+  pickerButtonContainer: {
     borderWidth: 1,
     borderColor: '#dcdde1',
     borderRadius: 4,
     backgroundColor: '#f5f5f5',
     marginBottom: 8,
+    overflow: 'hidden',
+  },
+  pickerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    height: 50,
+    paddingHorizontal: 15,
   },
   picker: {
     height: 50,
+    width: '100%',
+  },
+  pickerIcon: {
+    position: 'absolute',
+    right: 10,
+    // Cihaz tipine göre ikon pozisyonunu ayarla
+    ...Platform.select({
+      android: {
+        top: 13,
+      },
+      ios: {
+        top: 15,
+      },
+    }),
+    // Pikeri gizle ve kendi custom ikonumuzu göster
+    zIndex: 2,
+    pointerEvents: 'none',
+  },
+  pickerText: {
+    fontSize: 16,
+    color: '#2c3e50',
+    flex: 1,
+  },
+  hiddenPicker: {
+    position: 'absolute',
+    top: 0,
+    width: 1,
+    height: 1,
+    opacity: 0,
   },
   textArea: {
     borderWidth: 1,
@@ -560,6 +780,10 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     alignItems: 'center',
     justifyContent: 'center',
+    flexDirection: 'row',
+  },
+  separateButton: {
+    marginTop: 8,
   },
   actionButtonText: {
     color: '#fff',
@@ -573,6 +797,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
+    marginTop: 16,
   },
   saveButtonText: {
     color: '#fff',
@@ -629,6 +854,92 @@ const styles = StyleSheet.create({
   fullImage: {
     width: '100%',
     height: '80%',
+  },
+  helperText: {
+    fontSize: 12,
+    color: '#95a5a6',
+    marginTop: 4,
+  },
+  buttonIcon: {
+    marginRight: 8,
+  },
+  assignButton: {
+    backgroundColor: '#3498db',
+  },
+  responseButton: {
+    backgroundColor: '#2ecc71',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 10,
+    width: '100%', 
+    maxWidth: 350,
+    maxHeight: '70%',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#2c3e50',
+  },
+  modalList: {
+    maxHeight: 300,
+  },
+  modalItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  modalItemSelected: {
+    backgroundColor: '#f5f9ff',
+  },
+  modalItemText: {
+    fontSize: 16,
+    color: '#2c3e50',
+  },
+  modalItemTextSelected: {
+    fontWeight: 'bold',
+    color: '#3498db',
+  },
+  customPickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#3498db',
+    borderRadius: 8,
+    backgroundColor: '#f5f9ff',
+    marginBottom: 12,
+    padding: 15,
+    height: 50,
+    elevation: 1,
+  },
+  customPickerText: {
+    fontSize: 16,
+    color: '#2c3e50',
+    flex: 1,
   },
 });
 

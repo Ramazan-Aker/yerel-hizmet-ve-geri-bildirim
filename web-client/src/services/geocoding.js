@@ -8,99 +8,94 @@ import { GOOGLE_MAPS_API_KEY, HERE_MAPS_API_KEY } from './api-keys';
  * @returns {Promise<object>} - Adres bilgisi
  */
 export const getAddressFromCoordinates = async (lat, lng) => {
-  // Öncelikle Google Maps API'yi dene (en detaylı sonuçlar için)
+  // Konum doğruluğunu iyileştirmek için önce en iyi servisi kullan
+  const results = [];
+  let bestResult = null;
+  
+  // Tüm API'leri paralel olarak çağırarak hızı artır
   try {
-    console.log('Google Maps API ile adres sorgulanıyor...');
-    const googleAddress = await getAddressFromGoogleMaps(lat, lng);
-    console.log('Google Maps adres sonucu:', googleAddress);
-    return googleAddress;
-  } catch (googleError) {
-    console.warn('Google Maps adres getirme hatası:', googleError);
+    const promises = [];
     
-    // Google Maps başarısız olursa HERE Maps ile dene
-    if (HERE_MAPS_API_KEY !== 'YOUR_HERE_API_KEY') {
-      try {
-        console.log('HERE Maps API ile adres sorgulanıyor...');
-        const hereAddress = await getAddressFromHEREMaps(lat, lng);
-        console.log('HERE Maps adres sonucu:', hereAddress);
-        return hereAddress;
-      } catch (hereError) {
-        console.warn('HERE Maps adres getirme hatası:', hereError);
-      }
+    // Google Maps API (en doğru sonuçlar genellikle buradan gelir)
+    if (GOOGLE_MAPS_API_KEY !== 'YOUR_GOOGLE_MAPS_API_KEY') {
+      promises.push(
+        getAddressFromGoogleMaps(lat, lng)
+          .then(result => {
+            console.log('Google API sonucu alındı:', result.fullAddress);
+            results.push({...result, confidence: 0.9});
+            return result;
+          })
+          .catch(err => {
+            console.warn('Google geocoding hatası:', err);
+            return null;
+          })
+      );
     }
     
-    // Diğer servisler başarısız olursa OpenStreetMap ile devam et
-    try {
-      console.log('OpenStreetMap API ile adres sorgulanıyor...');
-      // OpenStreetMap Nominatim API'sini kullan (ücretsiz)
-      // Daha detaylı sonuçlar için zoom parametresi ve daha fazla ayar ekleyelim
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1&accept-language=tr&zoom=18&namedetails=1&extratags=1`,
-        {
-          headers: {
-            'Accept-Language': 'tr',
-            'User-Agent': 'YerelHizmetApp/1.0'
-          }
-        }
+    // HERE Maps API
+    if (HERE_MAPS_API_KEY !== 'YOUR_HERE_API_KEY') {
+      promises.push(
+        getAddressFromHEREMaps(lat, lng)
+          .then(result => {
+            console.log('HERE API sonucu alındı:', result.fullAddress);
+            results.push({...result, confidence: 0.8});
+            return result;
+          })
+          .catch(err => {
+            console.warn('HERE geocoding hatası:', err);
+            return null;
+          })
       );
+    }
+    
+    // OpenStreetMap (en yaygın ücretsiz API)
+    promises.push(
+      getAddressFromOpenStreetMap(lat, lng)
+        .then(result => {
+          console.log('OpenStreetMap API sonucu alındı:', result.fullAddress);
+          results.push({...result, confidence: 0.7});
+          return result;
+        })
+        .catch(err => {
+          console.warn('OpenStreetMap geocoding hatası:', err);
+          return null;
+        })
+    );
+    
+    // Tüm API çağrılarının tamamlanmasını bekle
+    await Promise.allSettled(promises);
+    
+    console.log(`${results.length} API'den sonuç alındı.`);
+    
+    // Sonuçları güven değerine göre sırala
+    results.sort((a, b) => b.confidence - a.confidence);
+    
+    // Eğer herhangi bir sonuç varsa, en iyi sonucu seç
+    if (results.length > 0) {
+      bestResult = results[0];
+      console.log('En iyi sonuç seçildi:', bestResult.source, bestResult.fullAddress);
       
-      if (!response.ok) {
-        throw new Error('Nominatim API yanıt vermedi');
+      // Eğer birden fazla sonuç varsa, sonuçları birleştir
+      if (results.length > 1) {
+        console.log('Sonuçları birleştirme işlemi başlatılıyor...');
+        bestResult = mergeResults(results, bestResult);
+        console.log('Sonuçlar birleştirildi:', bestResult.fullAddress);
       }
       
-      const data = await response.json();
-      
-      if (!data || !data.address) {
-        throw new Error('Adres bilgisi bulunamadı');
-      }
-  
-      console.log('OpenStreetMap ham veri:', data);
-      
-      // Daha fazla bilgi çıkartmak için ham veriyi analiz edelim
-      let streetName = data.address.road || 
-                       data.address.pedestrian || 
-                       data.address.footway || 
-                       data.address.street ||
-                       data.address.path ||
-                       data.address.track ||
-                       '';
-                       
-      // Eğer yakınlarda bir POI (ilgi noktası) varsa onu da ekleyelim
-      let pointOfInterest = '';
-      if (data.namedetails && data.namedetails.name) {
-        pointOfInterest = data.namedetails.name;
-      } else if (data.name) {
-        pointOfInterest = data.name;
-      }
-      
-      // Extratags'ten bina bilgisi var mı kontrol edelim
-      let buildingInfo = '';
-      if (data.extratags) {
-        if (data.extratags.building) buildingInfo = data.extratags.building;
-        if (data.extratags['addr:housename']) buildingInfo = data.extratags['addr:housename'];
-      }
-      
-      // Sokak isminde veri yoksa ve POI varsa, onu sokak olarak kullan
-      if (!streetName && pointOfInterest) {
-        streetName = pointOfInterest;
-      }
-      
-      return {
-        source: 'nominatim',
-        fullAddress: data.display_name,
-        street: streetName,
-        houseNumber: data.address.house_number || '',
-        building: buildingInfo || '',
-        pointOfInterest: pointOfInterest || '',
-        neighbourhood: data.address.neighbourhood || data.address.suburb || '',
-        district: data.address.city_district || data.address.district || data.address.town || data.address.municipality || data.address.county || data.address.village || data.address.city || '',
-        city: data.address.city || data.address.state || data.address.county || data.address.region || '',
-        postalCode: data.address.postcode || '',
-        rawData: data
-      };
+      return bestResult;
+    }
+    
+    // Hiçbir sonuç alınamadıysa, yine de OpenStreetMap ile dene (fallback)
+    throw new Error('Hiçbir API sonuç vermedi.');
+  } catch (error) {
+    console.error('Adres çözümleme hatası:', error);
+    
+    // Son çare olarak OpenStreetMap'i dene
+    try {
+      return await getAddressFromOpenStreetMap(lat, lng);
     } catch (osmError) {
-      console.error('OpenStreetMap adres getirme hatası:', osmError);
-      throw new Error('Adres bilgisi alınamadı: Tüm servisler başarısız oldu');
+      console.error('OpenStreetMap son çare hatası:', osmError);
+      throw new Error('Tüm adres çözümleme servisleri başarısız oldu.');
     }
   }
 };
@@ -230,6 +225,110 @@ async function getAddressFromHEREMaps(lat, lng) {
 }
 
 /**
+ * OpenStreetMap (Nominatim) API kullanarak adres bilgisini getir
+ * @param {number} lat - Enlem
+ * @param {number} lng - Boylam
+ * @returns {Promise<object>} - Adres bilgisi
+ */
+async function getAddressFromOpenStreetMap(lat, lng) {
+  try {
+    console.log('OpenStreetMap API ile adres sorgulanıyor...');
+    // Daha detaylı sonuçlar için zoom parametresi ve daha fazla ayar ekleyelim
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1&accept-language=tr&zoom=18&namedetails=1&extratags=1&polygon_geojson=0&email=info@yerelhizmet.org`,
+      {
+        headers: {
+          'Accept-Language': 'tr',
+          'User-Agent': 'YerelHizmetApp/1.0'
+        }
+      }
+    );
+    
+    if (!response.ok) {
+      throw new Error('Nominatim API yanıt vermedi');
+    }
+    
+    const data = await response.json();
+    
+    if (!data || !data.address) {
+      throw new Error('Adres bilgisi bulunamadı');
+    }
+
+    console.log('OpenStreetMap ham veri:', data);
+    
+    // Daha fazla bilgi çıkartmak için ham veriyi analiz edelim
+    let streetName = data.address.road || 
+                     data.address.pedestrian || 
+                     data.address.footway || 
+                     data.address.street ||
+                     data.address.path ||
+                     data.address.track ||
+                     data.address.avenue ||
+                     data.address.boulevard ||
+                     '';
+                     
+    // Eğer yakınlarda bir POI (ilgi noktası) varsa onu da ekleyelim
+    let pointOfInterest = '';
+    if (data.namedetails && data.namedetails.name) {
+      pointOfInterest = data.namedetails.name;
+    } else if (data.name) {
+      pointOfInterest = data.name;
+    }
+    
+    // Extratags'ten bina bilgisi var mı kontrol edelim
+    let buildingInfo = '';
+    if (data.extratags) {
+      if (data.extratags.building) buildingInfo = data.extratags.building;
+      if (data.extratags['addr:housename']) buildingInfo = data.extratags['addr:housename'];
+    }
+    
+    // Sokak isminde veri yoksa ve POI varsa, onu sokak olarak kullan
+    if (!streetName && pointOfInterest) {
+      streetName = pointOfInterest;
+    }
+    
+    // İlçe ve şehir bilgisi için daha fazla alanı kontrol edelim
+    let district = data.address.city_district || 
+                   data.address.district || 
+                   data.address.town || 
+                   data.address.municipality || 
+                   data.address.county || 
+                   data.address.village || 
+                   data.address.suburb ||
+                   data.address.city || 
+                   '';
+                   
+    let city = data.address.city || 
+               data.address.state || 
+               data.address.county || 
+               data.address.region || 
+               '';
+               
+    // İlçe ve şehir isimleri aynıysa ilçeyi temizle
+    if (district === city) {
+      district = data.address.suburb || data.address.neighbourhood || '';
+    }
+    
+    return {
+      source: 'nominatim',
+      fullAddress: data.display_name,
+      street: streetName,
+      houseNumber: data.address.house_number || '',
+      building: buildingInfo || '',
+      pointOfInterest: pointOfInterest || '',
+      neighbourhood: data.address.neighbourhood || data.address.suburb || '',
+      district: district,
+      city: city,
+      postalCode: data.address.postcode || '',
+      rawData: data
+    };
+  } catch (error) {
+    console.error('OpenStreetMap adres getirme hatası:', error);
+    throw error;
+  }
+}
+
+/**
  * Adres bilgisini formatla
  * @param {object} addressData - Adres verileri
  * @returns {string} - Formatlanmış adres
@@ -333,18 +432,29 @@ export const formatAddress = (addressData) => {
   return formattedAddress || 'Adres bilgisi bulunamadı';
 };
 
-// Daha spesifik adreslerden sokak bilgisi almak için yardımcı fonksiyon
+/**
+ * Daha spesifik adreslerden sokak bilgisi almak için yardımcı fonksiyon
+ * @param {object} addressData - Adres verileri
+ * @returns {object} - Geliştirilmiş adres verileri
+ */
 export const improveStreetInfo = (addressData) => {
   if (!addressData || !addressData.rawData) return addressData;
   
+  const improvedData = {...addressData};
+  
   // Google Maps verileri zaten oldukça detaylı, ek işleme genellikle gerekmez
   if (addressData.source === 'google') {
-    return addressData;
+    // Bazı durumlarda Google Maps district'i yanlış algılayabilir
+    // İlçe ve şehir aynıysa, ilçe alanını temizle
+    if (improvedData.district === improvedData.city) {
+      improvedData.district = '';
+    }
+    return improvedData;
   }
   
   // HERE Maps verileri zaten oldukça detaylı, ek işleme genellikle gerekmez
   if (addressData.source === 'here') {
-    return addressData;
+    return improvedData;
   }
   
   // OpenStreetMap için
@@ -352,22 +462,110 @@ export const improveStreetInfo = (addressData) => {
     const rawData = addressData.rawData;
     
     // OSM bazen sokak bilgisini farklı alanlarda saklayabilir
-    if (!addressData.street) {
+    if (!improvedData.street) {
       // Alternatif alanları kontrol et
-      addressData.street = 
+      improvedData.street = 
         rawData.address.road || 
         rawData.address.pedestrian || 
         rawData.address.footway || 
         rawData.address.path ||
         rawData.address.street ||
+        rawData.address.avenue || 
+        rawData.address.boulevard ||
         '';
     }
     
     // Eğer hala sokak bilgisi yoksa ve POI adı varsa, onu kullan
-    if (!addressData.street && rawData.name) {
-      addressData.street = rawData.name;
+    if (!improvedData.street && rawData.name) {
+      improvedData.street = rawData.name;
+    }
+    
+    // İl ve ilçe bilgilerini kesinleştir
+    // İlçe (district) bilgisi
+    if (rawData.address) {
+      const addr = rawData.address;
+      
+      // İlçe bilgisini iyileştir - birden fazla kaynaktan kontrol et
+      let possibleDistrict = 
+        addr.city_district || 
+        addr.district || 
+        addr.town || 
+        addr.municipality || 
+        addr.suburb || 
+        addr.village ||
+        '';
+      
+      // İl (city) bilgisini iyileştir
+      let possibleCity = 
+        addr.city || 
+        addr.province || 
+        addr.state || 
+        addr.county || 
+        '';
+        
+      // Türkiye'de ilçe ve il birbirinden farklı olmalı
+      // Eğer aynıysa ilçe bilgisini temizle
+      if (possibleDistrict === possibleCity && possibleDistrict) {
+        // İlçe ve il aynıysa, mahalle bilgisini ilçe olarak kullan
+        possibleDistrict = addr.neighbourhood || addr.suburb || '';
+      }
+      
+      // Eğer bulunduysa, verileri güncelle
+      if (possibleDistrict) {
+        improvedData.district = possibleDistrict;
+      }
+      
+      if (possibleCity) {
+        improvedData.city = possibleCity;
+      }
     }
   }
   
-  return addressData;
-}; 
+  return improvedData;
+};
+
+/**
+ * API sonuçlarını birleştirerek en iyi sonucu oluştur
+ * @param {Array} results - Tüm API sonuçları
+ * @param {Object} bestResult - En iyi sonuç (en yüksek güven değerine sahip)
+ * @returns {Object} - Birleştirilmiş sonuç
+ */
+function mergeResults(results, bestResult) {
+  // Eğer sadece bir sonuç varsa, o sonucu döndür
+  if (results.length <= 1) return bestResult;
+  
+  // Birleştirilmiş sonucu oluştur
+  const merged = {...bestResult};
+  
+  // Eksik alanları doldurmak için diğer sonuçları kullan
+  for (const field of ['street', 'district', 'city', 'neighbourhood', 'pointOfInterest']) {
+    if (!merged[field] || merged[field].trim() === '') {
+      console.log(`${field} alanı boş, diğer sonuçlardan dolduruluyor...`);
+      
+      // Diğer sonuçlardan bu alanı bul
+      for (const result of results) {
+        if (result !== bestResult && result[field] && result[field].trim() !== '') {
+          merged[field] = result[field];
+          console.log(`${field} alanı şuradan dolduruldu:`, result.source);
+          break;
+        }
+      }
+    }
+  }
+  
+  // Özel durumlar için mantık ekle
+  
+  // Eğer bir sokak adı bulunamadıysa ve bir POI varsa, sokak adını POI olarak ayarla
+  if ((!merged.street || merged.street.trim() === '') && merged.pointOfInterest) {
+    merged.street = merged.pointOfInterest;
+    console.log('Sokak adı POI ile değiştirildi');
+  }
+  
+  // İlçe ve şehir aynıysa, neighborhood'u ilçe olarak ata
+  if (merged.district === merged.city && merged.neighbourhood) {
+    merged.district = merged.neighbourhood;
+    console.log('İlçe ve şehir aynı olduğu için mahalle ilçe olarak atandı');
+  }
+  
+  return merged;
+} 

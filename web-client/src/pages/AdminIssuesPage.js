@@ -22,6 +22,12 @@ const AdminIssuesPage = () => {
           apiFilters.status = filter;
         }
         
+        // Belediye çalışanları için şehir filtresini ekle
+        if (user && user.role === 'municipal_worker' && user.city) {
+          console.log('Belediye çalışanı kendi şehrine ait sorunları görüntülüyor:', user.city);
+          apiFilters.city = user.city;
+        }
+        
         // Gerçek API çağrısı yap
         const response = await issueService.getAllIssues(apiFilters);
         console.log('Sorunlar:', response);
@@ -39,6 +45,7 @@ const AdminIssuesPage = () => {
               status: issue.status,
               statusText: getStatusText(issue.status),
               date: formattedDate,
+              city: issue.location?.city || 'Belirtilmemiş',
               district: issue.location?.district || 'Belirtilmemiş',
               category: issue.category || 'Genel'
             };
@@ -57,7 +64,7 @@ const AdminIssuesPage = () => {
     };
     
     fetchIssues();
-  }, [filter]);
+  }, [filter, user]);
   
   // Durum kodunu metne çevir
   const getStatusText = (status) => {
@@ -177,6 +184,9 @@ const AdminIssuesPage = () => {
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Başlık</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kategori</th>
+                {user && user.role === 'admin' && (
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Şehir</th>
+                )}
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">İlçe</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Durum</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tarih</th>
@@ -193,6 +203,11 @@ const AdminIssuesPage = () => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-500">{issue.category}</div>
                     </td>
+                    {user && user.role === 'admin' && (
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-500">{issue.city}</div>
+                      </td>
+                    )}
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-500">{issue.district}</div>
                     </td>
@@ -213,7 +228,7 @@ const AdminIssuesPage = () => {
                 ))
               ) : (
                 <tr>
-                  <td colSpan="6" className="px-6 py-4 text-center text-sm text-gray-500">
+                  <td colSpan={user && user.role === 'admin' ? "7" : "6"} className="px-6 py-4 text-center text-sm text-gray-500">
                     Sonuç bulunamadı
                   </td>
                 </tr>

@@ -419,6 +419,16 @@ client.interceptors.request.use(
       }
     }
     
+    // /issues endpoint'i için özel loglama
+    if (config.url?.includes('/issues')) {
+      console.log(`------- ISSUES API İSTEĞİ -------`);
+      console.log(`URL: ${config.url}`);
+      console.log(`Metod: ${config.method.toUpperCase()}`);
+      console.log(`Parametreler:`, config.params || 'Yok');
+      console.log(`Headers:`, config.headers);
+      console.log(`-----------------------------------`);
+    }
+    
     // Kullanıcı token'ı varsa, header'a ekle
     const userToken = await AsyncStorage.getItem('token');
     
@@ -469,6 +479,41 @@ client.interceptors.response.use(
     } catch (e) {
       console.warn('Yanıt verisi analiz edilemedi:', e.message);
       }
+    }
+    
+    // /issues endpoint'i için özel loglama
+    if (response.config.url?.includes('/issues')) {
+      console.log(`------- ISSUES API YANITI -------`);
+      console.log(`URL: ${response.config.url}`);
+      console.log(`Status: ${response.status}`);
+      
+      // Veri analizini yap
+      const data = response.data;
+      console.log(`Başarı durumu: ${data.success ? 'Başarılı' : 'Başarısız'}`);
+      
+      // Pagination bilgisi
+      if (data.pagination) {
+        console.log(`Sayfalama: Sayfa ${data.pagination.current}/${data.pagination.total}, Toplam: ${data.pagination.count} kayıt`);
+      }
+      
+      // API'den dönen sorunların şehirlerini kontrol et
+      if (data.data && Array.isArray(data.data)) {
+        console.log(`Dönen sorun sayısı: ${data.data.length}`);
+        
+        // Sorunların şehirlerini say
+        const cityCounts = {};
+        data.data.forEach(issue => {
+          const city = issue.location?.city || 'Belirtilmemiş';
+          cityCounts[city] = (cityCounts[city] || 0) + 1;
+        });
+        
+        console.log('Şehirlere göre sorun dağılımı:');
+        Object.entries(cityCounts).forEach(([city, count]) => {
+          console.log(`  - ${city}: ${count} sorun`);
+        });
+      }
+      
+      console.log(`--------------------------------`);
     }
     
     return response;
@@ -651,15 +696,71 @@ const api = {
     
     getUserProfile: async () => {
       try {
+        await checkAndPingApi();
+        const token = await AsyncStorage.getItem('token');
+        
+        if (!token) {
+          console.error('Token bulunamadı. Kullanıcı oturum açmamış.');
+          return { 
+            success: false, 
+            message: 'Oturum açık değil' 
+          };
+        }
+        
         console.log('Kullanıcı profil bilgileri getiriliyor...');
-        const response = await client.get('/auth/me');
-        console.log('Kullanıcı profil yanıtı:', response.data);
-        return { success: true, data: response.data };
+        const response = await client.get('/auth/me', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        console.log('Kullanıcı profil yanıtı:', JSON.stringify(response.data, null, 2));
+        
+        // Yanıt formatını kontrol et
+        const userData = response.data.data || response.data;
+        
+        if (!userData) {
+          console.error('Kullanıcı verisi boş veya formatı hatalı:', response.data);
+          return { 
+            success: false, 
+            message: 'API yanıtında kullanıcı verisi bulunamadı' 
+          };
+        }
+        
+        // Belediye çalışanı rolü varsa şehir bilgisini kontrol et
+        if (userData.role === 'municipal_worker') {
+          console.log('Belediye çalışanı rolü tespit edildi');
+          
+          if (!userData.city || userData.city === "undefined" || userData.city === "") {
+            console.warn('Belediye çalışanı için şehir bilgisi eksik!');
+          } else {
+            console.log(`Şehir bilgisi mevcut: ${userData.city}`);
+          }
+        }
+        
+        // Verileri AsyncStorage'a kaydet
+        await AsyncStorage.setItem('user', JSON.stringify(userData));
+        console.log('Güncel kullanıcı bilgileri kaydedildi:', userData.name);
+        
+        return { 
+          success: true, 
+          data: userData
+        };
       } catch (error) {
         console.error('Kullanıcı profili getirme hatası:', error);
+        
+        // Daha detaylı hata bilgisi
+        if (error.response) {
+          console.error('API Hata Kodu:', error.response.status);
+          console.error('API Hata Detayı:', error.response.data);
+        } else if (error.request) {
+          console.error('API yanıt vermedi:', error.request);
+        } else {
+          console.error('Hata oluştu:', error.message);
+        }
+        
         return { 
           success: false, 
-          message: error.response?.data?.message || 'Kullanıcı bilgileri alınamadı' 
+          message: error.response?.data?.message || 'Kullanıcı bilgileri alınamadı',
+          error: error.toString()
         };
       }
     },
@@ -722,12 +823,13 @@ const api = {
         const token = await AsyncStorage.getItem('token');
         
         // Kullanıcının şehri ile ilgili verileri al
-        let userCity = null;
+        let user = null;
         try {
           const userJson = await AsyncStorage.getItem('user');
           if (userJson) {
-            const userData = JSON.parse(userJson);
-            userCity = userData.city;
+            user = JSON.parse(userJson);
+            console.log('Kullanıcı rolü:', user?.role);
+            console.log('Kullanıcı şehri:', user?.city || 'Belirtilmemiş');
           }
         } catch (userError) {
           console.error('Kullanıcı bilgisi alınamadı:', userError);
@@ -736,9 +838,15 @@ const api = {
         // API isteği - eğer params içinde city parametresi varsa, onu kullan, yoksa ve userCity varsa userCity'yi kullan
         const requestParams = { ...params };
         
-        // Eğer client tarafından city belirtilmemişse ve kullanıcının şehri biliniyorsa, o zaman ekle
-        if (!requestParams.city && userCity && !requestParams.showAllCities) {
-          requestParams.city = userCity;
+        // Belediye çalışanları için şehir filtresi zorunlu
+        if (user?.role === 'municipal_worker' && user?.city) {
+          requestParams.city = user.city;
+          console.log('Belediye çalışanı için şehir filtresi eklendi:', user.city);
+        }
+        // Normal kullanıcı için opsiyonel şehir filtresi
+        else if (!requestParams.city && user?.city && !requestParams.showAllCities) {
+          requestParams.city = user.city;
+          console.log('Kullanıcı şehrine göre filtreleniyor:', user.city);
         }
         
         // showAllCities parametresi API'ye gönderilmemeli
@@ -753,9 +861,47 @@ const api = {
           params: requestParams
         });
         
-        console.log(`API yanıtı: ${response.data.data?.length || 0} sorun bulundu`);
+        let issuesData = response.data.data || [];
+        console.log(`API yanıtı: ${issuesData.length} sorun bulundu`);
         
-        return { success: true, data: response.data };
+        // Belediye çalışanı için client tarafında ikinci güvenlik kontrolü
+        if (user?.role === 'municipal_worker' && user?.city) {
+          console.log('Belediye çalışanı için client tarafında ikinci güvenlik kontrolü yapılıyor...');
+          const beforeFilterCount = issuesData.length;
+          
+          issuesData = issuesData.filter(issue => {
+            if (!issue.location || !issue.location.city) {
+              console.log(`Sorun ID: ${issue._id} - şehir bilgisi eksik, filtreleniyor`);
+              return false;
+            }
+            
+            const matchesCity = issue.location.city.toLowerCase() === user.city.toLowerCase();
+            if (!matchesCity) {
+              console.log(`Sorun ID: ${issue._id} - şehir eşleşmiyor: ${issue.location.city}, filtreleniyor`);
+            }
+            return matchesCity;
+        });
+        
+          console.log(`Şehir filtresi uygulandı: ${beforeFilterCount} sorundan ${issuesData.length} sorun kaldı`);
+          
+          if (beforeFilterCount !== issuesData.length) {
+            console.warn(`DİKKAT: API'den gelen bazı sorunlar şehir filtresi tarafından kaldırıldı! Backend filtresinin doğru çalışmadığını gösterebilir.`);
+          }
+        }
+        
+        // Şehirlere göre dağılımı kontrol et
+        const cityCounts = {};
+        issuesData.forEach(issue => {
+          const city = issue.location?.city || 'Belirtilmemiş';
+          cityCounts[city] = (cityCounts[city] || 0) + 1;
+        });
+        
+        console.log('Şehirlere göre sorun dağılımı:');
+        Object.entries(cityCounts).forEach(([city, count]) => {
+          console.log(`  - ${city}: ${count} sorun`);
+        });
+        
+        return { success: true, data: { data: issuesData } };
       } catch (error) {
         console.error('Error fetching issues:', error);
         
@@ -840,6 +986,12 @@ const api = {
           message: error.response?.data?.message || 'Sorun detayları alınamadı' 
         };
       }
+    },
+    
+    // getIssueById fonksiyonu - getById için alias olarak ekleyelim
+    getIssueById: function(id) {
+      console.log('getIssueById çağrıldı, getById fonksiyonuna yönlendiriliyor...');
+      return this.getById(id);
     },
     
     create: async (issueData) => {
@@ -1133,36 +1285,178 @@ const api = {
     getAdminIssues: async (params = {}) => {
       try {
         await checkAndPingApi();
-        const token = await AsyncStorage.getItem('token');
         
-        const response = await client.get('/admin/issues', {
+        // Kullanıcı bilgilerini hata ayıklama için detaylı logla
+        console.log("--- KULLANICI BİLGİLERİ KONTROL EDİLİYOR ---");
+        
+        const token = await AsyncStorage.getItem('token');
+        console.log("Token var mı:", token ? "Evet" : "Hayır");
+        
+        const userJson = await AsyncStorage.getItem('user');
+        console.log("AsyncStorage'dan alınan user verisi:", userJson);
+        
+        if (!userJson) {
+          console.error('Kullanıcı bilgisi bulunamadı. Oturum açık değil.');
+          return {
+            success: false,
+            message: 'Oturum açık değil'
+          };
+        }
+        
+        let user;
+        try {
+          user = JSON.parse(userJson);
+          console.log("JSON.parse sonrası user objesi:", JSON.stringify(user, null, 2));
+        } catch (parseError) {
+          console.error("User verisi JSON olarak parse edilemedi:", parseError);
+          return {
+            success: false,
+            message: 'Kullanıcı bilgileri hatalı'
+          };
+        }
+        
+        console.log('Kullanıcı ID:', user?._id);
+        console.log('Kullanıcı rolü:', user?.role);
+        console.log('Kullanıcı adı:', user?.name);
+        console.log('Kullanıcı emaili:', user?.email);
+        console.log('Kullanıcı şehri:', user?.city);
+        console.log('Kullanıcı ilçesi:', user?.district);
+        
+        // Belediye çalışanı için şehir filtresi kontrolü
+        const isMunicipalWorker = user?.role === 'municipal_worker';
+        console.log("Belediye çalışanı mı?", isMunicipalWorker ? "Evet" : "Hayır");
+        
+        if (isMunicipalWorker) {
+          // JSON parse edince string olarak "undefined" veya boş string olabilir
+          const hasCity = user?.city && user.city !== "undefined" && user.city !== "";
+          console.log("Şehir bilgisi var mı?", hasCity ? `Evet (${user.city})` : "Hayır");
+          
+          if (!hasCity) {
+            console.error("Belediye çalışanı için şehir bilgisi eksik veya geçersiz");
+            
+            // Şehir olmasa bile devam edelim ama uyarı gösterelim
+            console.warn("UYARI: Şehir bilgisi olmadan tüm sorunlar görüntülenecek!");
+          } else {
+            // Şehir filtresini API parametrelerine ekle
+            params.city = user.city;
+            console.log(`Belediye çalışanı için şehir filtresi eklendi: ${user.city}`);
+          }
+        }
+        
+        console.log("API istekleri için kullanılacak parametreler:", params);
+        console.log("--- KULLANICI BİLGİ KONTROLÜ TAMAMLANDI ---");
+        
+        const response = await client.get('/issues', {
           headers: { Authorization: `Bearer ${token}` },
           params
         });
         
+        let issuesData = response.data.data || [];
+        console.log(`API'den ${issuesData.length} sorun alındı`);
+        
+        // Client tarafında ikinci bir güvenlik kontrolü - belediye çalışanları için şehir filtresi
+        if (isMunicipalWorker && user?.city && user.city !== "undefined" && user.city !== "") {
+          const beforeFilterCount = issuesData.length;
+          issuesData = issuesData.filter(issue => {
+            // Sorunun location ve city bilgisi olmayabilir
+            if (!issue.location || !issue.location.city) {
+              console.log(`Sorun ID: ${issue._id} - şehir bilgisi eksik, filtreleniyor`);
+              return false;
+            }
+            
+            const matchesCity = issue.location.city.toLowerCase() === user.city.toLowerCase();
+            if (!matchesCity) {
+              console.log(`Sorun ID: ${issue._id} - şehir eşleşmiyor: ${issue.location.city}, filtreleniyor`);
+            }
+            return matchesCity;
+          });
+          
+          console.log(`Şehir filtresi uygulandı: ${beforeFilterCount} sorundan ${issuesData.length} sorun kaldı`);
+          
+          if (beforeFilterCount !== issuesData.length) {
+            console.warn(`DİKKAT: API'den gelen bazı sorunlar şehir filtresi tarafından kaldırıldı! Bu backend filtresinin doğru çalışmadığını gösterebilir.`);
+          }
+        }
+        
         return {
           success: true,
-          data: response.data.data
+          data: { issues: issuesData }
         };
       } catch (error) {
+        console.error('Sorunlar getirilirken hata:', error);
         return handleApiError(error, 'Yönetici sorunları alınırken bir hata oluştu');
       }
     },
     
-    // Sorun durumunu güncelle
+    // Sorunu güncelle
     updateIssue: async (issueId, updateData) => {
       try {
+        console.log('Sorun güncelleme isteği gönderiliyor:', issueId, updateData);
         const token = await AsyncStorage.getItem('token');
         
-        const response = await client.put(`/admin/issues/${issueId}`, updateData, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        // Status değerini normalize et (Türkçe -> İngilizce)
+        let normalizedStatus = updateData.status;
+        
+        // Eğer Türkçe durum metni geldiyse İngilizce karşılığına çevir
+        switch (updateData.status) {
+          case 'Yeni':
+            normalizedStatus = 'pending';
+            break;
+          case 'İnceleniyor':
+            normalizedStatus = 'in_progress';
+            break;
+          case 'Çözüldü':
+            normalizedStatus = 'resolved';
+            break;
+          case 'Reddedildi':
+            normalizedStatus = 'rejected';
+            break;
+          default:
+            // Zaten İngilizce format ise değiştirme
+            break;
+        }
+        
+        console.log('Normalize edilmiş durum:', normalizedStatus);
+        
+        // API'nin endpoint'ini doğru şekilde kontrol et
+        const response = await client.put(`/admin/issues/${issueId}/status`, 
+          { status: normalizedStatus },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        
+        console.log('Durum güncelleme yanıtı:', response.status);
+        
+        // Resmi yanıt varsa ayrıca gönder
+        if (updateData.officialResponse && updateData.officialResponse.trim() !== '') {
+          console.log('Resmi yanıt gönderiliyor');
+          await client.post(`/admin/issues/${issueId}/response`, 
+            { response: updateData.officialResponse }, 
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+        }
+        
+        // Atanacak çalışan varsa ayrıca gönder
+        if (updateData.assignedTo && updateData.assignedTo !== '') {
+          console.log('Çalışan atama isteği gönderiliyor');
+          await client.put(`/admin/issues/${issueId}/assign`, 
+            { workerId: updateData.assignedTo }, 
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+        }
         
         return {
           success: true,
-          data: response.data.data
+          message: 'Sorun başarıyla güncellendi'
         };
       } catch (error) {
+        console.error('Sorun güncelleme hatası:', error);
+        
+        // Daha detaylı hata bilgisi
+        if (error.response) {
+          console.error('API Hata Kodu:', error.response.status);
+          console.error('API Hata Detayı:', error.response.data);
+        }
+        
         return handleApiError(error, 'Sorun güncellenirken bir hata oluştu');
       }
     },
@@ -1170,18 +1464,39 @@ const api = {
     // Sorunu belediye çalışanına ata
     assignIssue: async (issueId, workerId) => {
       try {
+        console.log(`Sorun ${issueId} çalışana atanıyor (Çalışan ID: ${workerId})`);
         const token = await AsyncStorage.getItem('token');
+        
+        if (!workerId) {
+          console.error('Çalışan ID eksik!');
+          return {
+            success: false,
+            message: 'Lütfen bir çalışan seçin'
+          };
+        }
         
         const response = await client.put(`/admin/issues/${issueId}/assign`, 
           { workerId }, 
           { headers: { Authorization: `Bearer ${token}` } }
         );
         
+        console.log('Atama yanıtı:', response.status);
+        console.log('Atama başarılı');
+        
         return {
           success: true,
+          message: 'Sorun çalışana başarıyla atandı',
           data: response.data.data
         };
       } catch (error) {
+        console.error('Sorun atama hatası:', error);
+        
+        // Daha detaylı hata bilgisi
+        if (error.response) {
+          console.error('API Hata Kodu:', error.response.status);
+          console.error('API Hata Detayı:', error.response.data);
+        }
+        
         return handleApiError(error, 'Sorun atanırken bir hata oluştu');
       }
     },
@@ -1208,17 +1523,74 @@ const api = {
     // Belediye çalışanlarını getir
     getWorkers: async () => {
       try {
+        console.log('Belediye çalışanları getiriliyor...');
         const token = await AsyncStorage.getItem('token');
+        
+        if (!token) {
+          console.error('Token bulunamadı');
+          return {
+            success: false,
+            message: 'Oturum açık değil'
+          };
+        }
         
         const response = await client.get('/admin/workers', {
           headers: { Authorization: `Bearer ${token}` }
         });
         
+        console.log('Çalışanlar başarıyla alındı:', response.status);
+        
+        // Farklı API yanıt formatlarını değerlendir
+        let workersData = [];
+        
+        if (response.data) {
+          // 1. Durum: response.data.data şeklinde (standart)
+          if (response.data.data && Array.isArray(response.data.data)) {
+            workersData = response.data.data;
+            console.log(`${workersData.length} çalışan bulundu (data.data içinde)`);
+          } 
+          // 2. Durum: response.data.workers şeklinde
+          else if (response.data.workers && Array.isArray(response.data.workers)) {
+            workersData = response.data.workers;
+            console.log(`${workersData.length} çalışan bulundu (data.workers içinde)`);
+          }
+          // 3. Durum: response.data doğrudan bir dizi
+          else if (Array.isArray(response.data)) {
+            workersData = response.data;
+            console.log(`${workersData.length} çalışan bulundu (doğrudan dizi olarak)`);
+          }
+          // 4. Durum: Hiçbir format uygun değil, boş dizi kullan
+          else {
+            console.warn('Beklenmeyen yanıt formatı, çalışan listesi bulunamadı:', response.data);
+          }
+        } else {
+          console.warn('API yanıtında veri bulunamadı');
+        }
+        
+        // Çalışan verilerini doğrula
+        if (workersData.length > 0) {
+          // En azından ilk çalışanın ID ve isim bilgisini kontrol et
+          const sampleWorker = workersData[0];
+          if (!sampleWorker._id || !sampleWorker.name) {
+            console.warn('Çalışan verilerinde eksik bilgiler olabilir:', sampleWorker);
+          } else {
+            console.log('Örnek çalışan verisi:', sampleWorker._id, sampleWorker.name);
+          }
+        }
+        
         return {
           success: true,
-          data: response.data.data
+          workers: workersData
         };
       } catch (error) {
+        console.error('Çalışanları getirme hatası:', error);
+        
+        // Daha detaylı hata bilgisi
+        if (error.response) {
+          console.error('API Hata Kodu:', error.response.status);
+          console.error('API Hata Detayı:', error.response.data);
+        }
+        
         return handleApiError(error, 'Belediye çalışanları alınırken bir hata oluştu');
       }
     },
@@ -1227,17 +1599,81 @@ const api = {
     getStats: async (timeRange = 'last30days') => {
       try {
         const token = await AsyncStorage.getItem('token');
+        const user = JSON.parse(await AsyncStorage.getItem('user'));
         
-        const response = await client.get('/admin/stats', {
+        console.log('İstatistik raporu isteniyor, zaman aralığı:', timeRange);
+        
+        const params = { timeRange };
+        
+        // Municipal worker için şehir filtresi ekle
+        if (user?.role === 'municipal_worker' && user?.city) {
+          params.city = user.city;
+          console.log('Belediye çalışanı için şehir filtresi eklendi:', user.city);
+        }
+        
+        // Doğru endpoint'i kullan - /admin/stats yerine /admin/reports
+        const response = await client.get('/admin/reports', {
           headers: { Authorization: `Bearer ${token}` },
-          params: { timeRange }
+          params: params
         });
+        
+        console.log('İstatistik yanıtı alındı:', response.status);
+        
+        // Yanıtı doğru formata dönüştürme
+        const responseData = response.data?.data || {};
+        
+        // İlçe verileri için ekstra kontrol yapalım
+        const districtData = (responseData.byDistrict || []).map(item => {
+          // İlçe adını ve şehir bilgisini kontrol et
+          // Bazı backend yanıtlarında '_id' altında olabilir, bazılarında doğrudan 'district' olabilir
+          const district = item.district || item._id || 'Bilinmeyen İlçe';
+          
+          // Şehir bilgisi de benzer şekilde farklı formatlarda gelebilir
+          const city = item.city || (item.location ? item.location.city : null) || user?.city || 'Bilinmeyen Şehir';
+          
+          return {
+            district: district,
+            city: city,
+            count: item.count
+          };
+        });
+        
+        // Kategori ve durum verilerini düzenleme
+        const formattedData = {
+          byStatus: (responseData.byStatus || []).map(item => ({
+            status: item._id,
+            count: item.count
+          })),
+          byCategory: (responseData.byCategory || []).map(item => ({
+            category: item._id,
+            count: item.count
+          })),
+          byCity: (responseData.byCity || []).map(item => ({
+            city: item._id,
+            count: item.count
+          })),
+          byDistrict: districtData,
+          byMonth: (responseData.byMonth || []).map(item => ({
+            month: new Date(item._id).getMonth() + 1,
+            year: new Date(item._id).getFullYear(),
+            count: item.count
+          })),
+          total: responseData.total || 0
+        };
         
         return {
           success: true,
-          data: response.data.data
+          data: formattedData
         };
       } catch (error) {
+        console.error('İstatistikler alınırken hata:', error);
+        
+        // Daha detaylı hata bilgisi
+        if (error.response) {
+          console.error('API Hata Kodu:', error.response.status);
+          console.error('API Hata Detayı:', error.response.data);
+        }
+        
         return handleApiError(error, 'İstatistikler alınırken bir hata oluştu');
       }
     },

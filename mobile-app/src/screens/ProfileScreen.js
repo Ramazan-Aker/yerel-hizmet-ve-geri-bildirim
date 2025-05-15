@@ -261,15 +261,6 @@ const ProfileScreen = ({ navigation }) => {
     );
   };
 
-  // Debug bilgilerini göster
-  const showUserDebugInfo = () => {
-    console.log('Kullanıcı bilgileri:', user);
-    Alert.alert(
-      'Kullanıcı Bilgileri',
-      `Rol: ${user?.role || 'Tanımsız'}\nE-posta: ${user?.email}\nID: ${user?._id}\nTüm bilgiler konsola yazdırıldı.`
-    );
-  };
-
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 30 }}>
       {/* Üst Kısım - Profil Bilgileri */}
@@ -510,14 +501,6 @@ const ProfileScreen = ({ navigation }) => {
           </View>
         </TouchableOpacity>
       </View>
-
-      {/* Debug butonu ekle */}
-      <TouchableOpacity 
-        style={[styles.button, { backgroundColor: '#9b59b6', marginTop: 10 }]}
-        onPress={showUserDebugInfo}
-      >
-        <Text style={styles.buttonText}>Kullanıcı Bilgilerini Göster</Text>
-      </TouchableOpacity>
     </ScrollView>
   );
 };

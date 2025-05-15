@@ -421,28 +421,34 @@ const IssuesScreen = ({ navigation }) => {
       
       setLocationPermission(true);
       
-      // Kullanıcının mevcut konumunu al
+      // Kullanıcının mevcut konumunu al - iyileştirilmiş doğruluk parametreleri ile
       const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
+        accuracy: Location.Accuracy.BestForNavigation, // En yüksek doğruluk
+        mayShowUserSettingsDialog: true, // Gerekirse kullanıcıya ayarlar diyaloğu göster
+        timeInterval: 1000, // Daha sık konum güncellemesi
+        distanceInterval: 10, // 10 metrelik değişiklikte güncelle
       });
       
-      const { latitude, longitude } = location.coords;
+      // Koordinat hassasiyetini artırmak için 6 ondalık basamak kullanalım
+      const preciseLat = parseFloat(location.coords.latitude.toFixed(6));
+      const preciseLng = parseFloat(location.coords.longitude.toFixed(6));
       
       // Kullanıcı konumunu ayarla
       setUserLocation({
-        latitude,
-        longitude,
+        latitude: preciseLat,
+        longitude: preciseLng,
       });
       
       // Harita bölgesini kullanıcının konumuna göre güncelle
       setMapRegion({
-        latitude,
-        longitude,
+        latitude: preciseLat,
+        longitude: preciseLng,
         latitudeDelta: 0.05,
         longitudeDelta: 0.05,
       });
       
-      console.log('Kullanıcı konumu alındı:', latitude, longitude);
+      console.log('Kullanıcı konumu alındı:', preciseLat, preciseLng);
+      console.log('Konum doğruluğu (metre):', location.coords.accuracy);
       
     } catch (error) {
       console.error('Konum alınırken hata oluştu:', error);

@@ -130,6 +130,13 @@ export const issueService = {
         }
       }
       
+      // Şehir filtresi için özel işlem
+      if (cleanedFilters.city) {
+        // Backend'de location.city olarak filtreleneceği için isimlendirmeyi düzelt
+        cleanedFilters['city'] = cleanedFilters.city;
+        console.log('Şehir filtresi uygulanıyor:', cleanedFilters.city);
+      }
+      
       const response = await apiClient.get('/issues', { params: cleanedFilters });
       return response.data;
     } catch (error) {

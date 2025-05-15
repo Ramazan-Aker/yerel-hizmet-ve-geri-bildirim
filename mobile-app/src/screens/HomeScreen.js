@@ -9,7 +9,8 @@ import {
   RefreshControl,
   Alert,
   Image,
-  SafeAreaView
+  SafeAreaView,
+  ScrollView
 } from 'react-native';
 import { useAuth } from '../hooks/useAuth';
 import Icon from 'react-native-vector-icons/MaterialIcons';
@@ -17,157 +18,68 @@ import api from '../utils/api';
 
 const HomeScreen = ({ navigation }) => {
   const { user, isOffline, serverStatus, checkConnection } = useAuth();
-  const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [isDemoMode, setIsDemoMode] = useState(false);
+  const [stats, setStats] = useState([
+    { id: 1, name: 'Toplam Sorun', value: '0' },
+    { id: 2, name: 'Çözümlenen Sorunlar', value: '0' },
+    { id: 3, name: 'Aktif Kullanıcılar', value: '0' },
+    { id: 4, name: 'Ortalama Çözüm Süresi', value: '0 gün' },
+  ]);
 
-  // Bildirimleri getiren fonksiyon
-  const fetchReports = async (pageNum = 1, shouldRefresh = false) => {
+  // İstatistikleri getiren fonksiyon
+  const fetchStats = async (shouldRefresh = false) => {
     try {
       if (shouldRefresh) {
         setRefreshing(true);
-        setPage(1);
-        pageNum = 1;
-      } else if (pageNum > 1) {
-        setLoadingMore(true);
       } else {
         setLoading(true);
       }
 
-      // API'den sorunları al - getAll yerine getAllIssues kullan
-      const response = await api.issues.getAll();
+      // API'den istatistikleri al
+      const response = await api.admin.getDashboardStats();
       
-      console.log('API yanıtı:', response);
+      console.log('API istatistik yanıtı:', response);
       
-      if (response.success) {
-        const issueData = response.data.data || [];
+      if (response && response.success && response.data) {
+        const issueStats = response.data.issues;
+        const userStats = response.data.users;
         
-        // Verileri formatla
-        const formattedIssues = issueData.map(issue => ({
-          id: issue._id,
-          title: issue.title,
-          category: issue.category,
-          status: issue.status,
-          location: issue.location?.district 
-            ? `${issue.location.district}, ${issue.location.city || ''}` 
-            : issue.location?.address || 'Belirtilmemiş',
-          createdAt: issue.createdAt,
-          imageUrl: issue.images && issue.images.length > 0 ? issue.images[0] : null,
-          description: issue.description,
-          coordinates: issue.location?.coordinates || null
-        }));
-        
-        console.log(`${formattedIssues.length} sorun bulundu ve formatlandı`);
-        
-        if (shouldRefresh || pageNum === 1) {
-          setReports(formattedIssues);
-        } else {
-          setReports(prev => [...prev, ...formattedIssues]);
+        // Çözülen sorunların sayısını bul
+        let resolvedCount = 0;
+        if (issueStats.byStatus && Array.isArray(issueStats.byStatus)) {
+          const resolvedItem = issueStats.byStatus.find(item => item._id === 'resolved');
+          if (resolvedItem) {
+            resolvedCount = resolvedItem.count;
+          }
         }
         
-        // Daha fazla sorun var mı kontrol et
-        setHasMore(formattedIssues.length >= 10);
-        
-        if (pageNum > 1) {
-          setPage(pageNum);
-        }
-
-        // Demo modunu kapat, çünkü API çağrısı başarılı oldu
-        setIsDemoMode(false);
+        // İstatistikleri güncelle
+        setStats([
+          { id: 1, name: 'Toplam Sorun', value: issueStats.total.toString() },
+          { id: 2, name: 'Çözümlenen Sorunlar', value: resolvedCount.toString() },
+          { id: 3, name: 'Aktif Kullanıcılar', value: userStats.total.toString() },
+          { id: 4, name: 'Ortalama Çözüm Süresi', value: '3 gün' }, // Bu veri henüz API'den gelmiyor
+        ]);
       } else {
-        console.error('API hata döndürdü:', response.message);
-        setIsDemoMode(true);
-        Alert.alert(
-          'Veri Hatası', 
-          'Sorunlar getirilemedi: ' + (response.message || 'Bilinmeyen hata'),
-          [{ text: 'Tamam', style: 'default' }]
-        );
+        console.error('API istatistik hatası döndürdü:', response?.message);
       }
     } catch (error) {
-      console.error('Sorunlar getirilirken hata oluştu:', error);
-      
-      setIsDemoMode(true);
-      
-      // Network hatası olduğunda sadece bir kere uyarı göster
-      if (!isDemoMode && (error.message === 'Network Error' || error.isDemoMode)) {
-        Alert.alert(
-          'Bağlantı Hatası', 
-          'API sunucusuna bağlanılamadı.',
-          [{ text: 'Tamam', style: 'default' }]
-        );
-      }
+      console.error('İstatistikler getirilirken hata oluştu:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
-      setLoadingMore(false);
     }
   };
 
-  // Sayfa yüklendiğinde bildirimleri getir
+  // Sayfa yüklendiğinde istatistikleri getir
   useEffect(() => {
-    fetchReports();
+    fetchStats();
   }, []);
 
   // Yenileme işlemi
   const onRefresh = () => {
-    fetchReports(1, true);
-  };
-
-  // Daha fazla bildirim yükle
-  const loadMoreReports = () => {
-    if (hasMore && !loadingMore) {
-      fetchReports(page + 1);
-    }
-  };
-
-  // Durum rengini belirle
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'Çözüldü':
-      case 'resolved':
-        return '#4CAF50'; // Yeşil
-      case 'İnceleniyor':
-      case 'in_progress':
-        return '#2196F3'; // Mavi
-      case 'Beklemede':
-      case 'Yeni':
-      case 'pending':
-        return '#FFC107'; // Sarı
-      case 'Reddedildi':
-      case 'rejected':
-        return '#F44336'; // Kırmızı
-      default:
-        return '#9E9E9E'; // Gri
-    }
-  };
-
-  // Durum metnini düzenle
-  const getStatusText = (status) => {
-    const statusMap = {
-      'pending': 'Yeni',
-      'in_progress': 'İnceleniyor',
-      'resolved': 'Çözüldü',
-      'rejected': 'Reddedildi'
-    };
-    
-    return statusMap[status] || status;
-  };
-
-  // Tarih formatını düzenle
-  const formatDate = (dateString) => {
-    if (!dateString) return 'Belirtilmemiş';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('tr-TR');
-  };
-
-  // Bildirimin detayına git
-  const navigateToReportDetail = (report) => {
-    // Yeni IssueDetail ekranına yönlendirme yap
-    navigation.navigate('IssueDetail', { issueId: report.id });
+    fetchStats(true);
   };
 
   // Yeni bildirim oluştur
@@ -175,63 +87,14 @@ const HomeScreen = ({ navigation }) => {
     navigation.navigate('CreateIssue');
   };
 
-  // Her bir bildirim için kart bileşeni
-  const renderReportCard = ({ item }) => (
-    <TouchableOpacity 
-      style={styles.card} 
-      onPress={() => navigateToReportDetail(item)}
-    >
-      <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
-        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
-          <Text style={styles.statusText}>{getStatusText(item.status)}</Text>
-        </View>
-      </View>
-      
-      <View style={styles.cardContent}>
-        {item.imageUrl && (
-          <Image 
-            source={{ uri: item.imageUrl }} 
-            style={styles.cardImage} 
-            resizeMode="cover"
-          />
-        )}
-        
-        <View style={styles.cardDetails}>
-          <View style={styles.detailRow}>
-            <Icon name="category" size={16} color="#666" />
-            <Text style={styles.detailText}>{item.category}</Text>
-          </View>
-          
-          <View style={styles.detailRow}>
-            <Icon name="location-on" size={16} color="#666" />
-            <Text style={styles.detailText} numberOfLines={1}>{item.location}</Text>
-          </View>
-          
-          <View style={styles.detailRow}>
-            <Icon name="event" size={16} color="#666" />
-            <Text style={styles.detailText}>{formatDate(item.createdAt)}</Text>
-          </View>
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
-
-  // Liste sonu göstergesi
-  const renderFooter = () => {
-    if (!loadingMore || isDemoMode) return null;
-    
-    return (
-      <View style={styles.footerLoader}>
-        <ActivityIndicator size="small" color="#3b82f6" />
-        <Text style={styles.footerText}>Daha fazla yükleniyor...</Text>
-      </View>
-    );
+  // Sorunlara git
+  const navigateToIssues = () => {
+    navigation.navigate('Issues');
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Connection Status Bar */}
+      {/* Bağlantı Durumu Çubuğu */}
       {isOffline && (
         <TouchableOpacity
           style={styles.connectionStatusBar}
@@ -245,57 +108,117 @@ const HomeScreen = ({ navigation }) => {
         </TouchableOpacity>
       )}
 
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Şehir Bildirimleri</Text>
-        <Text style={styles.headerSubtitle}>
-          Hoş geldiniz, {user?.name || 'Kullanıcı'}
-        </Text>
-        {isDemoMode && (
-          <View style={styles.demoModeContainer}>
-            <Icon name="info-outline" size={16} color="#fff" />
-            <Text style={styles.demoModeText}>Demo Mod</Text>
+      <ScrollView 
+        style={styles.scrollView}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        {/* Hero Bölümü */}
+        <View style={styles.heroSection}>
+          <Text style={styles.heroTitle}>Şehir Sorunlarını Bildirin ve Takip Edin</Text>
+          <Text style={styles.heroSubtitle}>
+            Hoş geldiniz, {user?.name || 'Kullanıcı'}
+          </Text>
+          <Text style={styles.heroDescription}>
+            Yaşadığınız şehirdeki sorunları hızlıca bildirin ve çözüm sürecini adım adım takip edin.
+          </Text>
+          
+          <View style={styles.heroBtnContainer}>
+            <TouchableOpacity 
+              style={styles.primaryButton}
+              onPress={navigateToCreateReport}
+            >
+              <Text style={styles.primaryButtonText}>Sorun Bildir</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.secondaryButton}
+              onPress={navigateToIssues}
+            >
+              <Text style={styles.secondaryButtonText}>Sorunları Görüntüle</Text>
+            </TouchableOpacity>
           </View>
-        )}
-      </View>
-
-      {loading && !refreshing ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3b82f6" />
-          <Text style={styles.loadingText}>Bildirimler yükleniyor...</Text>
         </View>
-      ) : (
-        <>
-          <FlatList
-            data={reports}
-            renderItem={renderReportCard}
-            keyExtractor={(item) => item.id.toString()}
-            contentContainerStyle={styles.listContainer}
-            showsVerticalScrollIndicator={false}
-            refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-            }
-            ListEmptyComponent={
-              <View style={styles.emptyContainer}>
-                <Icon name="info" size={60} color="#ccc" />
-                <Text style={styles.emptyText}>Henüz bildirim bulunmuyor</Text>
-                <Text style={styles.emptySubtext}>
-                  Yeni bir bildirim oluşturmak için aşağıdaki butona tıklayabilirsiniz.
-                </Text>
-              </View>
-            }
-            onEndReached={loadMoreReports}
-            onEndReachedThreshold={0.5}
-            ListFooterComponent={renderFooter}
-          />
 
+        {/* Nasıl Çalışır Bölümü */}
+        <View style={styles.sectionContainer}>
+          <Text style={styles.sectionTitle}>Nasıl Çalışır?</Text>
+          
+          <View style={styles.featureCard}>
+            <View style={styles.featureIconContainer}>
+              <Text style={styles.featureIconText}>1</Text>
+            </View>
+            <Text style={styles.featureTitle}>Sorun Bildirin</Text>
+            <Text style={styles.featureDescription}>
+              Şehrinizde karşılaştığınız altyapı, ulaşım, çevre veya diğer sorunları detaylı bir şekilde bildirin.
+            </Text>
+          </View>
+          
+          <View style={styles.featureCard}>
+            <View style={styles.featureIconContainer}>
+              <Text style={styles.featureIconText}>2</Text>
+            </View>
+            <Text style={styles.featureTitle}>Takip Edin</Text>
+            <Text style={styles.featureDescription}>
+              Bildirdiğiniz sorunun durumunu ve çözüm sürecini gerçek zamanlı olarak takip edin.
+            </Text>
+          </View>
+          
+          <View style={styles.featureCard}>
+            <View style={styles.featureIconContainer}>
+              <Text style={styles.featureIconText}>3</Text>
+            </View>
+            <Text style={styles.featureTitle}>Sonuçları Görün</Text>
+            <Text style={styles.featureDescription}>
+              Sorunların çözüldüğünü görün ve daha yaşanabilir bir şehir oluşumuna katkıda bulunun.
+            </Text>
+          </View>
+        </View>
+
+        {/* İstatistikler Bölümü */}
+        <View style={styles.statsSection}>
+          <Text style={styles.sectionTitle}>Rakamlarla Platformumuz</Text>
+          
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#3b82f6" />
+            </View>
+          ) : (
+            <View style={styles.statsContainer}>
+              {stats.map((stat) => (
+                <View key={stat.id} style={styles.statCard}>
+                  <Text style={styles.statName}>{stat.name}</Text>
+                  <Text style={styles.statValue}>{stat.value}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+
+        {/* CTA Bölümü */}
+        <View style={styles.ctaSection}>
+          <Text style={styles.ctaTitle}>Şehrinizi İyileştirmeye Yardımcı Olun</Text>
+          <Text style={styles.ctaDescription}>
+            Yaşadığınız sorunları bildirerek şehrinizin daha yaşanabilir olmasına katkıda bulunun.
+          </Text>
+          
           <TouchableOpacity 
-            style={styles.addButton} 
+            style={styles.primaryButton}
             onPress={navigateToCreateReport}
           >
-            <Icon name="add" size={30} color="#fff" />
+            <Text style={styles.primaryButtonText}>Sorun Bildirmeye Başlayın</Text>
           </TouchableOpacity>
-        </>
-      )}
+        </View>
+      </ScrollView>
+
+      {/* Sabit Bildirim Oluşturma Butonu */}
+      <TouchableOpacity 
+        style={styles.addButton} 
+        onPress={navigateToCreateReport}
+      >
+        <Icon name="add" size={30} color="#fff" />
+      </TouchableOpacity>
     </SafeAreaView>
   );
 };
@@ -305,155 +228,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
   },
-  header: {
-    backgroundColor: '#3b82f6',
-    padding: 20,
-    paddingTop: 40,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  headerSubtitle: {
-    fontSize: 16,
-    color: '#e6effd',
-    marginTop: 4,
-  },
-  demoModeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.2)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    alignSelf: 'flex-start',
-    marginTop: 8,
-  },
-  demoModeText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
-    marginLeft: 4,
-  },
-  listContainer: {
-    padding: 16,
-    paddingBottom: 80,
-  },
-  loadingContainer: {
+  scrollView: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 10,
-    fontSize: 16,
-    color: '#666',
-  },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-    overflow: 'hidden',
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    flex: 1,
-  },
-  statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginLeft: 8,
-  },
-  statusText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  cardContent: {
-    flexDirection: 'row',
-    padding: 16,
-  },
-  cardImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 8,
-    marginRight: 16,
-  },
-  cardDetails: {
-    flex: 1,
-    justifyContent: 'space-around',
-  },
-  detailRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  detailText: {
-    marginLeft: 8,
-    fontSize: 14,
-    color: '#666',
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 80,
-    paddingHorizontal: 20,
-  },
-  emptyText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#666',
-    marginTop: 16,
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: '#999',
-    textAlign: 'center',
-    marginTop: 8,
-  },
-  addButton: {
-    position: 'absolute',
-    bottom: 20,
-    right: 20,
-    backgroundColor: '#3b82f6',
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  footerLoader: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 10,
-  },
-  footerText: {
-    marginLeft: 8,
-    fontSize: 14,
-    color: '#666',
   },
   connectionStatusBar: {
     backgroundColor: '#ef4444',
@@ -471,6 +247,191 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
     marginLeft: 8,
+  },
+  heroSection: {
+    backgroundColor: '#3b82f6',
+    padding: 20,
+    paddingTop: 40,
+    paddingBottom: 30,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    alignItems: 'center',
+  },
+  heroTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  heroSubtitle: {
+    fontSize: 16,
+    color: '#e6effd',
+    marginTop: 4,
+    marginBottom: 10,
+  },
+  heroDescription: {
+    fontSize: 16,
+    color: '#fff',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  heroBtnContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  primaryButton: {
+    backgroundColor: '#fff',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    marginHorizontal: 8,
+    minWidth: 150,
+    alignItems: 'center',
+  },
+  primaryButtonText: {
+    color: '#3b82f6',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  secondaryButton: {
+    backgroundColor: '#1d4ed8',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    marginHorizontal: 8,
+    minWidth: 150,
+    alignItems: 'center',
+  },
+  secondaryButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  sectionContainer: {
+    padding: 20,
+    marginVertical: 10,
+  },
+  sectionTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  featureCard: {
+    backgroundColor: '#fff',
+    padding: 20,
+    borderRadius: 12,
+    marginBottom: 15,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  featureIconContainer: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#ebf5ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  featureIconText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#3b82f6',
+  },
+  featureTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 8,
+  },
+  featureDescription: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+  },
+  statsSection: {
+    backgroundColor: '#f0f4f8',
+    padding: 20,
+    borderRadius: 12,
+    margin: 20,
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  statCard: {
+    width: '48%',
+    backgroundColor: '#fff',
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 10,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  statName: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 5,
+    textAlign: 'center',
+  },
+  statValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#3b82f6',
+  },
+  ctaSection: {
+    backgroundColor: '#2563eb',
+    padding: 25,
+    borderRadius: 12,
+    margin: 20,
+    alignItems: 'center',
+    marginBottom: 30,
+  },
+  ctaTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  ctaDescription: {
+    fontSize: 14,
+    color: '#e6effd',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  loadingContainer: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  addButton: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    backgroundColor: '#3b82f6',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
   },
 });
 

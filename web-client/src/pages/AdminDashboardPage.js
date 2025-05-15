@@ -152,7 +152,7 @@ const AdminDashboardPage = () => {
 
       {/* Hızlı Erişim Butonları */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        <Link to="/admin/issues?filter=new" className="bg-white rounded-lg shadow p-4 hover:bg-gray-50 transition">
+        <Link to="/admin/issues?filter=pending" className="bg-white rounded-lg shadow p-4 hover:bg-gray-50 transition">
           <div className="flex items-center">
             <div className="bg-yellow-100 p-3 rounded-lg mr-4">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">

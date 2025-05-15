@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { MapContainer, TileLayer, Marker, Popup, ZoomControl, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, ZoomControl, useMap, Circle } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
@@ -8,6 +8,7 @@ import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import { useAuth } from '../hooks/useAuth';
 import { issueService } from '../services/api';
 import FilterPanel from '../components/FilterPanel';
+import { toast } from 'react-hot-toast';
 
 // Leaflet default icon fix
 delete L.Icon.Default.prototype._getIconUrl;
@@ -59,59 +60,110 @@ function MapUpdater({ issues }) {
 const LocationMarker = ({ onLocationFound }) => {
   const [position, setPosition] = useState(null);
   const [isLocating, setIsLocating] = useState(false);
+  const [accuracy, setAccuracy] = useState(null);
   const map = useMap();
 
   const locateUser = () => {
     setIsLocating(true);
-    map.locate({ setView: true, maxZoom: 13 });
+    // Konum belirleme ayarlarını geliştir
+    map.locate({ 
+      setView: true, 
+      maxZoom: 16, // Daha yakın zoom seviyesi
+      timeout: 15000, // Daha uzun timeout
+      enableHighAccuracy: true, // Yüksek doğruluk modu
+      watch: true // Sürekli konum izleme - daha iyi sonuçlar için
+    });
+    
+    console.log('Konum belirleniyor, yüksek doğruluk modu aktif');
   };
 
   useEffect(() => {
+    // Konum bulunduğunda
     map.on('locationfound', (e) => {
-      setPosition(e.latlng);
+      // Koordinatları 6 ondalık basamak hassasiyetle kaydet
+      const preciseLat = parseFloat(e.latlng.lat.toFixed(6));
+      const preciseLng = parseFloat(e.latlng.lng.toFixed(6));
+      
+      console.log(`Konum bulundu: ${preciseLat}, ${preciseLng}, doğruluk: ${e.accuracy} metre`);
+      setPosition([preciseLat, preciseLng]);
+      setAccuracy(e.accuracy);
       setIsLocating(false);
+      
+      // Kullanıcının konumu bulunduğunda pozisyonu bildiren callback'i çağır
       if (onLocationFound) {
-        onLocationFound(e.latlng);
+        onLocationFound([preciseLat, preciseLng], e.accuracy);
       }
+      
+      // 5 saniye sonra izlemeyi durdur - tek seferlik konum için yeterli
+      setTimeout(() => {
+        map.stopLocate();
+        console.log('Konum izleme durduruldu.');
+      }, 5000);
     });
 
+    // Konum bulunamadığında
     map.on('locationerror', (e) => {
       console.error('Konum bulunamadı:', e.message);
-      alert('Konumunuz bulunamadı. Lütfen konum izinlerinizi kontrol edin.');
       setIsLocating(false);
+      
+      // Hata durumunda kullanıcıya bilgi ver
+      toast.error('Konumunuz alınamadı: ' + e.message);
+      
+      // İzlemeyi durdur
+      map.stopLocate();
     });
 
     return () => {
+      // Cleanup
       map.off('locationfound');
       map.off('locationerror');
+      map.stopLocate();
     };
   }, [map, onLocationFound]);
 
-  return (
-    <div className="leaflet-top leaflet-right" style={{ marginTop: '80px', marginRight: '10px' }}>
-      <div className="leaflet-control leaflet-bar">
-        <button 
-          onClick={locateUser}
-          className="bg-white p-2 rounded-lg shadow flex items-center justify-center"
-          title="Konumumu göster"
-          disabled={isLocating}
-        >
-          {isLocating ? (
-            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
-          ) : (
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+  return position === null ? (
+    <div className="leaflet-control leaflet-control-locate">
+      <button 
+        onClick={locateUser} 
+        className={`locate-button ${isLocating ? 'locating' : ''}`}
+        disabled={isLocating}
+        title="Konumumu bul"
+      >
+        {isLocating ? (
+          <span className="spinner"></span>
+        ) : (
+          <span className="locate-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+              <path fill="currentColor" d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0 0 13 3.06V1h-2v2.06A8.994 8.994 0 0 0 3.06 11H1v2h2.06A8.994 8.994 0 0 0 11 20.94V23h2v-2.06A8.994 8.994 0 0 0 20.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/>
             </svg>
-          )}
-        </button>
-      </div>
-      {position && (
-        <Marker position={position} icon={userLocationIcon}>
-          <Popup>Bulunduğunuz konum</Popup>
-        </Marker>
-      )}
+          </span>
+        )}
+      </button>
     </div>
+  ) : (
+    <>
+      <Circle 
+        center={position} 
+        radius={accuracy} 
+        pathOptions={{ 
+          fillColor: '#3388ff', 
+          fillOpacity: 0.15, 
+          weight: 1, 
+          color: '#3388ff' 
+        }} 
+      />
+      <Marker position={position}>
+        <Popup>
+          <div>
+            <p><strong>Konumunuz</strong></p>
+            <p>Koordinatlar: {position[0].toFixed(6)}, {position[1].toFixed(6)}</p>
+            {accuracy && (
+              <p>Doğruluk: {accuracy.toFixed(0)} metre</p>
+            )}
+          </div>
+        </Popup>
+      </Marker>
+    </>
   );
 };
 

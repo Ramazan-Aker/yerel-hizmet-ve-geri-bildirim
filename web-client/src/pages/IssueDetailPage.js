@@ -8,6 +8,27 @@ import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import { useAuth } from '../hooks/useAuth';
 import { issueService } from '../services/api'; // API servisi import ediyoruz
 
+// Custom CSS for scrollbar
+const customScrollbarStyles = `
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #d1d5db;
+    border-radius: 10px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #a3a3a3;
+  }
+`;
+
 // Leaflet default icon fix
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -232,6 +253,9 @@ const IssueDetailPage = () => {
 
   return (
     <div className="container mx-auto px-4 py-8">
+      {/* Apply custom scrollbar styles */}
+      <style>{customScrollbarStyles}</style>
+      
       {/* Breadcrumb */}
       <div className="flex items-center text-sm text-gray-500 mb-6">
         <Link to="/" className="hover:text-blue-600">Ana Sayfa</Link>
@@ -408,7 +432,111 @@ const IssueDetailPage = () => {
             <h2 className="text-xl font-semibold mb-4">Çözüm Süreci</h2>
             
             <div className="relative pl-6 border-l-2 border-gray-200">
-              {/* Assuming updates are not provided in the dummyIssue */}
+              {/* Sorun durumu */}
+              <div className="mb-6 relative">
+                <div className="absolute -left-[17px] w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div className="ml-4">
+                  <p className="font-medium">Sorun bildirildi</p>
+                  <p className="text-sm text-gray-500">{formatDate(issue.createdAt)}</p>
+                </div>
+              </div>
+
+              {/* Durum güncellemeleri */}
+              {issue.updates && issue.updates.length > 0 && issue.updates.map((update, index) => (
+                <div key={index} className="mb-6 relative">
+                  <div className={`absolute -left-[17px] w-8 h-8 rounded-full flex items-center justify-center text-white 
+                    ${update.status === 'pending' ? 'bg-blue-500' : 
+                      update.status === 'in_progress' ? 'bg-yellow-500' : 
+                      update.status === 'resolved' ? 'bg-green-500' : 
+                      'bg-red-500'}`}>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="ml-4">
+                    <p className="font-medium">{update.text}</p>
+                    <p className="text-sm text-gray-500">{formatDate(update.date)}</p>
+                  </div>
+                </div>
+              ))}
+              
+              {/* Resmi yanıtlar */}
+              {issue.officialResponse && issue.officialResponse.response && (
+                <div className="mb-6 relative">
+                  <div className="absolute -left-[17px] w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M18 13V5a2 2 0 00-2-2H4a2 2 0 00-2 2v8a2 2 0 002 2h3l3 3 3-3h3a2 2 0 002-2zM5 7a1 1 0 011-1h8a1 1 0 110 2H6a1 1 0 01-1-1zm1 3a1 1 0 100 2h3a1 1 0 100-2H6z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="ml-4 bg-blue-50 p-4 rounded-lg">
+                    <p className="font-medium">Resmi Yanıt</p>
+                    <p className="text-gray-700 my-2 whitespace-pre-line">{issue.officialResponse.response}</p>
+                    <div className="text-sm text-gray-500 flex items-center">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                      </svg>
+                      <span>
+                        {issue.officialResponse.respondent ? (
+                          issue.officialResponse.respondent.name || 'Belediye Çalışanı'
+                        ) : (
+                          'Belediye Çalışanı'
+                        )}
+                      </span>
+                      <span className="mx-2">•</span>
+                      <span>{issue.officialResponse.date && formatDate(issue.officialResponse.date)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Diğer resmi yanıtlar */}
+              {issue.officialResponses && issue.officialResponses.length > 0 && issue.officialResponses.map((response, index) => (
+                <div key={index} className="mb-6 relative">
+                  <div className="absolute -left-[17px] w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M18 13V5a2 2 0 00-2-2H4a2 2 0 00-2 2v8a2 2 0 002 2h3l3 3 3-3h3a2 2 0 002-2zM5 7a1 1 0 011-1h8a1 1 0 110 2H6a1 1 0 01-1-1zm1 3a1 1 0 100 2h3a1 1 0 100-2H6z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="ml-4 bg-blue-50 p-4 rounded-lg">
+                    <p className="font-medium">Resmi Yanıt</p>
+                    <p className="text-gray-700 my-2 whitespace-pre-line">{response.text}</p>
+                    <div className="text-sm text-gray-500 flex items-center">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                      </svg>
+                      <span>{response.respondent || 'Belediye Çalışanı'}</span>
+                      <span className="mx-2">•</span>
+                      <span>{response.date && formatDate(response.date)}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              
+              {/* Güncel durum */}
+              <div className="relative">
+                <div className={`absolute -left-[17px] w-8 h-8 rounded-full flex items-center justify-center text-white
+                  ${issue.status === 'pending' ? 'bg-blue-500' : 
+                    issue.status === 'in_progress' ? 'bg-yellow-500' : 
+                    issue.status === 'resolved' ? 'bg-green-500' : 
+                    'bg-red-500'}`}>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div className="ml-4">
+                  <p className="font-medium">
+                    {issue.status === 'pending' ? 'Bildirildi' : 
+                     issue.status === 'in_progress' ? 'İnceleniyor' :
+                     issue.status === 'resolved' ? 'Çözüldü' :
+                     issue.status === 'rejected' ? 'Reddedildi' : 'Durumu Güncellendi'}
+                  </p>
+                  <p className="text-sm text-gray-500">Güncel Durum</p>
+                </div>
+              </div>
             </div>
           </div>
           
@@ -487,7 +615,7 @@ const IssueDetailPage = () => {
             
             {/* Yorumlar Listesi */}
             {issue.comments && issue.comments.length > 0 ? (
-              <div className="space-y-6">
+              <div className="space-y-6 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
                 {issue.comments.map((comment, index) => (
                     <div key={comment._id || index} className="comment-container">
                       <div className="flex space-x-3">

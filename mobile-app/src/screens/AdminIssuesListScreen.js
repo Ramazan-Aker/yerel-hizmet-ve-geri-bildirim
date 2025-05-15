@@ -14,6 +14,7 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import { Picker } from '@react-native-picker/picker';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const AdminIssuesListScreen = ({ route, navigation }) => {
   const { user } = useAuth();
@@ -26,19 +27,64 @@ const AdminIssuesListScreen = ({ route, navigation }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [cityFilter, setCityFilter] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
+  const [cities, setCities] = useState([]);
+
+  // Kullanıcı profilini yükle ve şehir bilgisi kontrolü yap
+  const loadUserProfile = async () => {
+    try {
+      console.log("Kullanıcı profili güncelleniyor...");
+      const profileResponse = await api.auth.getUserProfile();
+      
+      if (profileResponse.success && profileResponse.data) {
+        const userData = profileResponse.data.data || profileResponse.data;
+        console.log("Alınan profil bilgileri:", JSON.stringify(userData, null, 2));
+        
+        // Kullanıcı verilerini AsyncStorage'a kaydet
+        await AsyncStorage.setItem('user', JSON.stringify(userData));
+        console.log("Kullanıcı bilgileri AsyncStorage'a kaydedildi");
+        
+        // Şehir bilgisi kontrolü
+        if (userData.role === 'municipal_worker') {
+          if (!userData.city || userData.city === "undefined" || userData.city === "") {
+            console.warn("Belediye çalışanı için şehir bilgisi eksik!");
+            Alert.alert(
+              "Eksik Bilgi",
+              "Belediye çalışanı olarak şehir bilginiz eksik. Lütfen profil sayfasından şehir bilginizi güncelleyin.",
+              [{ text: "Tamam", onPress: () => navigation.navigate('Profile') }]
+            );
+          } else {
+            console.log("Şehir bilgisi doğrulandı:", userData.city);
+          }
+        }
+        
+        return userData;
+      } else {
+        console.error("Profil bilgileri alınamadı:", profileResponse.message);
+      }
+    } catch (error) {
+      console.error("Profil yükleme hatası:", error);
+    }
+  };
 
   // Sorunları yükle
   const loadIssues = async () => {
     try {
       setLoading(true);
-      const response = await api.issues.getAdminIssues();
+      const response = await api.admin.getAdminIssues();
       
       if (response.success && response.data) {
-        const allIssues = response.data.issues || [];
+        let allIssues = response.data.issues || [];
+        
+        // Şehir listesini oluştur (sadece admin için)
+        if (user?.role === 'admin') {
+          const uniqueCities = [...new Set(allIssues.map(issue => issue.location.city))].sort();
+          setCities(uniqueCities);
+        }
         
         // İlk açılışta gelen filtre parametresine göre filtrele
-        if (filter === 'new') {
+        if (filter === 'pending') {
           setStatusFilter('Yeni');
         } else if (filter === 'assigned') {
           // Atanmış sorunları filtrele
@@ -64,9 +110,12 @@ const AdminIssuesListScreen = ({ route, navigation }) => {
     }
   };
 
+  // Sayfa yüklendiğinde ilk verileri getir
   useEffect(() => {
-    loadIssues();
-  }, [filter]);
+    loadUserProfile().then(() => {
+      loadIssues();
+    });
+  }, []);
 
   // Sorunları filtrele
   useEffect(() => {
@@ -98,6 +147,11 @@ const AdminIssuesListScreen = ({ route, navigation }) => {
       result = result.filter(issue => issue.category === categoryFilter);
     }
     
+    // Şehir filtresine göre filtrele (sadece admin için)
+    if (user?.role === 'admin' && cityFilter !== 'all') {
+      result = result.filter(issue => issue.location.city === cityFilter);
+    }
+    
     // Sıralama
     if (sortBy === 'newest') {
       result.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
@@ -109,7 +163,7 @@ const AdminIssuesListScreen = ({ route, navigation }) => {
     }
     
     setFilteredIssues(result);
-  }, [issues, searchQuery, statusFilter, categoryFilter, sortBy]);
+  }, [issues, searchQuery, statusFilter, categoryFilter, cityFilter, sortBy, user]);
 
   // Yenileme işlemi
   const onRefresh = () => {
@@ -259,6 +313,28 @@ const AdminIssuesListScreen = ({ route, navigation }) => {
         </View>
       </View>
       
+      {/* Şehir Filtresi - Sadece admin için göster */}
+      {user?.role === 'admin' && cities.length > 0 && (
+        <View style={styles.filterRow}>
+          <View style={[styles.filterItem, { flex: 1 }]}>
+            <Text style={styles.filterLabel}>Şehir</Text>
+            <View style={styles.pickerContainer}>
+              <Picker
+                selectedValue={cityFilter}
+                onValueChange={(itemValue) => setCityFilter(itemValue)}
+                style={styles.picker}
+                mode="dropdown"
+              >
+                <Picker.Item label="Tüm Şehirler" value="all" />
+                {cities.map((city, index) => (
+                  <Picker.Item key={index} label={city} value={city} />
+                ))}
+              </Picker>
+            </View>
+          </View>
+        </View>
+      )}
+      
       {/* Sıralama */}
       <View style={styles.sortContainer}>
         <Text style={styles.filterLabel}>Sıralama</Text>
@@ -305,32 +381,32 @@ const AdminIssuesListScreen = ({ route, navigation }) => {
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <Icon name="arrow-back" size={24} color="#2c3e50" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Sorun Listesi</Text>
+        <Text style={styles.headerTitle}>Sorunlar</Text>
+        {user?.role === 'municipal_worker' && user?.city && (
+          <Text style={styles.headerCity}>{user.city}</Text>
+        )}
       </View>
-
-      {loading && !refreshing ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3498db" />
-        </View>
-      ) : (
-        <FlatList
-          data={filteredIssues}
-          renderItem={renderIssueItem}
-          keyExtractor={item => item._id}
-          contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
-          ListHeaderComponent={renderHeader}
-          ListEmptyComponent={
+      
+      <FlatList
+        data={filteredIssues}
+        renderItem={renderIssueItem}
+        keyExtractor={item => item._id}
+        contentContainerStyle={styles.listContainer}
+        ListHeaderComponent={renderHeader}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+        ListEmptyComponent={
+          loading ? (
+            <ActivityIndicator style={styles.loader} size="large" color="#3498db" />
+          ) : (
             <View style={styles.emptyContainer}>
-              <Icon name="info-outline" size={48} color="#95a5a6" />
+              <Icon name="inbox" size={64} color="#95a5a6" />
               <Text style={styles.emptyText}>Sonuç bulunamadı</Text>
             </View>
-          }
-        />
-      )}
+          )
+        }
+      />
     </View>
   );
 };
@@ -346,7 +422,7 @@ const styles = StyleSheet.create({
     padding: 16,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#e0e0e0',
   },
   backButton: {
     marginRight: 16,
@@ -356,43 +432,44 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#2c3e50',
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+  headerCity: {
+    fontSize: 14,
+    color: '#3498db',
+    marginLeft: 8,
+    fontWeight: 'bold',
   },
-  listContent: {
-    padding: 16,
+  listContainer: {
+    paddingBottom: 16,
   },
   filtersContainer: {
-    marginBottom: 16,
+    padding: 16,
+    backgroundColor: '#fff',
+    marginBottom: 8,
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: '#f2f2f2',
     borderRadius: 8,
-    padding: 8,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
+    paddingHorizontal: 12,
+    marginBottom: 16,
   },
   searchIcon: {
     marginRight: 8,
   },
   searchInput: {
     flex: 1,
-    height: 40,
+    paddingVertical: 10,
     fontSize: 16,
+    color: '#2c3e50',
   },
   filterRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 16,
   },
   filterItem: {
-    flex: 1,
-    marginHorizontal: 4,
+    flex: 0.48,
   },
   filterLabel: {
     fontSize: 14,
@@ -404,28 +481,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e0e0e0',
     borderRadius: 8,
-    backgroundColor: '#fff',
     overflow: 'hidden',
+    backgroundColor: '#fff',
   },
   picker: {
     height: 40,
   },
   sortContainer: {
-    marginBottom: 12,
+    marginBottom: 16,
   },
   sortButtons: {
     flexDirection: 'row',
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    overflow: 'hidden',
+    justifyContent: 'space-between',
   },
   sortButton: {
     flex: 1,
     paddingVertical: 8,
+    backgroundColor: '#f2f2f2',
+    borderRadius: 4,
+    marginHorizontal: 4,
     alignItems: 'center',
-    justifyContent: 'center',
   },
   sortButtonActive: {
     backgroundColor: '#3498db',
@@ -441,12 +516,13 @@ const styles = StyleSheet.create({
   resultCount: {
     fontSize: 14,
     color: '#7f8c8d',
-    marginBottom: 12,
+    marginTop: 8,
   },
   issueCard: {
     backgroundColor: '#fff',
     borderRadius: 8,
     padding: 16,
+    marginHorizontal: 16,
     marginBottom: 12,
     elevation: 2,
   },
@@ -466,7 +542,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 4,
-    marginLeft: 8,
   },
   statusText: {
     fontSize: 12,
@@ -486,21 +561,23 @@ const styles = StyleSheet.create({
   locationContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
+    flex: 2,
   },
   locationText: {
     fontSize: 12,
-    color: '#666',
+    color: '#34495e',
     marginLeft: 4,
   },
   issueMetaContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'flex-end',
+    flex: 1,
   },
   assignedContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f1f2f6',
+    backgroundColor: '#f2f2f2',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
@@ -508,12 +585,15 @@ const styles = StyleSheet.create({
   },
   assignedText: {
     fontSize: 10,
-    color: '#7f8c8d',
+    color: '#34495e',
     marginLeft: 2,
   },
   dateText: {
     fontSize: 12,
     color: '#95a5a6',
+  },
+  loader: {
+    marginTop: 32,
   },
   emptyContainer: {
     alignItems: 'center',

@@ -60,19 +60,100 @@ const IssueDetailScreen = ({ route, navigation }) => {
       // API'den sorun detaylarını al
       const response = await api.issues.getById(issueId);
       
-      console.log('API yanıtı:', JSON.stringify(response).substring(0, 200));
-      
       if (response.success && response.data) {
         // Veriyi kullanmadan önce kontrol et
         const issueData = response.data;
         
-        // Eksik veri kontrolü
-        if (!issueData.title) {
-          console.warn('API yanıtında title alanı eksik');
+        // Resmi yanıtları düzenleyelim
+        // Resmi yanıtları tutacak bir dizi oluşturalım
+        let allResponses = [];
+        
+        // 1. officialResponse objesi varsa bunu işle
+        if (issueData.officialResponse) {
+          if (typeof issueData.officialResponse === 'object') {
+            console.log('Tekil resmi yanıt (nesne):', JSON.stringify(issueData.officialResponse).substring(0, 100));
+            
+            // Standart formata dönüştür
+            const standardResponse = {
+              text: issueData.officialResponse.response || issueData.officialResponse.text || '',
+              date: issueData.officialResponse.createdAt || issueData.officialResponse.date || new Date(),
+              respondent: issueData.officialResponse.respondedBy?.name || 
+                         issueData.officialResponse.respondent?.name || 
+                         issueData.officialResponse.respondent || 'Yetkili'
+            };
+            
+            // Sadece içeriği varsa ekle
+            if (standardResponse.text) {
+              allResponses.push(standardResponse);
+            }
+          } else if (typeof issueData.officialResponse === 'string' && issueData.officialResponse.trim()) {
+            console.log('Tekil resmi yanıt (string):', issueData.officialResponse.substring(0, 50));
+            
+            // String yanıtı objeye dönüştür
+            allResponses.push({
+              text: issueData.officialResponse,
+              date: issueData.updatedAt || issueData.createdAt || new Date(),
+              respondent: 'Yetkili'
+            });
+          }
         }
         
-        console.log('Sorun başlığı:', issueData.title);
-        console.log('Sorun durumu:', issueData.status);
+        // 2. officialResponses dizisi varsa işle
+        if (issueData.officialResponses && Array.isArray(issueData.officialResponses) && issueData.officialResponses.length > 0) {
+          console.log(`${issueData.officialResponses.length} adet resmi yanıt mevcut`);
+          
+          // Her bir yanıtı standart formata dönüştürerek ekle
+          issueData.officialResponses.forEach((response, index) => {
+            if (response && (response.text || response.response)) {
+              allResponses.push({
+                text: response.text || response.response || '',
+                date: response.date || response.createdAt || new Date(),
+                respondent: response.respondent || 'Yetkili'
+              });
+            }
+          });
+        }
+        
+        // Yanıtları tarihe göre sırala (en yeni en üstte)
+        allResponses.sort((a, b) => new Date(b.date) - new Date(a.date));
+        
+        console.log(`Toplam ${allResponses.length} adet resmi yanıt düzenlendi`);
+        
+        // Veri tutarlılığı kontrolü
+        // Eğer sorun çözülmüş/reddedilmiş ama hiç resmi yanıt yoksa, otomatik bir yanıt ekleyerek kullanıcı deneyimini artıralım
+        if ((issueData.status === 'resolved' || issueData.status === 'rejected' || 
+             issueData.status === 'solved' || issueData.status === 'çözüldü' || 
+             issueData.status === 'reddedildi') && allResponses.length === 0) {
+             
+          console.log('Otomatik resmi yanıt ekleniyor (çözülmüş/reddedilmiş sorun için)');
+          
+          // Otomatik yanıt oluştur
+          const autoResponse = {
+            text: issueData.status === 'resolved' || issueData.status === 'solved' || issueData.status === 'çözüldü'
+              ? 'Bu sorun yetkililer tarafından çözülmüştür.' 
+              : 'Bu sorun yetkililer tarafından reddedilmiştir.',
+            date: issueData.updatedAt || issueData.createdAt || new Date(),
+            respondent: 'Sistem'
+          };
+          
+          // Yanıtlar listesine ekle
+          allResponses.push(autoResponse);
+          
+          console.log('Otomatik resmi yanıt eklendi');
+        }
+        
+        // Hazırladığımız düzenli yanıtları issue nesnesine ekle
+        issueData.officialResponses = allResponses;
+        
+        // API uyumluluğu için tekil officialResponse alanını da ayarla
+        if (allResponses.length > 0) {
+          const latestResponse = allResponses[0]; // En yeni yanıt
+          issueData.officialResponse = {
+            response: latestResponse.text,
+            createdAt: latestResponse.date,
+            respondedBy: { name: latestResponse.respondent }
+          };
+        }
         
         // Sorun nesnesini ayarla
         setIssue(issueData);
@@ -303,6 +384,41 @@ const IssueDetailScreen = ({ route, navigation }) => {
     setRetryAttempt(prev => prev + 1);
   };
 
+  // Resmi yanıt içeriğini bulan yardımcı fonksiyon
+  const getOfficialResponseText = () => {
+    if (!issue || !issue.officialResponse) return null;
+    
+    // Eğer doğrudan string ise
+    if (typeof issue.officialResponse === 'string') {
+      return issue.officialResponse;
+    }
+    
+    // Nesne ise, içindeki olası tüm metin alanlarını kontrol edelim
+    if (typeof issue.officialResponse === 'object') {
+      // Olası tüm alanları kontrol et - içeriğin farklı anahtar adlarında olabilir
+      const possibleFields = [
+        'response', 'text', 'content', 'message', 
+        'description', 'officialResponse', 'comment', 
+        'reply', 'answer', 'solution'
+      ];
+      
+      // İlk bulunan alan değerini döndür
+      for (const field of possibleFields) {
+        if (issue.officialResponse[field] && 
+            typeof issue.officialResponse[field] === 'string' && 
+            issue.officialResponse[field].trim() !== '') {
+          console.log(`Resmi yanıt içeriği '${field}' alanında bulundu`);
+          return issue.officialResponse[field];
+        }
+      }
+      
+      // Hiçbir değer bulunamadıysa
+      console.log('Resmi yanıt nesnesinde içerik bulunamadı:', issue.officialResponse);
+    }
+    
+    return 'Resmi yanıt içeriği bulunamadı.';
+  };
+
   // Yükleme durumu
   if (loading) {
     return (
@@ -312,6 +428,24 @@ const IssueDetailScreen = ({ route, navigation }) => {
       </View>
     );
   }
+
+  // Resmi yanıt göstermek için ilgili veriler tamamen yüklendi mi kontrol et
+  const isOfficialResponseReady = () => {
+    if (!issue) return false;
+    if (!issue.officialResponse) return false;
+    
+    if (typeof issue.officialResponse === 'string') {
+      return issue.officialResponse.trim() !== '';
+    }
+    
+    if (typeof issue.officialResponse === 'object') {
+      // En az bir içerik var mı kontrol et
+      const responseText = getOfficialResponseText();
+      return responseText && responseText !== 'Resmi yanıt içeriği bulunamadı.';
+    }
+    
+    return false;
+  };
 
   // Hata durumu
   if (error) {
@@ -461,6 +595,179 @@ const IssueDetailScreen = ({ route, navigation }) => {
                     <Text style={styles.directionInfoText}>{issue.location.directionInfo}</Text>
                   </View>
                 )}
+        </View>
+        )}
+        
+        {/* Resmi Yanıt */}
+        {issue && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Resmi Yanıtlar</Text>
+            
+            {/* officialResponses dizisini kullanarak tüm resmi yanıtları göster */}
+            {issue.officialResponses && issue.officialResponses.length > 0 ? (
+              issue.officialResponses.map((response, index) => (
+                <View 
+                  key={`response-${index}`} 
+                  style={[
+                    styles.officialResponseContainer, 
+                    { marginTop: index > 0 ? 12 : 0 }
+                  ]}
+                >
+                  <View style={styles.officialResponseHeader}>
+                    <View style={[styles.userAvatar, {backgroundColor: '#3b82f6'}]}>
+                      <MaterialIcons name="verified-user" size={20} color="#fff" />
+                    </View>
+                    <View style={styles.officialResponseMeta}>
+                      <Text style={styles.officialResponseAuthor}>
+                        {response.respondent || 'Yetkili'}
+                      </Text>
+                      <Text style={styles.officialResponseTime}>
+                        {response.date ? 
+                          moment(response.date).format('D MMMM YYYY, HH:mm') : 
+                          moment().format('D MMMM YYYY, HH:mm')}
+                      </Text>
+                    </View>
+                  </View>
+                  
+                  <Text style={styles.officialResponseText}>
+                    {response.text || response.response || 'Resmi yanıt içeriği bulunamadı.'}
+                  </Text>
+                </View>
+              ))
+            ) : (
+              <View style={styles.officialResponseContainer}>
+                <Text style={styles.officialResponseText}>
+                  Bu sorun için henüz bir resmi yanıt eklenmemiş.
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
+        
+        {/* Çözüm Süreci */}
+        {issue.status !== 'pending' && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Çözüm Süreci</Text>
+            <View style={styles.timelineContainer}>
+              <View style={[styles.timelineItem, styles.timelineItemActive]}>
+                <View style={[styles.timelineDot, styles.timelineDotActive]}>
+                  <MaterialIcons name="flag" size={18} color="#fff" />
+                </View>
+                <View style={styles.timelineContent}>
+                  <Text style={styles.timelineTitle}>Bildirim Yapıldı</Text>
+                  <Text style={styles.timelineDate}>
+                    {moment(issue.createdAt).format('D MMMM YYYY')}
+                  </Text>
+                  <Text style={styles.timelineDescription}>
+                    Bildiriminiz başarıyla alındı ve sisteme kaydedildi.
+                  </Text>
+                </View>
+              </View>
+              
+              <View style={[
+                styles.timelineItem, 
+                issue.status === 'in_progress' || issue.status === 'resolved' || issue.status === 'rejected' 
+                  ? styles.timelineItemActive 
+                  : styles.timelineItemPending
+              ]}>
+                <View style={[
+                  styles.timelineDot, 
+                  issue.status === 'in_progress' || issue.status === 'resolved' || issue.status === 'rejected'
+                    ? styles.timelineDotActive 
+                    : styles.timelineDotPending
+                ]}>
+                  <MaterialIcons name="search" size={18} color={
+                    issue.status === 'in_progress' || issue.status === 'resolved' || issue.status === 'rejected'
+                      ? "#fff" 
+                      : "#bbb"
+                  } />
+                </View>
+                <View style={styles.timelineContent}>
+                  <Text style={[
+                    styles.timelineTitle,
+                    issue.status === 'in_progress' || issue.status === 'resolved' || issue.status === 'rejected'
+                      ? styles.timelineTitleActive 
+                      : styles.timelineTitlePending
+                  ]}>İncelemeye Alındı</Text>
+                  {issue.statusHistory && Array.isArray(issue.statusHistory) && 
+                   issue.statusHistory.find(h => h && h.status === 'in_progress') && (
+                    <Text style={styles.timelineDate}>
+                      {moment(issue.statusHistory.find(h => h && h.status === 'in_progress').date).format('D MMMM YYYY')}
+                    </Text>
+                  )}
+                  <Text style={[
+                    styles.timelineDescription,
+                    issue.status === 'in_progress' || issue.status === 'resolved' || issue.status === 'rejected'
+                      ? styles.timelineDescriptionActive 
+                      : styles.timelineDescriptionPending
+                  ]}>
+                    Bildiriminiz yetkililer tarafından incelemeye alındı.
+                  </Text>
+                </View>
+              </View>
+              
+              {issue.status !== 'rejected' && (
+                <View style={[
+                  styles.timelineItem, 
+                  issue.status === 'resolved' 
+                    ? styles.timelineItemActive 
+                    : styles.timelineItemPending
+                ]}>
+                  <View style={[
+                    styles.timelineDot, 
+                    issue.status === 'resolved'
+                      ? styles.timelineDotActive 
+                      : styles.timelineDotPending
+                  ]}>
+                    <MaterialIcons name="check-circle" size={18} color={
+                      issue.status === 'resolved' ? "#fff" : "#bbb"
+                    } />
+                  </View>
+                  <View style={styles.timelineContent}>
+                    <Text style={[
+                      styles.timelineTitle,
+                      issue.status === 'resolved'
+                        ? styles.timelineTitleActive 
+                        : styles.timelineTitlePending
+                    ]}>Çözüldü</Text>
+                    {issue.statusHistory && Array.isArray(issue.statusHistory) && 
+                     issue.statusHistory.find(h => h && h.status === 'resolved') && (
+                      <Text style={styles.timelineDate}>
+                        {moment(issue.statusHistory.find(h => h && h.status === 'resolved').date).format('D MMMM YYYY')}
+                      </Text>
+                    )}
+                    <Text style={[
+                      styles.timelineDescription,
+                      issue.status === 'resolved'
+                        ? styles.timelineDescriptionActive 
+                        : styles.timelineDescriptionPending
+                    ]}>
+                      Bildiriminiz için gerekli çözüm sağlandı.
+                    </Text>
+                  </View>
+                </View>
+              )}
+              
+              {issue.status === 'rejected' && (
+                <View style={[styles.timelineItem, styles.timelineItemActive]}>
+                  <View style={[styles.timelineDot, styles.timelineDotRejected]}>
+                    <MaterialIcons name="cancel" size={18} color="#fff" />
+                  </View>
+                  <View style={styles.timelineContent}>
+                    <Text style={styles.timelineTitle}>Reddedildi</Text>
+                    {issue.statusHistory && Array.isArray(issue.statusHistory) && 
+                     issue.statusHistory.find(h => h && h.status === 'rejected') && (
+                      <Text style={styles.timelineDate}>
+                        {moment(issue.statusHistory.find(h => h && h.status === 'rejected').date).format('D MMMM YYYY')}
+                      </Text>
+                    )}
+                    <Text style={styles.timelineDescription}>
+                      Bildiriminiz yetkililer tarafından reddedildi. Ayrıntılı bilgi için resmi yanıtı kontrol edin.
+                    </Text>
+                  </View>
+                </View>
+              )}
+            </View>
         </View>
         )}
         
@@ -1361,6 +1668,111 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginTop: 5,
+  },
+  officialResponseContainer: {
+    padding: 15,
+    backgroundColor: '#f9f9ff',
+    borderRadius: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: '#3b82f6',
+    marginBottom: 10,
+  },
+  officialResponseHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  officialResponseMeta: {
+    flex: 1,
+    marginLeft: 10,
+  },
+  officialResponseAuthor: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  officialResponseTime: {
+    fontSize: 14,
+    color: '#666',
+  },
+  officialResponseText: {
+    fontSize: 15,
+    color: '#333',
+    lineHeight: 22,
+  },
+  timelineContainer: {
+    marginTop: 10,
+    paddingLeft: 5,
+  },
+  timelineItem: {
+    flexDirection: 'row',
+    marginBottom: 20,
+    position: 'relative',
+  },
+  timelineItemActive: {
+    opacity: 1,
+  },
+  timelineItemPending: {
+    opacity: 0.6,
+  },
+  timelineDot: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 15,
+    marginTop: 3,
+  },
+  timelineDotActive: {
+    backgroundColor: '#2196F3',
+  },
+  timelineDotPending: {
+    backgroundColor: '#bbb',
+  },
+  timelineDotRejected: {
+    backgroundColor: '#F44336',
+  },
+  timelineContent: {
+    flex: 1,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+    paddingBottom: 15,
+  },
+  timelineTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  timelineTitleActive: {
+    color: '#2196F3',
+  },
+  timelineTitlePending: {
+    color: '#666',
+  },
+  timelineDate: {
+    fontSize: 14,
+    color: '#999',
+    marginBottom: 4,
+  },
+  timelineDescription: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  timelineDescriptionActive: {
+    color: '#333',
+  },
+  timelineDescriptionPending: {
+    color: '#999',
+  },
+  officialResponseLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  officialResponseLoadingText: {
+    color: '#666',
+    marginLeft: 10,
   },
 });
 

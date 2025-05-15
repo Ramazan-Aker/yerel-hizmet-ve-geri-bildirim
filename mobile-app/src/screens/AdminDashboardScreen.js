@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, FlatList, Alert, RefreshContr
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const AdminDashboardScreen = ({ navigation }) => {
   const { user } = useAuth();
@@ -21,17 +22,19 @@ const AdminDashboardScreen = ({ navigation }) => {
   const loadIssues = async () => {
     try {
       setLoading(true);
-      const response = await api.issues.getAdminIssues();
+      const response = await api.admin.getAdminIssues();
       
       if (response.success && response.data) {
-        setIssues(response.data.issues || []);
+        let allIssues = response.data.issues || [];
+        
+        setIssues(allIssues);
         
         // İstatistikleri hesapla
-        const total = response.data.issues.length;
-        const newIssues = response.data.issues.filter(issue => issue.status === 'Yeni' || issue.status === 'pending').length;
-        const inProgressIssues = response.data.issues.filter(issue => issue.status === 'İnceleniyor' || issue.status === 'in_progress').length;
-        const resolvedIssues = response.data.issues.filter(issue => issue.status === 'Çözüldü' || issue.status === 'resolved').length;
-        const rejectedIssues = response.data.issues.filter(issue => issue.status === 'Reddedildi' || issue.status === 'rejected').length;
+        const total = allIssues.length;
+        const newIssues = allIssues.filter(issue => issue.status === 'Yeni' || issue.status === 'pending').length;
+        const inProgressIssues = allIssues.filter(issue => issue.status === 'İnceleniyor' || issue.status === 'in_progress').length;
+        const resolvedIssues = allIssues.filter(issue => issue.status === 'Çözüldü' || issue.status === 'resolved').length;
+        const rejectedIssues = allIssues.filter(issue => issue.status === 'Reddedildi' || issue.status === 'rejected').length;
         
         setStats({
           total,
@@ -41,20 +44,59 @@ const AdminDashboardScreen = ({ navigation }) => {
           rejected: rejectedIssues
         });
       } else {
-        Alert.alert('Hata', 'Sorunlar yüklenirken bir hata oluştu.');
+        Alert.alert('Hata', response.message || 'Sorunlar yüklenirken hata oluştu');
       }
     } catch (error) {
       console.error('Sorunlar yüklenirken hata:', error);
-      Alert.alert('Hata', 'Sorunlar yüklenirken bir hata oluştu.');
+      Alert.alert('Hata', 'Sorunlar yüklenirken bir hata oluştu');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  // Sayfa yüklendiğinde sorunları getir
+  // Kullanıcı profilini yükle ve şehir bilgisi kontrolü yap
+  const loadUserProfile = async () => {
+    try {
+      console.log("Kullanıcı profili güncelleniyor...");
+      const profileResponse = await api.auth.getUserProfile();
+      
+      if (profileResponse.success && profileResponse.data) {
+        const userData = profileResponse.data.data || profileResponse.data;
+        console.log("Alınan profil bilgileri:", JSON.stringify(userData, null, 2));
+        
+        // Kullanıcı verilerini AsyncStorage'a kaydet
+        await AsyncStorage.setItem('user', JSON.stringify(userData));
+        console.log("Kullanıcı bilgileri AsyncStorage'a kaydedildi");
+        
+        // Şehir bilgisi kontrolü
+        if (userData.role === 'municipal_worker') {
+          if (!userData.city || userData.city === "undefined" || userData.city === "") {
+            console.warn("Belediye çalışanı için şehir bilgisi eksik!");
+            Alert.alert(
+              "Eksik Bilgi",
+              "Belediye çalışanı olarak şehir bilginiz eksik. Lütfen profil sayfasından şehir bilginizi güncelleyin.",
+              [{ text: "Tamam", onPress: () => navigation.navigate('Profile') }]
+            );
+          } else {
+            console.log("Şehir bilgisi doğrulandı:", userData.city);
+          }
+        }
+        
+        return userData;
+      } else {
+        console.error("Profil bilgileri alınamadı:", profileResponse.message);
+      }
+    } catch (error) {
+      console.error("Profil yükleme hatası:", error);
+    }
+  };
+  
+  // Sayfa açıldığında çalışacak işlemler
   useEffect(() => {
-    loadIssues();
+    loadUserProfile().then(() => {
+      loadIssues();
+    });
   }, []);
 
   // Yenileme işlemi
@@ -138,7 +180,10 @@ const AdminDashboardScreen = ({ navigation }) => {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Yönetim Paneli</Text>
-        <Text style={styles.headerSubtitle}>Hoş geldiniz, {user?.name}</Text>
+        <Text style={styles.headerSubtitle}>
+          Hoş geldiniz, {user?.name}
+          {user?.role === 'municipal_worker' && user?.city && ` (${user.city})`}
+        </Text>
       </View>
 
       {/* İstatistik Kartları */}
@@ -161,7 +206,7 @@ const AdminDashboardScreen = ({ navigation }) => {
       <View style={styles.actionsContainer}>
         <TouchableOpacity 
           style={styles.actionButton}
-          onPress={() => navigation.navigate('AdminIssuesList', { filter: 'new' })}
+          onPress={() => navigation.navigate('AdminIssuesList', { filter: 'pending' })}
         >
           <Icon name="assignment" size={24} color="#3498db" />
           <Text style={styles.actionText}>Yeni Sorunlar</Text>

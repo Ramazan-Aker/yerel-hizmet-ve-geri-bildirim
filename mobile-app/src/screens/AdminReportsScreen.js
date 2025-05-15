@@ -14,16 +14,19 @@ import { Picker } from '@react-native-picker/picker';
 import { PieChart, BarChart } from 'react-native-chart-kit';
 import { Dimensions } from 'react-native';
 import api from '../utils/api';
+import { useAuth } from '../hooks/useAuth';
 
 const screenWidth = Dimensions.get('window').width;
 
 const AdminReportsScreen = ({ navigation }) => {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState({
     total: 0,
     byStatus: [],
     byCategory: [],
+    byCity: [],
     byDistrict: [],
     byMonth: []
   });
@@ -34,14 +37,47 @@ const AdminReportsScreen = ({ navigation }) => {
   const loadStats = async () => {
     try {
       setLoading(true);
+      console.log(`İstatistikler yükleniyor... Seçilen zaman aralığı: ${timeRange}`);
       
       // API'den istatistikleri al
       const response = await api.admin.getStats(timeRange);
+      console.log('API yanıtı:', response.success ? 'Başarılı' : 'Başarısız');
       
       if (response.success && response.data) {
-        setStats(response.data);
+        console.log('Alınan istatistik verileri:');
+        console.log('- Durum dağılımı:', response.data.byStatus?.length || 0, 'kayıt');
+        console.log('- Kategori dağılımı:', response.data.byCategory?.length || 0, 'kayıt');
+        console.log('- Şehir dağılımı:', response.data.byCity?.length || 0, 'kayıt');
+        console.log('- İlçe dağılımı:', response.data.byDistrict?.length || 0, 'kayıt');
+        console.log('- Aylık dağılım:', response.data.byMonth?.length || 0, 'kayıt');
+        
+        // İlçe verisi var mı kontrol et
+        if (response.data.byDistrict && response.data.byDistrict.length > 0) {
+          console.log('İlk ilçe kaydı örneği:', JSON.stringify(response.data.byDistrict[0]));
+        } else {
+          console.warn('İlçe verisi bulunamadı');
+        }
+        
+        // Eğer API yanıtında total değeri yoksa, durum verilerinden hesapla
+        const totalIssues = response.data.total || 
+          (response.data.byStatus && response.data.byStatus.length > 0 
+            ? response.data.byStatus.reduce((sum, item) => sum + item.count, 0)
+            : 0);
+        
+        // Kullanıcı rolüne göre görselleştirme verilerini ayarla
+        setStats({
+          ...response.data,
+          total: totalIssues,
+          // Eğer municipal_worker ise ve şehri tanımlıysa, ilçe dağılımını filtreleme
+          byDistrict: user?.role === 'municipal_worker' && user?.city ? 
+            (response.data.byDistrict || []).filter(item => 
+              item.city && item.city.toLowerCase() === user.city.toLowerCase()
+            ) : 
+            (response.data.byDistrict || [])
+        });
       } else {
-        Alert.alert('Hata', 'İstatistikler yüklenirken bir hata oluştu.');
+        console.error('İstatistik verileri alınamadı:', response.message);
+        Alert.alert('Hata', response.message || 'İstatistikler yüklenirken bir hata oluştu.');
       }
     } catch (error) {
       console.error('İstatistikler yüklenirken hata:', error);
@@ -112,73 +148,182 @@ const AdminReportsScreen = ({ navigation }) => {
   // Pasta grafik verisi (durum)
   const getStatusPieData = () => {
     if (!stats.byStatus || stats.byStatus.length === 0) {
+      console.log('Durum verisi bulunamadı veya boş:', stats.byStatus);
       return [];
     }
     
-    return stats.byStatus.map(item => ({
-      name: item.status,
-      count: item.count,
-      color: getStatusColor(item.status),
-      legendFontColor: '#7F7F7F',
-      legendFontSize: 12
-    }));
+    console.log('Durum verileri (ham):', JSON.stringify(stats.byStatus));
+    
+    // Durum verilerini dönüştürme
+    const processedData = stats.byStatus.map(item => {
+      // item.status veya item._id'yi kontrol et (backend yanıtına göre değişebilir)
+      const statusName = item.status || item._id || 'Bilinmeyen Durum';
+      return {
+        name: statusName,
+        count: item.count,
+        color: getStatusColor(statusName),
+        legendFontColor: '#7F7F7F',
+        legendFontSize: 12
+      };
+    });
+    
+    console.log('İşlenmiş durum verileri:', JSON.stringify(processedData));
+    return processedData;
   };
   
   // Pasta grafik verisi (kategori)
   const getCategoryPieData = () => {
     if (!stats.byCategory || stats.byCategory.length === 0) {
+      console.log('Kategori verisi bulunamadı veya boş:', stats.byCategory);
       return [];
     }
     
-    return stats.byCategory.map((item, index) => ({
-      name: item.category,
-      count: item.count,
-      color: getCategoryColor(item.category, index),
-      legendFontColor: '#7F7F7F',
-      legendFontSize: 12
-    }));
+    console.log('Kategori verileri (ham):', JSON.stringify(stats.byCategory));
+    
+    // Kategori verilerini dönüştürme
+    const processedData = stats.byCategory.map((item, index) => {
+      // item.category veya item._id'yi kontrol et (backend yanıtına göre değişebilir)
+      const categoryName = item.category || item._id || 'Bilinmeyen Kategori';
+      return {
+        name: categoryName,
+        count: item.count,
+        color: getCategoryColor(categoryName, index),
+        legendFontColor: '#7F7F7F',
+        legendFontSize: 12
+      };
+    });
+    
+    console.log('İşlenmiş kategori verileri:', JSON.stringify(processedData));
+    return processedData;
   };
   
   // Pasta grafik verisi (ilçe)
   const getDistrictPieData = () => {
     if (!stats.byDistrict || stats.byDistrict.length === 0) {
+      console.log('İlçe verisi bulunamadı veya boş:', stats.byDistrict);
       return [];
     }
     
-    return stats.byDistrict.slice(0, 5).map((item, index) => ({
-      name: item.district,
-      count: item.count,
-      color: `rgba(${Math.floor(Math.random() * 255)}, ${Math.floor(Math.random() * 255)}, ${Math.floor(Math.random() * 255)}, 1)`,
-      legendFontColor: '#7F7F7F',
-      legendFontSize: 12
-    }));
+    console.log('İlçe verileri (ham):', JSON.stringify(stats.byDistrict));
+    
+    // İlçe verilerini dönüştürme
+    const processedData = stats.byDistrict.map((item, index) => {
+      // item.district veya item._id'yi kontrol et (backend yanıtına göre değişebilir)
+      const districtName = item.district || item._id || 'Bilinmeyen İlçe';
+      
+      console.log(`İlçe #${index+1}:`, {
+        district: districtName,
+        count: item.count,
+        city: item.city || 'N/A' 
+      });
+      
+      return {
+        name: districtName,
+        count: item.count,
+        color: `rgba(${Math.floor(Math.random() * 200)}, ${Math.floor(Math.random() * 200)}, ${Math.floor(Math.random() * 200)}, 1)`,
+        legendFontColor: '#7F7F7F',
+        legendFontSize: 12
+      };
+    });
+    
+    console.log('İşlenmiş ilçe verileri:', JSON.stringify(processedData));
+    return processedData.slice(0, 5);
+  };
+  
+  // Pasta grafik verisi (şehir) - Yöneticiler için
+  const getCityPieData = () => {
+    if (!stats.byCity || stats.byCity.length === 0) {
+      console.log('Şehir verisi bulunamadı veya boş:', stats.byCity);
+      return [];
+    }
+    
+    console.log('Şehir verileri (ham):', JSON.stringify(stats.byCity));
+    
+    // Şehir verilerini dönüştürme
+    const processedData = stats.byCity.map((item, index) => {
+      // item.city veya item._id'yi kontrol et (backend yanıtına göre değişebilir)
+      const cityName = item.city || item._id || 'Bilinmeyen Şehir';
+      return {
+        name: cityName,
+        count: item.count,
+        color: `rgba(${Math.floor(Math.random() * 200)}, ${Math.floor(Math.random() * 200)}, ${Math.floor(Math.random() * 200)}, 1)`,
+        legendFontColor: '#7F7F7F',
+        legendFontSize: 12
+      };
+    });
+    
+    console.log('İşlenmiş şehir verileri:', JSON.stringify(processedData));
+    return processedData.slice(0, 5);
   };
   
   // Çubuk grafik verisi (aylık)
   const getMonthlyBarData = () => {
     if (!stats.byMonth || stats.byMonth.length === 0) {
+      console.log('Aylık veri bulunamadı veya boş:', stats.byMonth);
       return {
         labels: [],
         datasets: [{ data: [] }]
       };
     }
     
-    const sortedMonths = [...stats.byMonth].sort((a, b) => {
-      const dateA = new Date(a.year, a.month - 1, 1);
-      const dateB = new Date(b.year, b.month - 1, 1);
-      return dateA - dateB;
-    });
+    console.log('Aylık veriler (ham):', JSON.stringify(stats.byMonth));
     
-    const months = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
-    
-    return {
-      labels: sortedMonths.map(item => `${months[item.month - 1]}`),
-      datasets: [
-        {
-          data: sortedMonths.map(item => item.count)
+    try {
+      // Veri formatını kontrol et ve düzelt
+      const processedMonthData = stats.byMonth.map(item => {
+        // Backend'den gelen format farklı olabilir
+        // _id string (örn. "2023-05") veya object (örn. {year: 2023, month: 5}) olabilir
+        let year, month;
+        
+        if (typeof item._id === 'string' && item._id.includes('-')) {
+          // String format: "2023-05"
+          const parts = item._id.split('-');
+          year = parseInt(parts[0]);
+          month = parseInt(parts[1]);
+        } else if (item._id && typeof item._id === 'object') {
+          // Object format: {year: 2023, month: 5}
+          year = item._id.year;
+          month = item._id.month;
+        } else {
+          // Diğer durumlar - doğrudan year ve month özelliklerini kullan
+          year = item.year || new Date().getFullYear();
+          month = item.month || 1;
         }
-      ]
-    };
+        
+        return {
+          year,
+          month,
+          count: item.count
+        };
+      });
+      
+      const sortedMonths = [...processedMonthData].sort((a, b) => {
+        // Yıl ve ay bilgilerine göre sırala
+        if (a.year !== b.year) {
+          return a.year - b.year;
+        }
+        return a.month - b.month;
+      });
+      
+      console.log('İşlenmiş aylık veriler:', JSON.stringify(sortedMonths));
+      
+      const months = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
+      
+      return {
+        labels: sortedMonths.map(item => `${months[item.month - 1]} ${item.year}`),
+        datasets: [
+          {
+            data: sortedMonths.map(item => item.count)
+          }
+        ]
+      };
+    } catch (error) {
+      console.error('Aylık verileri işlerken hata:', error);
+      return {
+        labels: [],
+        datasets: [{ data: [] }]
+      };
+    }
   };
   
   // Çizelge konfigürasyonu
@@ -186,9 +331,9 @@ const AdminReportsScreen = ({ navigation }) => {
     backgroundGradientFrom: '#fff',
     backgroundGradientTo: '#fff',
     color: (opacity = 1) => `rgba(52, 152, 219, ${opacity})`,
-    strokeWidth: 2, // İsteğe bağlı
+    strokeWidth: 2,
     barPercentage: 0.5,
-    useShadowColorFromDataset: false, // İsteğe bağlı
+    useShadowColorFromDataset: false,
     decimalPlaces: 0
   };
   
@@ -248,10 +393,34 @@ const AdminReportsScreen = ({ navigation }) => {
       case 'district':
         return (
           <View style={styles.chartContainer}>
-            <Text style={styles.chartTitle}>İlçelere Göre Dağılım (İlk 5)</Text>
+            <Text style={styles.chartTitle}>
+              {user?.role === 'municipal_worker' ? `${user.city} İlçelerine Göre Dağılım` : 'İlçelere Göre Dağılım (İlk 5)'}
+            </Text>
             {getDistrictPieData().length > 0 ? (
               <PieChart
                 data={getDistrictPieData()}
+                width={screenWidth - 32}
+                height={220}
+                chartConfig={chartConfig}
+                accessor="count"
+                backgroundColor="transparent"
+                paddingLeft="15"
+                absolute
+              />
+            ) : (
+              <Text style={styles.noDataText}>Veri bulunamadı</Text>
+            )}
+          </View>
+        );
+      
+      case 'city':
+        // Yalnızca admin kullanıcılar için şehir dağılımı göster
+        return (
+          <View style={styles.chartContainer}>
+            <Text style={styles.chartTitle}>Şehirlere Göre Dağılım (İlk 5)</Text>
+            {getCityPieData().length > 0 ? (
+              <PieChart
+                data={getCityPieData()}
                 width={screenWidth - 32}
                 height={220}
                 chartConfig={chartConfig}
@@ -391,6 +560,18 @@ const AdminReportsScreen = ({ navigation }) => {
             </Text>
           </TouchableOpacity>
           
+          {/* Şehir filtresini yalnızca admin kullanıcılar için göster */}
+          {user?.role === 'admin' && (
+            <TouchableOpacity
+              style={[styles.chartTypeButton, filterType === 'city' && styles.chartTypeButtonActive]}
+              onPress={() => setFilterType('city')}
+            >
+              <Text style={[styles.chartTypeText, filterType === 'city' && styles.chartTypeTextActive]}>
+                Şehir
+              </Text>
+            </TouchableOpacity>
+          )}
+          
           <TouchableOpacity
             style={[styles.chartTypeButton, filterType === 'monthly' && styles.chartTypeButtonActive]}
             onPress={() => setFilterType('monthly')}
@@ -410,65 +591,105 @@ const AdminReportsScreen = ({ navigation }) => {
           
           {filterType === 'status' && stats.byStatus && (
             <View style={styles.detailsList}>
-              {stats.byStatus.map((item, index) => (
-                <View key={index} style={styles.detailsItem}>
-                  <View style={[styles.colorIndicator, { backgroundColor: getStatusColor(item.status) }]} />
-                  <Text style={styles.detailsLabel}>{item.status}</Text>
-                  <Text style={styles.detailsValue}>{item.count}</Text>
-                  <Text style={styles.detailsPercent}>
-                    {stats.total ? `${Math.round((item.count / stats.total) * 100)}%` : '0%'}
-                  </Text>
-                </View>
-              ))}
+              {stats.byStatus.map((item, index) => {
+                // Durum adı item.status veya item._id'den alınabilir
+                const statusName = item.status || item._id || 'Bilinmeyen Durum';
+                return (
+                  <View key={index} style={styles.detailsItem}>
+                    <View style={[styles.colorIndicator, { backgroundColor: getStatusColor(statusName) }]} />
+                    <Text style={styles.detailsLabel}>{statusName}</Text>
+                    <Text style={styles.detailsValue}>{item.count}</Text>
+                    <Text style={styles.detailsPercent}>
+                      {stats.total ? `${Math.round((item.count / stats.total) * 100)}%` : '0%'}
+                    </Text>
+                  </View>
+                );
+              })}
             </View>
           )}
           
           {filterType === 'category' && stats.byCategory && (
             <View style={styles.detailsList}>
-              {stats.byCategory.map((item, index) => (
-                <View key={index} style={styles.detailsItem}>
-                  <View style={[styles.colorIndicator, { backgroundColor: getCategoryColor(item.category, index) }]} />
-                  <Text style={styles.detailsLabel}>{item.category}</Text>
-                  <Text style={styles.detailsValue}>{item.count}</Text>
-                  <Text style={styles.detailsPercent}>
-                    {stats.total ? `${Math.round((item.count / stats.total) * 100)}%` : '0%'}
-                  </Text>
-                </View>
-              ))}
+              {stats.byCategory.map((item, index) => {
+                // Kategori adı item.category veya item._id'den alınabilir
+                const categoryName = item.category || item._id || 'Bilinmeyen Kategori';
+                return (
+                  <View key={index} style={styles.detailsItem}>
+                    <View style={[styles.colorIndicator, { backgroundColor: getCategoryColor(categoryName, index) }]} />
+                    <Text style={styles.detailsLabel}>{categoryName}</Text>
+                    <Text style={styles.detailsValue}>{item.count}</Text>
+                    <Text style={styles.detailsPercent}>
+                      {stats.total ? `${Math.round((item.count / stats.total) * 100)}%` : '0%'}
+                    </Text>
+                  </View>
+                );
+              })}
             </View>
           )}
           
           {filterType === 'district' && stats.byDistrict && (
             <View style={styles.detailsList}>
-              {stats.byDistrict.map((item, index) => (
-                <View key={index} style={styles.detailsItem}>
-                  <View 
-                    style={[
-                      styles.colorIndicator, 
-                      { backgroundColor: `rgba(${Math.floor(Math.random() * 255)}, ${Math.floor(Math.random() * 255)}, ${Math.floor(Math.random() * 255)}, 1)` }
-                    ]} 
-                  />
-                  <Text style={styles.detailsLabel} numberOfLines={1}>{item.district}</Text>
-                  <Text style={styles.detailsValue}>{item.count}</Text>
-                  <Text style={styles.detailsPercent}>
-                    {stats.total ? `${Math.round((item.count / stats.total) * 100)}%` : '0%'}
-                  </Text>
-                </View>
-              ))}
+              {stats.byDistrict.map((item, index) => {
+                // İlçe adı item.district veya item._id'den alınabilir
+                const districtName = item.district || item._id || 'Bilinmeyen İlçe';
+                return (
+                  <View key={index} style={styles.detailsItem}>
+                    <View 
+                      style={[
+                        styles.colorIndicator, 
+                        { backgroundColor: `rgba(${Math.floor(Math.random() * 200)}, ${Math.floor(Math.random() * 200)}, ${Math.floor(Math.random() * 200)}, 1)` }
+                      ]} 
+                    />
+                    <Text style={styles.detailsLabel} numberOfLines={1}>{districtName}</Text>
+                    <Text style={styles.detailsValue}>{item.count}</Text>
+                    <Text style={styles.detailsPercent}>
+                      {stats.total ? `${Math.round((item.count / stats.total) * 100)}%` : '0%'}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+          
+          {filterType === 'city' && stats.byCity && user?.role === 'admin' && (
+            <View style={styles.detailsList}>
+              {stats.byCity.map((item, index) => {
+                // Şehir adı item.city veya item._id'den alınabilir
+                const cityName = item.city || item._id || 'Bilinmeyen Şehir';
+                return (
+                  <View key={index} style={styles.detailsItem}>
+                    <View 
+                      style={[
+                        styles.colorIndicator, 
+                        { backgroundColor: `rgba(${Math.floor(Math.random() * 200)}, ${Math.floor(Math.random() * 200)}, ${Math.floor(Math.random() * 200)}, 1)` }
+                      ]} 
+                    />
+                    <Text style={styles.detailsLabel} numberOfLines={1}>{cityName}</Text>
+                    <Text style={styles.detailsValue}>{item.count}</Text>
+                    <Text style={styles.detailsPercent}>
+                      {stats.total ? `${Math.round((item.count / stats.total) * 100)}%` : '0%'}
+                    </Text>
+                  </View>
+                );
+              })}
             </View>
           )}
           
           {filterType === 'monthly' && stats.byMonth && (
             <View style={styles.detailsList}>
-              {getMonthlyBarData().labels.map((label, index) => (
-                <View key={index} style={styles.detailsItem}>
-                  <View style={[styles.colorIndicator, { backgroundColor: '#3498db' }]} />
-                  <Text style={styles.detailsLabel}>
-                    {label} {stats.byMonth[index].year}
-                  </Text>
-                  <Text style={styles.detailsValue}>{stats.byMonth[index].count}</Text>
-                </View>
-              ))}
+              {getMonthlyBarData().labels.map((label, index) => {
+                const monthData = getMonthlyBarData().datasets[0].data[index];
+                return (
+                  <View key={index} style={styles.detailsItem}>
+                    <View style={[styles.colorIndicator, { backgroundColor: '#3498db' }]} />
+                    <Text style={styles.detailsLabel}>{label}</Text>
+                    <Text style={styles.detailsValue}>{monthData}</Text>
+                    <Text style={styles.detailsPercent}>
+                      {stats.total ? `${Math.round((monthData / stats.total) * 100)}%` : '0%'}
+                    </Text>
+                  </View>
+                );
+              })}
             </View>
           )}
         </View>
@@ -573,12 +794,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     marginBottom: 16,
+    flexWrap: 'wrap',
   },
   chartTypeButton: {
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 16,
     backgroundColor: '#f2f2f2',
+    marginBottom: 8,
+    minWidth: 60,
+    alignItems: 'center',
   },
   chartTypeButtonActive: {
     backgroundColor: '#3498db',

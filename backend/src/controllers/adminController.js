@@ -685,6 +685,19 @@ exports.getReports = async (req, res) => {
       { $limit: 10 }
     ]);
     
+    // Şehir dağılımı
+    const byCity = await Issue.aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: '$location.city',
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { count: -1 } },
+      { $limit: 10 }
+    ]);
+    
     // Aylık dağılım
     const byMonth = await Issue.aggregate([
       { $match: filter },
@@ -741,6 +754,7 @@ exports.getReports = async (req, res) => {
         byStatus,
         byCategory,
         byDistrict,
+        byCity,
         byMonth
       }
     });

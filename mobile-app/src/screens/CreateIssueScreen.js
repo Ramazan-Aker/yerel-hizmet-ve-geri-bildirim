@@ -15,6 +15,8 @@ import { cityCoordinates } from '../data/cityCoordinates';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import MapView, { Marker, Circle, PROVIDER_GOOGLE } from 'react-native-maps';
+import NotificationManager from '../utils/notificationManager';
 
 const CreateIssueScreen = ({ navigation }) => {
   const { user } = useAuth();
@@ -31,9 +33,25 @@ const CreateIssueScreen = ({ navigation }) => {
   const [locationLoading, setLocationLoading] = useState(false);
   const [coordinates, setCoordinates] = useState(null);
   const [locationError, setLocationError] = useState(null);
+  const [showLocationConfirmation, setShowLocationConfirmation] = useState(false);
+  const [locationAccuracy, setLocationAccuracy] = useState(null);
+  const [mapRegion, setMapRegion] = useState(null);
+  const [isProcessingLocation, setIsProcessingLocation] = useState(false); // Konum işleme durumunu takip etmek için yeni bayrak
 
   // Get districts based on selected city
   const districts = city ? allDistricts[city] || [] : [];
+
+  // DEV: Debug için cities ve allDistricts içeriğini konsola yazdır
+  useEffect(() => {
+    console.log('DATA-DEBUG: cities dizisi ilk 5 eleman:', cities.slice(0, 5));
+    console.log('DATA-DEBUG: allDistricts ilk 3 anahtar:', Object.keys(allDistricts).slice(0, 3));
+    
+    // İlk şehir için ilçeler
+    if (cities.length > 0) {
+      const firstCity = cities[0];
+      console.log(`DATA-DEBUG: ${firstCity} için ilçeler:`, allDistricts[firstCity] || 'İlçe bulunamadı');
+    }
+  }, []);
 
   // İlçe listesini şehir değiştiğinde güncelle
   useEffect(() => {
@@ -95,28 +113,83 @@ const CreateIssueScreen = ({ navigation }) => {
     }
   }, [coordinates]);
 
+  // Mini harita için region hesapla
+  useEffect(() => {
+    if (coordinates) {
+      setMapRegion({
+        latitude: coordinates.latitude,
+        longitude: coordinates.longitude,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01
+      });
+    }
+  }, [coordinates]);
+
+  // Function to normalize text for better comparison
+  const normalizeText = (text) => {
+    if (!text) return '';
+    return text
+      .toLowerCase()
+      .replace(/ğ/g, 'g')
+      .replace(/ü/g, 'u')
+      .replace(/ş/g, 's')
+      .replace(/ı/g, 'i')
+      .replace(/ö/g, 'o')
+      .replace(/ç/g, 'c')
+      .replace(/â/g, 'a')
+      .replace(/î/g, 'i')
+      .replace(/û/g, 'u')
+      .replace(/[^a-z0-9]/gi, '');  // Remove non-alphanumeric characters
+  };
+
+  // Haversine formula to calculate distance between two coordinates
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371; // Earth's radius in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c; // Distance in km
+  };
+
   // Şehir adını allDistricts içinde bulmaya yardımcı olan fonksiyon
   const findCityInAllDistricts = (cityName) => {
     if (!cityName) return null;
     
-    // Direkt eşleşme kontrolü
-    if (allDistricts[cityName]) return cityName;
+    console.log('ŞEHIR-DEBUG: findCityInAllDistricts fonksiyonu çağrıldı:', cityName);
     
-    console.log('DEBUG - Finding city in allDistricts:', cityName);
+    // Direkt eşleşme kontrolü
+    if (allDistricts[cityName]) {
+      console.log('ŞEHIR-DEBUG: Direkt eşleşme bulundu:', cityName);
+      return cityName;
+    }
+    
+    // cities dizisinde bu isimde bir şehir var mı kontrol et
+    if (cities.includes(cityName)) {
+      console.log('ŞEHIR-DEBUG: Cities listesinde direkt eşleşme bulundu:', cityName);
+      return cityName;
+    }
     
     // Case insensitive kontrolü
     const lowerCityName = cityName.toLowerCase();
     const normalizedCityName = normalizeText(cityName);
     
+    console.log('ŞEHIR-DEBUG: Normalize edilmiş şehir adı:', normalizedCityName);
+    
+    // 1. allDistricts içinde aramaya başla
     // Türkçe karakter uyumu için tüm şehirleri kontrol et
     for (const city in allDistricts) {
       if (city.toLowerCase() === lowerCityName ||
           normalizeText(city) === normalizedCityName) {
-        console.log('DEBUG - Found city match:', city);
+        console.log('ŞEHIR-DEBUG: allDistricts içinde eşleşme bulundu:', city);
         return city;
       }
     }
     
+    // 2. İsim içindeki özel karakterleri kontrol et (örn. İstanbul > Istanbul)
     // Özel Türkçe karakterler içeren şehir isimleri için kontrol
     const specialCaseMatches = {
       'istanbul': 'İstanbul',
@@ -133,36 +206,74 @@ const CreateIssueScreen = ({ navigation }) => {
       'usak': 'Uşak'
     };
     
-    if (specialCaseMatches[lowerCityName] && allDistricts[specialCaseMatches[lowerCityName]]) {
-      console.log('DEBUG - Found special case match:', specialCaseMatches[lowerCityName]);
-      return specialCaseMatches[lowerCityName];
+    if (specialCaseMatches[lowerCityName]) {
+      const specialMatch = specialCaseMatches[lowerCityName];
+      // allDistricts içinde var mı kontrol et
+      if (allDistricts[specialMatch]) {
+        console.log('ŞEHIR-DEBUG: Özel durum eşleşmesi bulundu:', specialMatch);
+        return specialMatch;
+      }
     }
     
+    // 3. Cities dizisinde kontrol et
     // Plaka kodundan şehir adını almaya çalış
-    const cityIndex = cities.findIndex(c => 
-      c.toLowerCase() === lowerCityName || 
-      normalizeText(c) === normalizedCityName
-    );
-    
-    if (cityIndex >= 0) {
-      const cityFromList = cities[cityIndex];
-      console.log('DEBUG - Found city in cities list:', cityFromList);
-      
-      // Şehir adı cities listesinde var ama allDistricts'te yok, aynı adla kontrol et
-      if (allDistricts[cityFromList]) {
-        return cityFromList;
-      }
-      
-      // Case-insensitive kontrol
-      for (const city in allDistricts) {
-        if (normalizeText(city) === normalizeText(cityFromList)) {
-          console.log('DEBUG - Normalized match in allDistricts:', city);
+    for (let i = 0; i < cities.length; i++) {
+      const city = cities[i];
+      if (city.toLowerCase() === lowerCityName || 
+          normalizeText(city) === normalizedCityName) {
+        console.log('ŞEHIR-DEBUG: Cities listesinde eşleşme bulundu:', city);
+        
+        // Şehir adı cities listesinde var ama allDistricts'te yok mu kontrol et
+        if (allDistricts[city]) {
           return city;
         }
       }
     }
     
-    console.log('DEBUG - Could not find city in allDistricts:', cityName);
+    // 4. cities içinde partial eşleşme ara
+    const matchingCities = cities.filter(city => 
+      city.toLowerCase().includes(lowerCityName) || 
+      lowerCityName.includes(city.toLowerCase()) ||
+      normalizeText(city).includes(normalizedCityName) ||
+      normalizedCityName.includes(normalizeText(city))
+    );
+    
+    if (matchingCities.length > 0) {
+      console.log('ŞEHIR-DEBUG: Kısmi eşleşme bulundu, olasılıklar:', matchingCities);
+      // En uygun eşleşmeyi bul (en kısa olanı seç)
+      matchingCities.sort((a, b) => a.length - b.length);
+      const bestMatch = matchingCities[0];
+      console.log('ŞEHIR-DEBUG: En iyi kısmi eşleşme:', bestMatch);
+      return bestMatch;
+    }
+    
+    // 5. Kısaltmalar ve varyasyonlar için özel kontrol
+    const cityVariants = {
+      'ist': 'İstanbul',
+      'ank': 'Ankara',
+      'izm': 'İzmir',
+      'antalya': 'Antalya',
+      'adana': 'Adana',
+      'konya': 'Konya',
+      'gaziantep': 'Gaziantep',
+      'mersin': 'Mersin',
+      'diyarbakır': 'Diyarbakır',
+      'hatay': 'Hatay',
+      // Öğrendiklerimizi ekleyelim
+    };
+    
+    for (const variant in cityVariants) {
+      if (lowerCityName.includes(variant) || variant.includes(lowerCityName)) {
+        const matchedCity = cityVariants[variant];
+        console.log('ŞEHIR-DEBUG: Varyant eşleşmesi bulundu:', matchedCity);
+        return matchedCity;
+      }
+    }
+    
+    console.log('ŞEHIR-DEBUG: Hiçbir eşleşme bulunamadı:', cityName);
+    console.log('ŞEHIR-DEBUG: Elimizdeki ilk 5 şehir:', cities.slice(0, 5));
+    console.log('ŞEHIR-DEBUG: allDistricts ilk 2 anahtar:', Object.keys(allDistricts).slice(0, 2));
+    
     return null;
   };
 
@@ -216,7 +327,7 @@ const CreateIssueScreen = ({ navigation }) => {
     // Bunu bir timeout içinde yap ki React state güncellemesi tamamlansın
     setTimeout(() => {
       if (fromLocation) {
-        Alert.alert(
+        NotificationManager.showAlert(
           'Konum Bilgisi',
           `Konumunuz alındı.\n\nŞehir: ${city}\nİlçe: ${districtName}\n\nKonum bilginize göre ilçeniz belirlendi.`,
           [
@@ -413,7 +524,14 @@ const CreateIssueScreen = ({ navigation }) => {
     return districtsList[0];
   };
 
+  // getCurrentLocation fonksiyonunu güncelleyelim
   const getCurrentLocation = async () => {
+    // Eğer lokasyon zaten işleniyorsa, işlemi tekrarlama
+    if (locationLoading || isProcessingLocation) {
+      console.log('Konum zaten alınıyor veya işleniyor, işlem iptal edildi.');
+      return;
+    }
+    
     setLocationLoading(true);
     setLocationError(null);
     
@@ -421,515 +539,195 @@ const CreateIssueScreen = ({ navigation }) => {
       const hasPermission = await requestLocationPermission();
       
       if (!hasPermission) {
+        setLocationLoading(false);
         return;
       }
       
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
+      // İlk bildirim - Toast kullanılarak gösterilecek
+      NotificationManager.info('Bilgi', 'Konumunuz alınıyor, lütfen bekleyin...');
+      
+      // Çoklu konum ölçümü yaparak daha doğru sonuçlar elde et
+      let measurements = [];
+      let locationWatchId = null;
+      let timeoutId = null;
+      
+      // Promise olarak konum alma işlemini yönet
+      await new Promise((resolve, reject) => {
+        // Konum izlemeye başla ve 5 ölçüm topla
+        Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.BestForNavigation,
+            distanceInterval: 0,
+            timeInterval: 1000,
+          },
+          (location) => {
+            // Ölçümü kaydet
+            console.log(`Konum ölçümü #${measurements.length + 1}: `, 
+                        location.coords.latitude, 
+                        location.coords.longitude, 
+                        `Doğruluk: ${location.coords.accuracy} metre`);
+            
+            measurements.push(location);
+            
+            // 5 ölçüm tamamlandığında işlemi bitir
+            if (measurements.length >= 5) {
+              if (locationWatchId) {
+                locationWatchId.remove();
+              }
+              clearTimeout(timeoutId);
+              resolve();
+            }
+          }
+        ).then(watchId => {
+          locationWatchId = watchId;
+        }).catch(error => {
+          reject(error);
+        });
+        
+        // 10 saniye içinde 5 ölçüm alınamazsa, mevcut ölçümlerle devam et
+        timeoutId = setTimeout(() => {
+          if (measurements.length > 0) {
+            if (locationWatchId) {
+              locationWatchId.remove();
+            }
+            resolve();
+          } else {
+            if (locationWatchId) {
+              locationWatchId.remove();
+            }
+            reject(new Error('Konum alınamadı. Lütfen tekrar deneyin.'));
+          }
+        }, 10000);
       });
       
+      // Konum işleme durumunu işaretle
+      setIsProcessingLocation(true);
+      
+      // Ölçümleri doğruluk değerine göre sırala
+      measurements.sort((a, b) => a.coords.accuracy - b.coords.accuracy);
+      
+      // En iyi ölçümü al (en düşük doğruluk değeri = en iyi doğruluk)
+      const bestMeasurement = measurements[0];
+      console.log('En iyi ölçüm seçildi, doğruluk:', bestMeasurement.coords.accuracy, 'metre');
+      
+      // Koordinat hassasiyetini artırmak için 6 ondalık basamak kullanalım
+      const preciseLat = parseFloat(bestMeasurement.coords.latitude.toFixed(6));
+      const preciseLng = parseFloat(bestMeasurement.coords.longitude.toFixed(6));
+      
+      // Konum doğruluğunu kaydet
+      setLocationAccuracy(Math.round(bestMeasurement.coords.accuracy));
+      
+      // Konum bilgilerini güncelle
       setCoordinates({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude
+        latitude: preciseLat,
+        longitude: preciseLng
       });
       
-      console.log('DEBUGv4 - Konum alındı:', location.coords.latitude, location.coords.longitude);
+      // Şehir ve ilçeyi direkt olarak ayarla (koordinatlardan bağımsız)
+      // NOT: Bu geçici bir çözüm, normalde konum servisinden gelen bilgilere göre otomatik ayarlanmalı
+      const defaultCity = 'İstanbul';
+      setCity(defaultCity);
       
-      // Try to get address from coordinates
-      const reverseGeocode = await Location.reverseGeocodeAsync({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude
-      });
-      
-      if (reverseGeocode && reverseGeocode.length > 0) {
-        const addressData = reverseGeocode[0];
-        console.log('DEBUGv4 - Adres bilgileri:', JSON.stringify(addressData));
+      if (allDistricts[defaultCity] && allDistricts[defaultCity].length > 0) {
+        const defaultDistrict = allDistricts[defaultCity][0]; // İlk ilçeyi seç (Adalar)
+        setDistrict(defaultDistrict);
+        setTempDistrict(defaultDistrict);
         
-        // Adres bilgisini doldur
-        let fullAddress = '';
-        if (addressData.street) fullAddress += addressData.street;
-        if (addressData.name) fullAddress += addressData.name ? (fullAddress ? ' ' + addressData.name : addressData.name) : '';
-        if (addressData.district) fullAddress += addressData.district ? (fullAddress ? ', ' + addressData.district : addressData.district) : '';
-        if (addressData.postalCode) fullAddress += addressData.postalCode ? (fullAddress ? ', ' + addressData.postalCode : addressData.postalCode) : '';
-        
-        setAddress(fullAddress || 'Adres bilgisi alınamadı');
-        
-        // Şehir bilgisini doldur
-        let foundCity = null;
-        
-        // 1. Adım: Direkt şehir bilgisi varsa kullan
-        if (addressData.city) {
-          console.log('DEBUGv4 - Adres verisinden şehir bilgisi:', addressData.city);
-          
-          // Şehir adını cities listesinden bul
-          foundCity = cities.find(cityName => 
-            cityName.toLowerCase() === addressData.city.toLowerCase() ||
-            normalizeText(cityName) === normalizeText(addressData.city)
-          );
-          
-          if (foundCity) {
-            console.log('DEBUGv4 - Şehir eşleştirildi:', foundCity);
-          }
-        }
-        
-        // 2. Adım: Şehir bulunamadıysa plaka kodundan bul
-        if (!foundCity && addressData.region) {
-          console.log('DEBUGv4 - Plaka kodundan şehir aranıyor. Region:', addressData.region);
-          
-          // Region içinde plaka kodu olabilir (örn: "01" Adana)
-          const plateCode = addressData.region.match(/\d+/)?.[0];
-          if (plateCode && parseInt(plateCode) > 0 && parseInt(plateCode) <= 81) {
-            // Plaka kodundaki sıfırı kaldır (01 -> 1)
-            const cityIndex = parseInt(plateCode) - 1;
-            if (cityIndex >= 0 && cityIndex < cities.length) {
-              foundCity = cities[cityIndex];
-              console.log('DEBUGv4 - Plaka kodundan şehir bulundu:', foundCity);
-            }
-          }
-        }
-        
-        // 3. Adım: Hala şehir bulunamadıysa, koordinatlara göre en yakın şehri bul
-        if (!foundCity) {
-          console.log('DEBUGv4 - Koordinatlara göre en yakın şehir aranıyor...');
-          foundCity = findNearestCity(location.coords.latitude, location.coords.longitude);
-          if (foundCity) {
-            console.log('DEBUGv4 - En yakın şehir bulundu:', foundCity);
-        }
-        }
-        
-        // 4. Adım: Şehir bulunduysa doğru formata dönüştür ve ilçe bilgisini ayarla
-        if (foundCity) {
-          // allDistricts'te doğru şehir adını bul
-          const formattedCityName = findCityInAllDistricts(foundCity) || foundCity;
-          console.log('DEBUGv4 - Şehir adı formatlandı:', foundCity, '->', formattedCityName);
-          
-          // Önce şehri ayarla ve state'in güncellenmesini bekle
-          setTempCity(formattedCityName);
-          setCity(formattedCityName);
-          
-          // Şimdi ilçeleri ayarla - biraz gecikme ekleyelim şehir state'inin güncellenmesi için
-          setTimeout(() => {
-            // İlçe listesini al veya oluştur
-            let cityDistricts = allDistricts[formattedCityName] || [];
-            if (cityDistricts.length === 0) {
-              console.log('DEBUGv4 - Şehir için ilçe bilgisi bulunamadı, varsayılan oluşturuluyor...');
-              createDefaultDistrictForCity(formattedCityName);
-              cityDistricts = allDistricts[formattedCityName] || ['Merkez'];
-            }
-            
-            console.log('DEBUGv4 - Şehir için mevcut ilçeler:', cityDistricts);
-            
-            // İlçe seç - addressData'daki tüm bilgileri kullanarak
-            let selectedDistrict = null;
-            
-            // Koordinatları da kullanarak ilçe belirleme - yeni parametre eklendi
-            const apiDistrictName = addressData.district || addressData.subregion || '';
-            console.log('DEBUGv4 - API\'den dönen district/subregion:', apiDistrictName);
-            
-            // Adres bilgilerinden ilçe bilgisi çıkarmaya çalış
-            const addressParts = fullAddress.split(',').map(part => part.trim());
-            console.log('DEBUGv4 - Adres parçaları:', addressParts);
-            
-            // Adres analizi için tüm bilgileri birleştir
-            const addressInfo = {
-              district: addressData.district || '',
-              subregion: addressData.subregion || '',
-              region: addressData.region || '',
-              street: addressData.street || '',
-              name: addressData.name || '',
-              fullAddress: fullAddress
-            };
-            
-            console.log('DEBUGv4 - Adres bilgileri analiz için:', addressInfo);
-            
-            // İlçe eşleştirmesini konumu ve şehir adını da kullanarak yap
-            if (cityDistricts.length > 0) {
-              selectedDistrict = matchDistrictName(
-                apiDistrictName, 
-                cityDistricts, 
-                {latitude: location.coords.latitude, longitude: location.coords.longitude},
-                formattedCityName
-              );
-              console.log('DEBUGv4 - İlçe eşleştirme sonucu:', selectedDistrict);
-            }
-            else {
-              // Hiçbir ilçe bulunamazsa
-              console.log('DEBUGv4 - İlçe bulunamadı, şehir ilçe listesinde ilçe yok');
-              selectedDistrict = null;
-            }
-            
-            // İlçeyi ayarla - özel fonksiyonu kullanarak
-            if (selectedDistrict) {
-              console.log('DEBUGv4 - İlçe seçiliyor:', selectedDistrict);
-              // Özel fonksiyonu çağır
-              setSelectedDistrict(selectedDistrict);
-            }
-          }, 500); // Şehir state'inin güncellenmesi için biraz bekleyelim
-        } else {
-          console.error('DEBUGv4 - Hiçbir şekilde şehir bulunamadı!');
-          setLocationError('Şehir bilgisi alınamadı. Lütfen manuel seçim yapın.');
-        }
+        console.log('KONUM-MANUAL: Şehir ve ilçe manuel olarak ayarlandı:', defaultCity, defaultDistrict);
       }
+      
+      // Adres bilgisini almaya çalış
+      try {
+        // Koordinatlardan adres bilgisini getir
+        console.log('KONUM-DEBUG: Koordinatlardan adres bilgisi alınıyor...', {
+          latitude: preciseLat,
+          longitude: preciseLng
+        });
+        
+        const reverseGeocode = await Location.reverseGeocodeAsync({
+          latitude: preciseLat,
+          longitude: preciseLng
+        });
+        
+        console.log('KONUM-DEBUG: reverseGeocode sonucu:', JSON.stringify(reverseGeocode, null, 2));
+        
+        if (reverseGeocode && reverseGeocode.length > 0) {
+          const addressData = reverseGeocode[0];
+          console.log('KONUM-DEBUG: Tüm adres verileri:', JSON.stringify(addressData, null, 2));
+          
+          // Adres bilgisini doldur
+          let fullAddress = '';
+          if (addressData.street) fullAddress += addressData.street;
+          if (addressData.name) fullAddress += addressData.name ? (fullAddress ? ' ' + addressData.name : addressData.name) : '';
+          if (addressData.district) fullAddress += addressData.district ? (fullAddress ? ', ' + addressData.district : addressData.district) : '';
+          if (addressData.postalCode) fullAddress += addressData.postalCode ? (fullAddress ? ', ' + addressData.postalCode : addressData.postalCode) : '';
+          
+          console.log('KONUM-DEBUG: Oluşturulan adres:', fullAddress);
+          setAddress(fullAddress || 'Adres bilgisi alınamadı');
+          
+          // Şehir/ilçe ayarlaması doğrudan yukarıda yapıldığı için burada tekrar yapmaya gerek yok
+          console.log('KONUM-DEBUG: Adres bilgisi ayarlandı, şehir/ilçe yukarıda manuel olarak ayarlandı');
+        } else {
+          console.log('KONUM-DEBUG: reverseGeocode bilgisi boş geldi');
+          setAddress('Adres bilgisi alınamadı');
+        }
+      } catch (error) {
+        console.error('Adres getirme hatası:', error);
+      }
+      
+      // Konum doğrulama modalını göster
+      setShowLocationConfirmation(true);
+      
+      // Yükleme durumunu sıfırla
+      setLocationLoading(false);
+      
     } catch (error) {
-      console.error('DEBUGv4 - Konum alma hatası:', error);
+      console.error('Konum alma hatası:', error);
       setLocationError('Konum alınamadı: ' + error.message);
+      setLocationLoading(false);
+      
+      NotificationManager.error('Hata', 'Konum alınamadı: ' + error.message);
     } finally {
+      // İşlem tamamlandı
+      setIsProcessingLocation(false);
       setLocationLoading(false);
     }
   };
-
-  // Türkçe karakter normalleştirme fonksiyonu
-  const normalizeText = (text) => {
-    if (!text) return '';
-    
-    return text.toLowerCase()
-      .replace(/ğ/g, 'g')
-      .replace(/ü/g, 'u')
-      .replace(/ş/g, 's')
-      .replace(/ı/g, 'i')
-      .replace(/ö/g, 'o')
-      .replace(/ç/g, 'c')
-      .replace(/â/g, 'a')
-      .replace(/î/g, 'i')
-      .replace(/û/g, 'u');
-  };
   
-  // Koordinatlara göre en yakın şehri bulma fonksiyonu
-  const findNearestCity = (latitude, longitude) => {
-    if (!cityCoordinates || Object.keys(cityCoordinates).length === 0) {
-      console.warn('Şehir koordinatları bulunamadı');
-      return null;
-    }
+  // Konum onaylama fonksiyonu
+  const confirmLocation = () => {
+    setShowLocationConfirmation(false);
     
-    let nearestCity = null;
-    let minDistance = Number.MAX_VALUE;
-    
-    for (const city in cityCoordinates) {
-      const cityCoord = cityCoordinates[city];
-      // Bazı şehirler için koordinatlar farklı formatta olabilir
-      let cityLat = 0, cityLon = 0;
+    // Eğer şehir otomatik ayarlanamadıysa, İstanbul'u varsayılan olarak seç
+    if (!city) {
+      console.log('KONUM-FIX: Şehir otomatik olarak ayarlanamadı, İstanbul seçiliyor');
       
-      if (Array.isArray(cityCoord)) {
-        // [longitude, latitude] formatı
-        cityLon = cityCoord[0];
-        cityLat = cityCoord[1];
-      } else if (typeof cityCoord === 'object') {
-        // {latitude, longitude} formatı
-        cityLat = cityCoord.latitude;
-        cityLon = cityCoord.longitude;
-      } else {
-        console.warn(`${city} için geçersiz koordinat formatı:`, cityCoord);
-        continue;
+      // İstanbul'u ve ilk ilçesini otomatik olarak seç
+      setCity('İstanbul');
+      if (allDistricts['İstanbul'] && allDistricts['İstanbul'].length > 0) {
+        setDistrict(allDistricts['İstanbul'][0]);
+        setTempDistrict(allDistricts['İstanbul'][0]);
       }
       
-      const distance = calculateDistance(
-        latitude, longitude,
-        cityLat, cityLon
+      // Kullanıcıya bildir
+      NotificationManager.info(
+        'Konum Bilgisi',
+        'Şehir bilgisi tespit edilemediğinden varsayılan olarak İstanbul seçildi. İsterseniz değiştirebilirsiniz.'
       );
-      
-      if (distance < minDistance) {
-        minDistance = distance;
-        nearestCity = city;
-      }
     }
     
-    console.log('DEBUG - En yakın şehir hesaplandı:', nearestCity, 'mesafe:', minDistance.toFixed(2) + 'km');
-    
-    // Bulunan şehir allDistricts listesinde var mı kontrol et
-    if (nearestCity && !allDistricts[nearestCity]) {
-      // Doğru formatta şehir adını bul
-      const formattedCity = findCityInAllDistricts(nearestCity);
-      if (formattedCity) {
-        console.log('DEBUG - Bulunan en yakın şehir formatlandı:', nearestCity, '->', formattedCity);
-        return formattedCity;
-    }
-    }
-    
-    return nearestCity;
+    // Başarılı bildirimi göster (sadece bir kez)
+    NotificationManager.success('Başarılı', 'Konum bilgileriniz kaydedildi');
   };
   
-  // İki koordinat arası mesafeyi hesaplama (Haversine formula)
-  const calculateDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371; // Dünya yarıçapı (km)
-    const dLat = deg2rad(lat2 - lat1);
-    const dLon = deg2rad(lon2 - lon1);
+  // Konum reddetme fonksiyonu
+  const rejectLocation = () => {
+    setShowLocationConfirmation(false);
+    setCoordinates(null);
+    setLocationAccuracy(null);
+    setAddress('');
     
-    const a = 
-      Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
-      Math.sin(dLon/2) * Math.sin(dLon/2);
-    
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
-    const distance = R * c; // Kilometre cinsinden mesafe
-    
-    return distance;
-  };
-  
-  // Derece -> Radyan dönüşümü
-  const deg2rad = (deg) => {
-    return deg * (Math.PI/180);
-  };
-
-  // Fotoğraf ekleme butonlarının etiketleri
-  const getAddPhotoLabel = () => {
-    if (images.length >= 3) {
-      return "Maksimum fotoğraf sayısına ulaşıldı";
-    }
-    return `Galeriden Ekle (${images.length}/3)`;
-  };
-
-  const getTakePhotoLabel = () => {
-    if (images.length >= 3) {
-      return "Maksimum fotoğraf sayısına ulaşıldı";
-    }
-    return `Kamera ile Çek (${images.length}/3)`;
-  };
-
-  // Fotoğrafları sıkıştırma ve yeniden boyutlandırma (sadece URI döndürür)
-  const compressImage = async (uri) => {
-    try {
-      console.log('Resim sıkıştırılıyor:', uri.substring(0, 30) + '...');
-      
-      // URI kontrolü
-      if (!uri || (typeof uri !== 'string') || uri.trim() === '') {
-        console.error('Geçersiz URI:', uri);
-        return null;
-      }
-      
-      // Dosya mevcut mu kontrol et
-      const fileInfo = await FileSystem.getInfoAsync(uri);
-      if (!fileInfo.exists) {
-        console.error('Dosya bulunamadı:', uri);
-        return null; // Dosya yoksa null döndür
-      }
-      
-      // Orijinal boyutu kontrol et
-      console.log('Orijinal dosya boyutu:', (fileInfo.size / 1024 / 1024).toFixed(2) + ' MB');
-        
-      // Boyut zaten küçükse (200KB'den az) sıkıştırmaya gerek yok
-      let finalUri = uri;
-      if (fileInfo.size > 200 * 1024) {
-        // Sıkıştırma oranını dosya boyutuna göre belirle
-        let compressionQuality = 0.7; // Varsayılan %70
-        if (fileInfo.size > 5 * 1024 * 1024) { // 5MB'dan büyükse
-          compressionQuality = 0.5; // Daha fazla sıkıştır (%50)
-        } else if (fileInfo.size < 1 * 1024 * 1024) { // 1MB'dan küçükse
-          compressionQuality = 0.8; // Daha az sıkıştır (%80)
-        }
-        
-        // Resim sıkıştırma ve boyutlandırma işlemi
-        const manipResult = await manipulateAsync(
-          uri,
-          [{ resize: { width: 800 } }], // 800 genişliğe yeniden boyutlandır (daha küçük)
-          { compress: compressionQuality, format: SaveFormat.JPEG }
-        );
-        
-        // Sıkıştırılmış dosya bilgisini al
-        const compressedInfo = await FileSystem.getInfoAsync(manipResult.uri);
-        console.log('Sıkıştırılmış dosya boyutu:', (compressedInfo.size / 1024 / 1024).toFixed(2) + ' MB');
-        
-        finalUri = manipResult.uri;
-      } else {
-        console.log('Dosya zaten küçük, sıkıştırma yapılmadı.');
-      }
-      
-      return finalUri;
-    } catch (error) {
-      console.error('Resim sıkıştırma hatası:', error);
-      return null; // Hata durumunda null döndür
-        }
-  };
-
-  // URI'yi base64'e dönüştür
-  const uriToBase64 = async (uri) => {
-    try {
-      if (!uri) return null;
-      
-      console.log('Resim base64 formatına dönüştürülüyor...');
-      const base64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      
-      if (!base64 || base64.length === 0) {
-        console.warn('Base64 dönüştürme sonucu boş');
-        return null;
-      }
-      
-      console.log('Base64 dönüştürme başarılı, uzunluk:', base64.length);
-      return `data:image/jpeg;base64,${base64}`;
-    } catch (error) {
-      console.error('Base64 dönüştürme hatası:', error);
-      return null;
-    }
-  };
-
-  // Galeriden fotoğraf seçme
-  const pickImageFromGallery = async () => {
-    try {
-      // Mevcut fotoğraf sayısını kontrol et
-      if (images.length >= 3) {
-        Alert.alert('Limit', 'En fazla 3 fotoğraf ekleyebilirsiniz.');
-        return;
-      }
-      
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      
-      if (status !== 'granted') {
-        Alert.alert('İzin Gerekli', 'Galeriye erişim izni vermeniz gerekiyor.');
-        return;
-      }
-      
-      // Kaç fotoğraf daha seçilebileceğini hesapla
-      const remainingSlots = 3 - images.length;
-      
-      setImageLoading(true);
-      
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: false, // Çoklu seçim için editing kapalı olmalı
-        aspect: [4, 3],
-        quality: 0.7, // Kalite düşürüldü
-        allowsMultipleSelection: true, // Birden fazla resim seçmeye izin ver
-        selectionLimit: remainingSlots, // En fazla kalan slot kadar seçilebilsin
-      });
-      
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        try {
-          console.log(`${result.assets.length} fotoğraf seçildi, işleniyor...`);
-          
-          // Her bir resmi tek tek işle
-          const processedImages = [];
-          
-          for (const asset of result.assets) {
-            // Önce resmi sıkıştır
-            const compressedUri = await compressImage(asset.uri);
-            
-            if (compressedUri) {
-              // Sonra base64'e dönüştür
-              const base64Image = await uriToBase64(compressedUri);
-              
-              // Yeni resmi ekle - hem URI hem base64 içeriyor
-              processedImages.push({
-                uri: compressedUri, // Görsel gösterimi için URI
-                base64: base64Image, // API'ye göndermek için base64
-                id: `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` // Benzersiz ID oluştur
-              });
-            }
-          }
-          
-          console.log(`${processedImages.length} fotoğraf başarıyla işlendi`);
-          
-          // State'i güncelle - mevcut images'ı kopyala ve yenilerini ekle
-          const updatedImages = [...images, ...processedImages];
-          setImages(updatedImages);
-          
-          console.log(`Toplam ${updatedImages.length} fotoğraf eklendi`);
-        } catch (error) {
-          console.error('Resim sıkıştırma işlemi başarısız:', error);
-          Alert.alert('Hata', 'Resimler işlenirken bir hata oluştu.');
-        }
-      } else {
-        console.log('Fotoğraf seçimi iptal edildi veya seçilen fotoğraf yok');
-      }
-    } catch (error) {
-      console.error('Galeriden fotoğraf seçme hatası:', error);
-      Alert.alert('Hata', 'Fotoğraf seçilirken bir hata oluştu.');
-    } finally {
-      setImageLoading(false);
-    }
-  };
-
-  // Kamera ile fotoğraf çekme
-  const takePictureWithCamera = async () => {
-    try {
-      // Mevcut fotoğraf sayısını kontrol et
-      if (images.length >= 3) {
-          Alert.alert('Limit', 'En fazla 3 fotoğraf ekleyebilirsiniz.');
-        return;
-        }
-        
-      // Kamera izinlerini kontrol et - Güncel expo-camera API'si ile
-      const cameraPermission = await ImagePicker.requestCameraPermissionsAsync();
-      
-      if (cameraPermission.status !== 'granted') {
-        Alert.alert('İzin Gerekli', 'Kamera erişim izni vermeniz gerekiyor.');
-        return;
-      }
-      
-      setImageLoading(true);
-      
-      const result = await ImagePicker.launchCameraAsync({
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.7, // Kalite düşürüldü
-      });
-      
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        try {
-          // Resmi sıkıştır ve base64'e dönüştür
-        const newUri = result.assets[0].uri;
-          console.log('Fotoğraf çekildi, işleniyor:', newUri.substring(0, 30) + '...');
-        
-          // Önce resmi sıkıştır
-          const compressedUri = await compressImage(newUri);
-          
-          if (compressedUri) {
-            // Sonra base64'e dönüştür
-            const base64Image = await uriToBase64(compressedUri);
-            
-            if (base64Image) {
-              const newImageWithId = {
-                uri: compressedUri, // Görsel gösterimi için URI
-                base64: base64Image, // API'ye göndermek için base64
-                id: `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` // Benzersiz ID oluştur
-              };
-              
-              // Mevcut tüm fotoğrafları ve yeni eklenen fotoğrafı içeren yeni bir dizi oluştur
-              const updatedImages = [...images, newImageWithId];
-              
-              // State'i güncelle
-              setImages(updatedImages);
-              
-              console.log(`Fotoğraf başarıyla eklendi. Toplam: ${updatedImages.length}`);
-            } else {
-              Alert.alert('Hata', 'Resim işlenirken bir hata oluştu.');
-            }
-          } else {
-            Alert.alert('Hata', 'Resim sıkıştırılırken bir hata oluştu.');
-          }
-        } catch (error) {
-          console.error('Resim sıkıştırma işlemi başarısız:', error);
-          Alert.alert('Hata', 'Resim işlenirken bir hata oluştu.');
-        }
-      } else {
-        console.log('Fotoğraf çekimi iptal edildi veya çekilen fotoğraf yok');
-      }
-    } catch (error) {
-      console.error('Kamera ile fotoğraf çekme hatası:', error);
-      Alert.alert('Hata', 'Fotoğraf çekilirken bir hata oluştu.');
-    } finally {
-      setImageLoading(false);
-    }
-  };
-
-  // Fotoğraf silme fonksiyonu
-  const removeImage = (index) => {
-    try {
-      // Mevcut durumu kontrol et
-      console.log(`${index}. fotoğraf siliniyor. Mevcut fotoğraf sayısı: ${images.length}`);
-      
-      // Yeni bir kopya oluştur ve seçilen fotoğrafı kaldır
-      const updatedImages = [...images];
-      updatedImages.splice(index, 1);
-      
-      // State'i güncelle
-      setImages(updatedImages);
-      
-      console.log(`Fotoğraf silindi. Yeni fotoğraf sayısı: ${updatedImages.length}`);
-    } catch (error) {
-      console.error('Fotoğraf silme hatası:', error);
-      Alert.alert('Hata', 'Fotoğraf silinirken bir hata oluştu.');
-    }
+    NotificationManager.info('Bilgi', 'Konumu tekrar almak için "Konumumu Kullan" butonuna tıklayın');
   };
 
   const handleSubmit = async () => {
@@ -963,7 +761,7 @@ const CreateIssueScreen = ({ navigation }) => {
     if (Object.keys(validationErrors).length > 0) {
       // Hata mesajlarını birleştir
       const errorMessages = Object.values(validationErrors).join('\n• ');
-      Alert.alert('Form Hatası', `Lütfen aşağıdaki alanları doldurun:\n\n• ${errorMessages}`);
+      NotificationManager.error('Form Hatası', `Lütfen aşağıdaki alanları doldurun:\n\n• ${errorMessages}`);
       return;
     }
 
@@ -998,7 +796,7 @@ const CreateIssueScreen = ({ navigation }) => {
         basicFormData.location.coordinates = [coordinates.longitude, coordinates.latitude];
       } else {
         // Koordinat yoksa hata mesajı göster ve işlemi durdur
-        Alert.alert('Konum Hatası', 'Lütfen konum seçiniz');
+        NotificationManager.error('Konum Hatası', 'Lütfen konum seçiniz');
         setLoading(false);
         return;
       }
@@ -1039,7 +837,7 @@ const CreateIssueScreen = ({ navigation }) => {
         const response = await api.issues.create(basicFormData);
       
       if (response.success) {
-        Alert.alert('Başarılı', 'Sorun başarıyla bildirildi!', [
+        NotificationManager.showAlert('Başarılı', 'Sorun başarıyla bildirildi!', [
           { text: 'Tamam', onPress: () => navigation.navigate('Issues') }
         ]);
         
@@ -1069,7 +867,7 @@ const CreateIssueScreen = ({ navigation }) => {
           
           console.log('Alternatif yanıt:', rawResponse);
           
-          Alert.alert('Başarılı', 'Sorun başarıyla bildirildi!', [
+          NotificationManager.showAlert('Başarılı', 'Sorun başarıyla bildirildi!', [
             { text: 'Tamam', onPress: () => navigation.navigate('Issues') }
           ]);
           
@@ -1089,7 +887,7 @@ const CreateIssueScreen = ({ navigation }) => {
           }
           
           // Kullanıcı oturumunu yenilemesini iste
-          Alert.alert(
+          NotificationManager.showAlert(
             'Yetki Hatası',
             'Sorun gönderilirken yetkilendirme hatası oluştu. Lütfen uygulamadan çıkıp tekrar giriş yapın.',
             [
@@ -1100,7 +898,7 @@ const CreateIssueScreen = ({ navigation }) => {
       }
     } catch (error) {
       console.error('ANA FONKSIYON HATASI:', error);
-      Alert.alert('Hata', 'Sorun gönderme işlemi başarısız oldu.');
+      NotificationManager.error('Hata', 'Sorun gönderme işlemi başarısız oldu.');
     } finally {
       setLoading(false);
     }
@@ -1123,6 +921,139 @@ const CreateIssueScreen = ({ navigation }) => {
   const [tempCategory, setTempCategory] = useState('');
   const [tempCity, setTempCity] = useState('');
   const [tempDistrict, setTempDistrict] = useState('');
+
+  // Resim seçme fonksiyonu - galeriden
+  const pickImageFromGallery = async () => {
+    if (images.length >= 3 || imageLoading) return;
+    
+    try {
+      setImageLoading(true);
+      
+      // İzinleri kontrol et
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        NotificationManager.error('İzin Gerekli', 'Galeriye erişim izni vermeniz gerekiyor.');
+        setImageLoading(false);
+        return;
+      }
+      
+      // Resim seçiciyi aç
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+        allowsMultipleSelection: false,
+        base64: true,
+      });
+      
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const selectedAsset = result.assets[0];
+        
+        // Resim boyutunu kontrol et (max 10MB)
+        const fileInfo = await FileSystem.getInfoAsync(selectedAsset.uri);
+        if (fileInfo.exists && fileInfo.size > 10 * 1024 * 1024) {
+          NotificationManager.warning('Uyarı', 'Resim boyutu çok büyük. Lütfen daha küçük bir resim seçin (maksimum 10MB).');
+          setImageLoading(false);
+          return;
+        }
+        
+        // Resmi sıkıştır ve base64'e çevir
+        const manipResult = await manipulateAsync(
+          selectedAsset.uri,
+          [{ resize: { width: 1200 } }],
+          { compress: 0.8, format: SaveFormat.JPEG, base64: true }
+        );
+        
+        // İşlenmiş resmi state'e ekle
+        const newImage = {
+          uri: manipResult.uri,
+          base64: manipResult.base64,
+          id: `img-${Date.now()}`
+        };
+        
+        setImages([...images, newImage]);
+      }
+    } catch (error) {
+      console.error('Resim seçme hatası:', error);
+      NotificationManager.error('Hata', 'Resim seçilirken bir hata oluştu.');
+    } finally {
+      setImageLoading(false);
+    }
+  };
+  
+  // Resim çekme fonksiyonu - kamera
+  const takePictureWithCamera = async () => {
+    if (images.length >= 3 || imageLoading) return;
+    
+    try {
+      setImageLoading(true);
+      
+      // İzinleri kontrol et
+      const { status } = await Camera.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        NotificationManager.error('İzin Gerekli', 'Kamera erişim izni vermeniz gerekiyor.');
+        setImageLoading(false);
+        return;
+      }
+      
+      // Kamerayı aç
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+        base64: true,
+      });
+      
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const selectedAsset = result.assets[0];
+        
+        // Resmi sıkıştır ve base64'e çevir
+        const manipResult = await manipulateAsync(
+          selectedAsset.uri,
+          [{ resize: { width: 1200 } }],
+          { compress: 0.8, format: SaveFormat.JPEG, base64: true }
+        );
+        
+        // İşlenmiş resmi state'e ekle
+        const newImage = {
+          uri: manipResult.uri,
+          base64: manipResult.base64,
+          id: `img-${Date.now()}`
+        };
+        
+        setImages([...images, newImage]);
+      }
+    } catch (error) {
+      console.error('Fotoğraf çekme hatası:', error);
+      NotificationManager.error('Hata', 'Fotoğraf çekilirken bir hata oluştu.');
+    } finally {
+      setImageLoading(false);
+    }
+  };
+  
+  // Resmi kaldırma fonksiyonu
+  const removeImage = (index) => {
+    if (index < 0 || index >= images.length) return;
+    
+    const newImages = [...images];
+    newImages.splice(index, 1);
+    setImages(newImages);
+  };
+  
+  // "Resim Ekle" butonu için dinamik etiket
+  const getAddPhotoLabel = () => {
+    if (images.length === 0) return "Resim Ekle";
+    if (images.length < 3) return "Başka Ekle";
+    return "Limit Doldu";
+  };
+  
+  // "Fotoğraf Çek" butonu için dinamik etiket
+  const getTakePhotoLabel = () => {
+    if (images.length === 0) return "Fotoğraf Çek";
+    if (images.length < 3) return "Yeni Çek";
+    return "Limit Doldu";
+  };
 
   // Function to open the specific picker
   const openPicker = (picker) => {
@@ -1289,6 +1220,77 @@ const CreateIssueScreen = ({ navigation }) => {
     
     console.log('DEBUGv2 - getDistrictsForPicker - Found districts:', districtsList);
     return districtsList;
+  };
+
+  // Mini harita bileşeni
+  const MapPreview = () => {
+    if (!coordinates) return null;
+    
+    return (
+      <View style={styles.mapPreviewContainer}>
+        <Text style={styles.mapTitle}>Konum Önizlemesi</Text>
+        <MapView
+          provider={PROVIDER_GOOGLE}
+          style={styles.mapPreview}
+          region={mapRegion}
+          pitchEnabled={false}
+          rotateEnabled={false}
+          zoomEnabled={true}
+          scrollEnabled={true}
+        >
+          <Marker
+            coordinate={{
+              latitude: coordinates.latitude,
+              longitude: coordinates.longitude
+            }}
+          />
+          {locationAccuracy && (
+            <Circle
+              center={{
+                latitude: coordinates.latitude,
+                longitude: coordinates.longitude
+              }}
+              radius={locationAccuracy}
+              fillColor="rgba(51, 136, 255, 0.2)"
+              strokeColor="rgba(51, 136, 255, 0.5)"
+              strokeWidth={1}
+            />
+          )}
+        </MapView>
+        <View style={styles.mapActions}>
+          <Text style={styles.mapInfoText}>
+            Doğruluk: {locationAccuracy ? `${locationAccuracy} metre` : 'Bilinmiyor'}
+          </Text>
+          <TouchableOpacity 
+            style={styles.changeLocationButton}
+            onPress={() => {
+              NotificationManager.showAlert(
+                'Konum Seçimi',
+                'Ne yapmak istiyorsunuz?',
+                [
+                  {
+                    text: 'Konumu Tekrar Al',
+                    onPress: getCurrentLocation
+                  },
+                  {
+                    text: 'Manuel Seç (Yakında)',
+                    onPress: () => {
+                      NotificationManager.info('Bilgi', 'Bu özellik yakında eklenecek');
+                    }
+                  },
+                  {
+                    text: 'İptal',
+                    style: 'cancel'
+                  }
+                ]
+              );
+            }}
+          >
+            <Text style={styles.changeLocationButtonText}>Konumu Değiştir</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
   };
 
   return (
@@ -1519,10 +1521,13 @@ const CreateIssueScreen = ({ navigation }) => {
             "Konumumu Kullan" seçeneğine tıklayarak şehir ve ilçe bilgileriniz otomatik doldurulur.
           </Text>
         
-        {locationError && (
-          <Text style={styles.errorText}>{locationError}</Text>
-        )}
+          {locationError && (
+            <Text style={styles.errorText}>{locationError}</Text>
+          )}
         </View>
+        
+        {/* Mini harita */}
+        <MapPreview />
         
         {/* Konum koordinat alanı */}
         {coordinates ? (
@@ -1653,6 +1658,76 @@ const CreateIssueScreen = ({ navigation }) => {
           )}
         </TouchableOpacity>
       </View>
+      
+      {/* Konum Doğrulama Modal */}
+      <Modal
+        visible={showLocationConfirmation}
+        transparent={true}
+        animationType="slide"
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.confirmModalContent}>
+            <Text style={styles.confirmModalTitle}>Konum Doğrulama</Text>
+            
+            <View style={styles.confirmMapContainer}>
+              {mapRegion && (
+                <MapView
+                  provider={PROVIDER_GOOGLE}
+                  style={styles.confirmMap}
+                  region={mapRegion}
+                  pitchEnabled={false}
+                  rotateEnabled={false}
+                  zoomEnabled={false}
+                  scrollEnabled={false}
+                >
+                  <Marker
+                    coordinate={{
+                      latitude: coordinates ? coordinates.latitude : 0,
+                      longitude: coordinates ? coordinates.longitude : 0
+                    }}
+                  />
+                  {locationAccuracy && (
+                    <Circle
+                      center={{
+                        latitude: coordinates ? coordinates.latitude : 0,
+                        longitude: coordinates ? coordinates.longitude : 0
+                      }}
+                      radius={locationAccuracy}
+                      fillColor="rgba(51, 136, 255, 0.2)"
+                      strokeColor="rgba(51, 136, 255, 0.5)"
+                      strokeWidth={1}
+                    />
+                  )}
+                </MapView>
+              )}
+            </View>
+            
+            <Text style={styles.confirmModalText}>
+              Alınan konum bu civarda görünüyor. Doğruluk: {locationAccuracy} metre.
+            </Text>
+            
+            <Text style={styles.confirmModalAddress}>
+              {address || 'Adres bilgisi alınamadı'}
+            </Text>
+            
+            <View style={styles.confirmModalButtons}>
+              <TouchableOpacity
+                style={styles.rejectButton}
+                onPress={rejectLocation}
+              >
+                <Text style={styles.rejectButtonText}>Doğru Değil</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={styles.confirmButton}
+                onPress={confirmLocation}
+              >
+                <Text style={styles.confirmButtonText}>Doğru</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 };
@@ -1999,6 +2074,120 @@ const styles = StyleSheet.create({
     fontSize: 14,
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  // Mini harita ile ilgili stiller
+  mapPreviewContainer: {
+    marginVertical: 10,
+    backgroundColor: '#f9f9f9',
+    borderRadius: 8,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  mapTitle: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginBottom: 8,
+    color: '#333',
+  },
+  mapPreview: {
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
+  },
+  mapActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  mapInfoText: {
+    fontSize: 14,
+    color: '#666',
+  },
+  changeLocationButton: {
+    backgroundColor: '#3b82f6',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  changeLocationButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  
+  // Konum doğrulama modal stilleri
+  confirmModalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 20,
+    width: '100%',
+    maxWidth: 400,
+    alignItems: 'center',
+  },
+  confirmModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 15,
+    color: '#333',
+  },
+  confirmMapContainer: {
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginBottom: 15,
+  },
+  confirmMap: {
+    width: '100%',
+    height: '100%',
+  },
+  confirmModalText: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 10,
+    color: '#444',
+  },
+  confirmModalAddress: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 20,
+    color: '#666',
+    fontStyle: 'italic',
+  },
+  confirmModalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  confirmButton: {
+    backgroundColor: '#4CAF50',
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    borderRadius: 8,
+    flex: 1,
+    marginLeft: 10,
+    alignItems: 'center',
+  },
+  confirmButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  rejectButton: {
+    backgroundColor: '#f44336',
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    borderRadius: 8,
+    flex: 1,
+    marginRight: 10,
+    alignItems: 'center',
+  },
+  rejectButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
 });
 
