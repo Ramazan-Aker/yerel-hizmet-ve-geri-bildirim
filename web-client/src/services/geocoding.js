@@ -1,5 +1,5 @@
 // Geocoding servisi - Çeşitli servisler kullanarak koordinatlardan adres bilgisi getirir
-import { GOOGLE_MAPS_API_KEY, HERE_MAPS_API_KEY } from './api-keys';
+import { GOOGLE_MAPS_API_KEY, HERE_MAPS_API_KEY, isGoogleMapsEnabled } from './api-keys';
 
 /**
  * Koordinatlardan adres bilgisini getir (çeşitli servisler denenerek)
@@ -17,7 +17,7 @@ export const getAddressFromCoordinates = async (lat, lng) => {
     const promises = [];
     
     // Google Maps API (en doğru sonuçlar genellikle buradan gelir)
-    if (GOOGLE_MAPS_API_KEY !== 'YOUR_GOOGLE_MAPS_API_KEY') {
+    if (isGoogleMapsEnabled && GOOGLE_MAPS_API_KEY && GOOGLE_MAPS_API_KEY !== 'YOUR_GOOGLE_MAPS_API_KEY') {
       promises.push(
         getAddressFromGoogleMaps(lat, lng)
           .then(result => {
@@ -53,7 +53,8 @@ export const getAddressFromCoordinates = async (lat, lng) => {
       getAddressFromOpenStreetMap(lat, lng)
         .then(result => {
           console.log('OpenStreetMap API sonucu alındı:', result.fullAddress);
-          results.push({...result, confidence: 0.7});
+          // Google Maps API devre dışıysa OpenStreetMap'e daha yüksek güven ver
+          results.push({...result, confidence: isGoogleMapsEnabled ? 0.7 : 0.9});
           return result;
         })
         .catch(err => {

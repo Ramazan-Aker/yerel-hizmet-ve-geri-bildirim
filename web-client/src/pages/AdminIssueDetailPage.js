@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { adminService } from '../services/api';
+import { MapContainer, TileLayer, Marker } from 'react-leaflet';
 
 const AdminIssueDetailPage = () => {
   const { id } = useParams();
@@ -588,21 +589,28 @@ const AdminIssueDetailPage = () => {
               </div>
               <div className="p-6">
                 <div className="aspect-w-16 aspect-h-9 mb-3">
-                  <iframe
-                    title="Sorun Konumu"
-                    className="w-full h-48 rounded-lg border"
-                    src={`https://www.google.com/maps/embed/v1/place?key=AIzaSyAT0J_2lQ7_A8Q6MTpEOzuPjGz4rjkbG1Y&q=${issue.location.coordinates[1]},${issue.location.coordinates[0]}&zoom=15`}
-                    allowFullScreen
-                  ></iframe>
+                  <div className="w-full h-48 rounded-lg border">
+                    <MapContainer
+                      center={[issue.location.coordinates[1], issue.location.coordinates[0]]}
+                      zoom={15}
+                      style={{ height: '100%', width: '100%' }}
+                    >
+                      <TileLayer
+                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                      />
+                      <Marker position={[issue.location.coordinates[1], issue.location.coordinates[0]]} />
+                    </MapContainer>
+                  </div>
                 </div>
                 <div className="text-center">
                   <a
-                    href={`https://www.google.com/maps/search/?api=1&query=${issue.location.coordinates[1]},${issue.location.coordinates[0]}`}
+                    href={`https://www.openstreetmap.org/?mlat=${issue.location.coordinates[1]}&mlon=${issue.location.coordinates[0]}&zoom=15`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-blue-600 hover:text-blue-800 text-sm"
                   >
-                    Google Haritalar'da Aç
+                    OpenStreetMap'te Aç
                   </a>
                 </div>
               </div>

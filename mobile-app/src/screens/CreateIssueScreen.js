@@ -623,19 +623,6 @@ const CreateIssueScreen = ({ navigation }) => {
         longitude: preciseLng
       });
       
-      // Şehir ve ilçeyi direkt olarak ayarla (koordinatlardan bağımsız)
-      // NOT: Bu geçici bir çözüm, normalde konum servisinden gelen bilgilere göre otomatik ayarlanmalı
-      const defaultCity = 'İstanbul';
-      setCity(defaultCity);
-      
-      if (allDistricts[defaultCity] && allDistricts[defaultCity].length > 0) {
-        const defaultDistrict = allDistricts[defaultCity][0]; // İlk ilçeyi seç (Adalar)
-        setDistrict(defaultDistrict);
-        setTempDistrict(defaultDistrict);
-        
-        console.log('KONUM-MANUAL: Şehir ve ilçe manuel olarak ayarlandı:', defaultCity, defaultDistrict);
-      }
-      
       // Adres bilgisini almaya çalış
       try {
         // Koordinatlardan adres bilgisini getir
@@ -665,14 +652,94 @@ const CreateIssueScreen = ({ navigation }) => {
           console.log('KONUM-DEBUG: Oluşturulan adres:', fullAddress);
           setAddress(fullAddress || 'Adres bilgisi alınamadı');
           
-          // Şehir/ilçe ayarlaması doğrudan yukarıda yapıldığı için burada tekrar yapmaya gerek yok
-          console.log('KONUM-DEBUG: Adres bilgisi ayarlandı, şehir/ilçe yukarıda manuel olarak ayarlandı');
+          // Şehir ve ilçe bilgilerini API'den gelen verilerden ayarla
+          if (addressData.city || addressData.region) {
+            const cityName = addressData.city || addressData.region;
+            console.log('KONUM-DEBUG: API\'den gelen şehir:', cityName);
+            
+            // API'den gelen şehir adını mevcut şehir listesi ile karşılaştır
+            const normalizedCityName = findCityInAllDistricts(cityName);
+            if (normalizedCityName) {
+              console.log('KONUM-DEBUG: Eşleşen şehir bulundu:', normalizedCityName);
+              setCity(normalizedCityName);
+              
+              // İlçe bilgisini ayarla
+              if (addressData.district || addressData.subregion) {
+                const districtName = addressData.district || addressData.subregion;
+                console.log('KONUM-DEBUG: API\'den gelen ilçe:', districtName);
+                
+                // İlçeyi ilgili şehrin ilçeleri ile eşleştir
+                if (allDistricts[normalizedCityName]) {
+                  const foundDistrict = matchDistrictName(districtName, allDistricts[normalizedCityName], {
+                    latitude: preciseLat,
+                    longitude: preciseLng
+                  }, normalizedCityName);
+                  
+                  if (foundDistrict) {
+                    console.log('KONUM-DEBUG: Eşleşen ilçe bulundu:', foundDistrict);
+                    setDistrict(foundDistrict);
+                    setTempDistrict(foundDistrict);
+                  } else if (allDistricts[normalizedCityName].length > 0) {
+                    // Eşleşme bulunamadıysa ilk ilçeyi seç
+                    const defaultDistrict = allDistricts[normalizedCityName][0];
+                    console.log('KONUM-DEBUG: İlçe eşleşmesi bulunamadı, varsayılan seçildi:', defaultDistrict);
+                    setDistrict(defaultDistrict);
+                    setTempDistrict(defaultDistrict);
+                  }
+                }
+              } else if (allDistricts[normalizedCityName] && allDistricts[normalizedCityName].length > 0) {
+                // İlçe bilgisi yoksa, şehrin ilk ilçesini seç
+                const defaultDistrict = allDistricts[normalizedCityName][0];
+                console.log('KONUM-DEBUG: API\'den ilçe bilgisi gelmedi, varsayılan seçildi:', defaultDistrict);
+                setDistrict(defaultDistrict);
+                setTempDistrict(defaultDistrict);
+              }
+            } else {
+              // Şehir eşleşmesi bulunamadıysa, varsayılan İstanbul'u kullan
+              console.log('KONUM-DEBUG: Şehir eşleşmesi bulunamadı, varsayılan İstanbul seçiliyor');
+              setCity('İstanbul');
+              
+              if (allDistricts['İstanbul'] && allDistricts['İstanbul'].length > 0) {
+                const defaultDistrict = allDistricts['İstanbul'][0];
+                setDistrict(defaultDistrict);
+                setTempDistrict(defaultDistrict);
+              }
+            }
+          } else {
+            // Şehir bilgisi yoksa varsayılan olarak İstanbul'u kullan
+            console.log('KONUM-DEBUG: API\'den şehir bilgisi gelmedi, varsayılan İstanbul seçiliyor');
+            setCity('İstanbul');
+            
+            if (allDistricts['İstanbul'] && allDistricts['İstanbul'].length > 0) {
+              const defaultDistrict = allDistricts['İstanbul'][0];
+              setDistrict(defaultDistrict);
+              setTempDistrict(defaultDistrict);
+            }
+          }
         } else {
-          console.log('KONUM-DEBUG: reverseGeocode bilgisi boş geldi');
+          console.log('KONUM-DEBUG: reverseGeocode bilgisi boş geldi, varsayılan değerler kullanılıyor');
           setAddress('Adres bilgisi alınamadı');
+          setCity('İstanbul');
+          
+          if (allDistricts['İstanbul'] && allDistricts['İstanbul'].length > 0) {
+            const defaultDistrict = allDistricts['İstanbul'][0];
+            setDistrict(defaultDistrict);
+            setTempDistrict(defaultDistrict);
+          }
         }
       } catch (error) {
         console.error('Adres getirme hatası:', error);
+        setAddress('Adres bilgisi alınamadı');
+        
+        // Hata durumunda varsayılan değerleri kullan
+        console.log('KONUM-DEBUG: Adres getirme hatası, varsayılan değerler kullanılıyor');
+        setCity('İstanbul');
+        
+        if (allDistricts['İstanbul'] && allDistricts['İstanbul'].length > 0) {
+          const defaultDistrict = allDistricts['İstanbul'][0];
+          setDistrict(defaultDistrict);
+          setTempDistrict(defaultDistrict);
+        }
       }
       
       // Konum doğrulama modalını göster

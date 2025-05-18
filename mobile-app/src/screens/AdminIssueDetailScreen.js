@@ -12,12 +12,15 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
-  FlatList
+  FlatList,
+  Dimensions,
+  Linking
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { Picker } from '@react-native-picker/picker';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 
 const AdminIssueDetailScreen = ({ route, navigation }) => {
   const { issueId } = route.params;
@@ -32,6 +35,7 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
   const [assignedToName, setAssignedToName] = useState('');
   const [workers, setWorkers] = useState([]);
   const [selectedWorker, setSelectedWorker] = useState('');
+  const [mapRegion, setMapRegion] = useState(null);
   
   // Özel seçici modalleri için state'ler
   const [statusModalVisible, setStatusModalVisible] = useState(false);
@@ -54,6 +58,19 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
         setOfficialResponse(response.data.officialResponse?.response || '');
         setAssignedToName(response.data.assignedTo?.name || 'Atanmamış');
         setSelectedWorker(response.data.assignedTo?._id || '');
+        
+        // Konum bilgisi varsa harita bölgesini ayarla
+        if (response.data.location && response.data.location.coordinates && 
+            response.data.location.coordinates.length === 2) {
+          const [longitude, latitude] = response.data.location.coordinates;
+          console.log('Konum koordinatları:', latitude, longitude);
+          setMapRegion({
+            latitude: latitude,
+            longitude: longitude,
+            latitudeDelta: 0.005,  // Yakın zoom seviyesi
+            longitudeDelta: 0.005
+          });
+        }
         
         console.log('Sorun durumu:', response.data.status);
         console.log('Atanan çalışan ID:', response.data.assignedTo?._id);
@@ -312,6 +329,58 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
               Konum: {issue.location.address}, {issue.location.district}, {issue.location.city}
             </Text>
           </View>
+          
+          {/* Konum haritası */}
+          {mapRegion && (
+            <View style={styles.mapContainer}>
+              <Text style={styles.mapTitle}>Konum Haritası</Text>
+              <MapView
+                provider={PROVIDER_GOOGLE}
+                style={styles.map}
+                region={mapRegion}
+                scrollEnabled={false}
+                zoomEnabled={false}
+                rotateEnabled={false}
+                pitchEnabled={false}
+              >
+                <Marker
+                  coordinate={{
+                    latitude: mapRegion.latitude,
+                    longitude: mapRegion.longitude
+                  }}
+                  title="Sorun Konumu"
+                  description={issue.location?.address || 'Belirtilmemiş adres'}
+                />
+              </MapView>
+              <TouchableOpacity 
+                style={styles.mapButton}
+                onPress={() => {
+                  // Konum linki oluştur
+                  const url = `https://www.google.com/maps/search/?api=1&query=${mapRegion.latitude},${mapRegion.longitude}`;
+                  Alert.alert(
+                    'Haritada Göster',
+                    'Konum harici harita uygulamasında açılsın mı?',
+                    [
+                      {
+                        text: 'İptal',
+                        style: 'cancel'
+                      },
+                      {
+                        text: 'Aç',
+                        onPress: () => {
+                          console.log('Harita linki açılıyor:', url);
+                          Linking.openURL(url);
+                        }
+                      }
+                    ]
+                  );
+                }}
+              >
+                <Icon name="open-in-new" size={16} color="#fff" />
+                <Text style={styles.mapButtonText}>Haritada Aç</Text>
+              </TouchableOpacity>
+            </View>
+          )}
           
           <View style={styles.infoRow}>
             <Icon name="category" size={16} color="#7f8c8d" />
@@ -940,6 +1009,52 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#2c3e50',
     flex: 1,
+  },
+  mapContainer: {
+    marginTop: 10,
+    marginBottom: 16,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.41,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#e1e8ed',
+  },
+  mapTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#2c3e50',
+    marginTop: 10,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+  },
+  map: {
+    width: '100%',
+    height: 200,
+  },
+  mapButton: {
+    backgroundColor: '#3498db',
+    padding: 10,
+    borderRadius: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    margin: 10,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.41,
+  },
+  mapButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginLeft: 8,
   },
 });
 

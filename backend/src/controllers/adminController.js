@@ -1,5 +1,7 @@
 ﻿const User = require('../models/User');
 const Issue = require('../models/Issue');
+const PDFDocument = require('pdfkit');
+const { stringify } = require('csv-stringify');
 
 // @desc    Tüm kullanıcıları getirme
 // @route   GET /api/admin/users
@@ -763,6 +765,435 @@ exports.getReports = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Sunucu hatası'
+    });
+  }
+};
+
+// Sonuca erişim kontrolü yardımcı fonksiyonu
+const checkAccess = (req, res, issue) => {
+  // Kullanıcı admin ise erişime izin ver
+  if (req.user.role === 'admin') {
+    return true;
+  }
+  
+  // Kullanıcı belediye çalışanı ise ve şehri belirliyse
+  if (req.user.role === 'municipal_worker' && req.user.city) {
+    // Sorunun şehri ile kullanıcının şehri uyuşuyorsa erişime izin ver
+    return issue.location.city.toLowerCase() === req.user.city.toLowerCase();
+  }
+  
+  return false;
+};
+
+// @desc    PDF formatında rapor oluştur ve indir
+// @route   GET /api/admin/reports/export/pdf
+// @access  Private/Admin ve Municipal Worker
+exports.exportReportPDF = async (req, res) => {
+  try {
+    const { timeRange = 'last30days', filterType = 'status' } = req.query;
+    
+    // Zaman filtresi oluştur
+    let dateFilter = {};
+    const now = new Date();
+    
+    switch (timeRange) {
+      case 'last7days':
+        dateFilter = { 
+          createdAt: { 
+            $gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) 
+          } 
+        };
+        break;
+      case 'last30days':
+        dateFilter = { 
+          createdAt: { 
+            $gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) 
+          } 
+        };
+        break;
+      case 'last90days':
+        dateFilter = { 
+          createdAt: { 
+            $gte: new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000) 
+          } 
+        };
+        break;
+      case 'lastYear':
+        dateFilter = { 
+          createdAt: { 
+            $gte: new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()) 
+          } 
+        };
+        break;
+      case 'all':
+      default:
+        dateFilter = {};
+        break;
+    }
+    
+    // Şehir filtreleme için
+    let cityFilter = {};
+    
+    if (req.user.role !== 'admin' && req.user.city && req.user.city !== '') {
+      cityFilter = { 'location.city': req.user.city };
+    }
+    
+    // Filtreleri birleştir
+    const filter = { ...dateFilter, ...cityFilter };
+    
+    // İstatistik verilerini al (seçilen filtre türüne göre)
+    let aggregationResults;
+    
+    if (filterType === 'status') {
+      aggregationResults = await Issue.aggregate([
+        { $match: filter },
+        {
+          $group: {
+            _id: '$status',
+            count: { $sum: 1 }
+          }
+        }
+      ]);
+    } else if (filterType === 'category') {
+      aggregationResults = await Issue.aggregate([
+        { $match: filter },
+        {
+          $group: {
+            _id: '$category',
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { count: -1 } }
+      ]);
+    } else if (filterType === 'district') {
+      aggregationResults = await Issue.aggregate([
+        { $match: filter },
+        {
+          $group: {
+            _id: '$location.district',
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { count: -1 } }
+      ]);
+    } else if (filterType === 'city') {
+      aggregationResults = await Issue.aggregate([
+        { $match: filter },
+        {
+          $group: {
+            _id: '$location.city',
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { count: -1 } }
+      ]);
+    } else if (filterType === 'monthly') {
+      aggregationResults = await Issue.aggregate([
+        { $match: filter },
+        {
+          $group: {
+            _id: {
+              year: { $year: '$createdAt' },
+              month: { $month: '$createdAt' }
+            },
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { '_id.year': 1, '_id.month': 1 } }
+      ]);
+    }
+    
+    // Toplam sorun sayısı
+    const total = await Issue.countDocuments(filter);
+    
+    // PDF oluştur
+    const doc = new PDFDocument();
+    
+    // Content-Type header'ını ayarla
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=rapor-${filterType}-${timeRange}.pdf`);
+    
+    // Stream PDF to the client
+    doc.pipe(res);
+    
+    // PDF içeriğini oluştur
+    doc.fontSize(25).text('Şehir Sorun Bildirimi Raporu', {
+      align: 'center'
+    });
+    
+    doc.moveDown();
+    doc.fontSize(14).text(`Rapor Türü: ${filterType === 'status' ? 'Durum' : filterType === 'category' ? 'Kategori' : filterType === 'district' ? 'İlçe' : filterType === 'city' ? 'Şehir' : 'Aylık'} Dağılımı`, {
+      align: 'left'
+    });
+    
+    doc.fontSize(14).text(`Zaman Aralığı: ${timeRange === 'last7days' ? 'Son 7 Gün' : timeRange === 'last30days' ? 'Son 30 Gün' : timeRange === 'last90days' ? 'Son 90 Gün' : timeRange === 'lastYear' ? 'Son 1 Yıl' : 'Tüm Zamanlar'}`, {
+      align: 'left'
+    });
+    
+    doc.fontSize(14).text(`Toplam Sorun Sayısı: ${total}`, {
+      align: 'left'
+    });
+    
+    doc.moveDown();
+    
+    // Detaylı rapor 
+    doc.fontSize(16).text('Detaylı İstatistikler', {
+      align: 'center'
+    });
+    
+    doc.moveDown();
+    
+    // Tablo başlıkları
+    doc.fontSize(12).text(`${filterType === 'status' ? 'Durum' : filterType === 'category' ? 'Kategori' : filterType === 'district' ? 'İlçe' : filterType === 'city' ? 'Şehir' : 'Ay'}`, 50, doc.y, { width: 200 });
+    doc.text('Sayı', 250, doc.y, { width: 100 });
+    doc.text('Yüzde', 350, doc.y, { width: 100 });
+    
+    doc.moveDown();
+    
+    // Çizgi
+    doc.moveTo(50, doc.y)
+       .lineTo(550, doc.y)
+       .stroke();
+       
+    doc.moveDown();
+    
+    // Tablo verileri
+    if (aggregationResults && aggregationResults.length > 0) {
+      
+      if (filterType === 'monthly') {
+        // Ay isimleri
+        const monthNames = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+        
+        aggregationResults.forEach(item => {
+          const monthName = `${monthNames[item._id.month - 1]} ${item._id.year}`;
+          const count = item.count;
+          const percentage = ((count / total) * 100).toFixed(2);
+          
+          doc.fontSize(12).text(monthName, 50, doc.y, { width: 200 });
+          doc.text(count.toString(), 250, doc.y, { width: 100 });
+          doc.text(`%${percentage}`, 350, doc.y, { width: 100 });
+          doc.moveDown();
+        });
+      } else {
+        aggregationResults.forEach(item => {
+          const name = item._id || 'Bilinmeyen';
+          const count = item.count;
+          const percentage = ((count / total) * 100).toFixed(2);
+          
+          doc.fontSize(12).text(name, 50, doc.y, { width: 200 });
+          doc.text(count.toString(), 250, doc.y, { width: 100 });
+          doc.text(`%${percentage}`, 350, doc.y, { width: 100 });
+          doc.moveDown();
+        });
+      }
+    } else {
+      doc.text('Veri bulunamadı', { align: 'center' });
+    }
+    
+    // Tarih ve bilgi
+    doc.moveDown();
+    doc.fontSize(10).text(`Rapor oluşturma tarihi: ${new Date().toLocaleDateString('tr-TR')}`, {
+      align: 'center'
+    });
+    
+    // PDF'i tamamla
+    doc.end();
+    
+  } catch (error) {
+    console.error('PDF rapor oluşturma hatası:', error);
+    res.status(500).json({
+      success: false,
+      message: 'PDF raporu oluşturulurken bir hata oluştu'
+    });
+  }
+};
+
+// @desc    CSV formatında rapor oluştur ve indir
+// @route   GET /api/admin/reports/export/csv
+// @access  Private/Admin ve Municipal Worker
+exports.exportReportCSV = async (req, res) => {
+  try {
+    const { timeRange = 'last30days', filterType = 'status' } = req.query;
+    
+    // Zaman filtresi oluştur
+    let dateFilter = {};
+    const now = new Date();
+    
+    switch (timeRange) {
+      case 'last7days':
+        dateFilter = { 
+          createdAt: { 
+            $gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) 
+          } 
+        };
+        break;
+      case 'last30days':
+        dateFilter = { 
+          createdAt: { 
+            $gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) 
+          } 
+        };
+        break;
+      case 'last90days':
+        dateFilter = { 
+          createdAt: { 
+            $gte: new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000) 
+          } 
+        };
+        break;
+      case 'lastYear':
+        dateFilter = { 
+          createdAt: { 
+            $gte: new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()) 
+          } 
+        };
+        break;
+      case 'all':
+      default:
+        dateFilter = {};
+        break;
+    }
+    
+    // Şehir filtreleme için
+    let cityFilter = {};
+    
+    if (req.user.role !== 'admin' && req.user.city && req.user.city !== '') {
+      cityFilter = { 'location.city': req.user.city };
+    }
+    
+    // Filtreleri birleştir
+    const filter = { ...dateFilter, ...cityFilter };
+    
+    // İstatistik verilerini al (seçilen filtre türüne göre)
+    let aggregationResults;
+    
+    if (filterType === 'status') {
+      aggregationResults = await Issue.aggregate([
+        { $match: filter },
+        {
+          $group: {
+            _id: '$status',
+            count: { $sum: 1 }
+          }
+        }
+      ]);
+    } else if (filterType === 'category') {
+      aggregationResults = await Issue.aggregate([
+        { $match: filter },
+        {
+          $group: {
+            _id: '$category',
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { count: -1 } }
+      ]);
+    } else if (filterType === 'district') {
+      aggregationResults = await Issue.aggregate([
+        { $match: filter },
+        {
+          $group: {
+            _id: '$location.district',
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { count: -1 } }
+      ]);
+    } else if (filterType === 'city') {
+      aggregationResults = await Issue.aggregate([
+        { $match: filter },
+        {
+          $group: {
+            _id: '$location.city',
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { count: -1 } }
+      ]);
+    } else if (filterType === 'monthly') {
+      aggregationResults = await Issue.aggregate([
+        { $match: filter },
+        {
+          $group: {
+            _id: {
+              year: { $year: '$createdAt' },
+              month: { $month: '$createdAt' }
+            },
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { '_id.year': 1, '_id.month': 1 } }
+      ]);
+    }
+    
+    // Toplam sorun sayısı
+    const total = await Issue.countDocuments(filter);
+    
+    // CSV için veri hazırla
+    let csvData = [];
+    
+    // CSV başlıkları
+    let headers = [
+      filterType === 'status' ? 'Durum' : 
+      filterType === 'category' ? 'Kategori' : 
+      filterType === 'district' ? 'İlçe' : 
+      filterType === 'city' ? 'Şehir' : 'Ay',
+      'Sayı',
+      'Yüzde'
+    ];
+    
+    csvData.push(headers);
+    
+    // Tablo verileri
+    if (aggregationResults && aggregationResults.length > 0) {
+      
+      if (filterType === 'monthly') {
+        // Ay isimleri
+        const monthNames = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+        
+        aggregationResults.forEach(item => {
+          const monthName = `${monthNames[item._id.month - 1]} ${item._id.year}`;
+          const count = item.count;
+          const percentage = ((count / total) * 100).toFixed(2);
+          
+          csvData.push([monthName, count.toString(), `%${percentage}`]);
+        });
+      } else {
+        aggregationResults.forEach(item => {
+          const name = item._id || 'Bilinmeyen';
+          const count = item.count;
+          const percentage = ((count / total) * 100).toFixed(2);
+          
+          csvData.push([name, count.toString(), `%${percentage}`]);
+        });
+      }
+    } else {
+      csvData.push(['Veri bulunamadı', '0', '%0']);
+    }
+    
+    // CSV'yi oluştur
+    stringify(csvData, { header: false }, (err, output) => {
+      if (err) {
+        console.error('CSV oluşturma hatası:', err);
+        return res.status(500).json({
+          success: false,
+          message: 'CSV dosyası oluşturulurken bir hata oluştu'
+        });
+      }
+      
+      // Content-Type header'ını ayarla
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=rapor-${filterType}-${timeRange}.csv`);
+      
+      // Send CSV
+      res.send(output);
+    });
+    
+  } catch (error) {
+    console.error('CSV rapor oluşturma hatası:', error);
+    res.status(500).json({
+      success: false,
+      message: 'CSV raporu oluşturulurken bir hata oluştu'
     });
   }
 };

@@ -7,8 +7,10 @@ import {
   TouchableOpacity, 
   ActivityIndicator,
   Alert,
-  RefreshControl
+  RefreshControl,
+  Linking
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { Picker } from '@react-native-picker/picker';
 import { PieChart, BarChart } from 'react-native-chart-kit';
@@ -32,6 +34,7 @@ const AdminReportsScreen = ({ navigation }) => {
   });
   const [timeRange, setTimeRange] = useState('last30days');
   const [filterType, setFilterType] = useState('status');
+  const [downloadLoading, setDownloadLoading] = useState(false);
   
   // İstatistikleri yükle
   const loadStats = async () => {
@@ -460,6 +463,102 @@ const AdminReportsScreen = ({ navigation }) => {
     }
   };
 
+  // PDF Raporu oluşturma ve indirme
+  const generateAndSharePDF = async () => {
+    try {
+      setDownloadLoading(true);
+      
+      const token = await AsyncStorage.getItem('token');
+      if (!token) {
+        Alert.alert('Hata', 'Oturum bilgilerinize erişilemedi. Lütfen tekrar giriş yapın.');
+        setDownloadLoading(false);
+        return;
+      }
+      
+      // Backend'deki PDF indirme endpoint'i
+      const baseUrl = api.getBaseUrl ? api.getBaseUrl() : 'http://localhost:5001/api';
+      // URL'e token ekle
+      const pdfUrl = `${baseUrl}/admin/reports/export/pdf?timeRange=${timeRange}&filterType=${filterType}&token=${token}`;
+      
+      console.log('PDF indirme URL:', pdfUrl);
+      
+      // URL'i tarayıcıda aç
+      const canOpen = await Linking.canOpenURL(pdfUrl);
+      
+      if (canOpen) {
+        await Linking.openURL(pdfUrl);
+        
+        // Kullanıcıya indirme başarılı mesajı göster
+        Alert.alert(
+          'İşlem Başarılı',
+          'Tarayıcıda raporu görüntüleyebilir ve indirebilirsiniz.',
+          [{ text: 'Tamam' }]
+        );
+      } else {
+        Alert.alert('Hata', 'Rapor indirme bağlantısı açılamadı. Lütfen daha sonra tekrar deneyin.');
+      }
+    } catch (error) {
+      console.error('PDF raporu indirme hatası:', error);
+      Alert.alert('Hata', 'PDF raporu indirilemedi. Lütfen internet bağlantınızı kontrol edin ve tekrar deneyin.');
+    } finally {
+      setDownloadLoading(false);
+    }
+  };
+  
+  // CSV Raporu oluşturma ve indirme
+  const generateAndShareCSV = async () => {
+    try {
+      setDownloadLoading(true);
+      
+      const token = await AsyncStorage.getItem('token');
+      if (!token) {
+        Alert.alert('Hata', 'Oturum bilgilerinize erişilemedi. Lütfen tekrar giriş yapın.');
+        setDownloadLoading(false);
+        return;
+      }
+      
+      // Backend'deki CSV indirme endpoint'i
+      const baseUrl = api.getBaseUrl ? api.getBaseUrl() : 'http://localhost:5001/api';
+      // URL'e token ekle
+      const csvUrl = `${baseUrl}/admin/reports/export/csv?timeRange=${timeRange}&filterType=${filterType}&token=${token}`;
+      
+      console.log('CSV indirme URL:', csvUrl);
+      
+      // URL'i tarayıcıda aç
+      const canOpen = await Linking.canOpenURL(csvUrl);
+      
+      if (canOpen) {
+        await Linking.openURL(csvUrl);
+        
+        // Kullanıcıya indirme başarılı mesajı göster
+        Alert.alert(
+          'İşlem Başarılı',
+          'Tarayıcıda raporu görüntüleyebilir ve indirebilirsiniz.',
+          [{ text: 'Tamam' }]
+        );
+      } else {
+        Alert.alert('Hata', 'Rapor indirme bağlantısı açılamadı. Lütfen daha sonra tekrar deneyin.');
+      }
+    } catch (error) {
+      console.error('CSV raporu indirme hatası:', error);
+      Alert.alert('Hata', 'CSV raporu indirilemedi. Lütfen internet bağlantınızı kontrol edin ve tekrar deneyin.');
+    } finally {
+      setDownloadLoading(false);
+    }
+  };
+  
+  // Seçilen zaman aralığının adını döndür
+  const getTimeRangeText = (range) => {
+    switch(range) {
+      case 'last7days': return 'Son 7 Gün';
+      case 'last30days': return 'Son 30 Gün';
+      case 'last90days': return 'Son 90 Gün';
+      case 'lastYear': return 'Son 1 Yıl';
+      case 'all': return 'Tüm Zamanlar';
+      default: return 'Son 30 Gün';
+    }
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -694,16 +793,38 @@ const AdminReportsScreen = ({ navigation }) => {
           )}
         </View>
         
-        {/* Rapor İndirme Butonu */}
-        <TouchableOpacity 
-          style={styles.reportButton}
-          onPress={() => {
-            Alert.alert('Bilgi', 'Rapor indirme özelliği yakında eklenecektir.');
-          }}
-        >
-          <Icon name="file-download" size={20} color="#fff" />
-          <Text style={styles.reportButtonText}>Raporu İndir (PDF)</Text>
-        </TouchableOpacity>
+        {/* Rapor İndirme Butonları */}
+        <View style={styles.reportButtonsContainer}>
+          <TouchableOpacity 
+            style={[styles.reportButton, downloadLoading && styles.reportButtonDisabled]}
+            onPress={generateAndSharePDF}
+            disabled={downloadLoading}
+          >
+            {downloadLoading ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <>
+                <Icon name="picture-as-pdf" size={20} color="#fff" />
+                <Text style={styles.reportButtonText}>PDF İndir</Text>
+              </>
+            )}
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.reportButton, styles.csvButton, downloadLoading && styles.reportButtonDisabled]}
+            onPress={generateAndShareCSV}
+            disabled={downloadLoading}
+          >
+            {downloadLoading ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <>
+                <Icon name="format-list-numbered" size={20} color="#fff" />
+                <Text style={styles.reportButtonText}>CSV İndir</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
       </ScrollView>
     </View>
   );
@@ -891,6 +1012,11 @@ const styles = StyleSheet.create({
     color: '#7f8c8d',
     textAlign: 'right',
   },
+  reportButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 16,
+  },
   reportButton: {
     backgroundColor: '#3498db',
     flexDirection: 'row',
@@ -901,11 +1027,17 @@ const styles = StyleSheet.create({
     margin: 16,
     marginTop: 8,
   },
+  reportButtonDisabled: {
+    backgroundColor: '#e0e0e0',
+  },
   reportButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
     marginLeft: 8,
+  },
+  csvButton: {
+    backgroundColor: '#2ecc71',
   },
 });
 

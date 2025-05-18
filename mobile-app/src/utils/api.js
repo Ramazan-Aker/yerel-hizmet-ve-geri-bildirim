@@ -646,6 +646,11 @@ const api = {
     client.defaults.baseURL = newBaseUrl;
     console.log(`API Base URL güncellendi: ${newBaseUrl}`);
   },
+  
+  // Base URL'i al
+  getBaseUrl: () => {
+    return BASE_URL;
+  },
 
   // Auth işlemleri
   auth: {

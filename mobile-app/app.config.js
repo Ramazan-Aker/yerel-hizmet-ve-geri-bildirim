@@ -62,7 +62,8 @@ export default {
   plugins: [
     "expo-image-picker",
     "expo-location",
-    "expo-camera"
+    "expo-camera",
+    "expo-file-system"
   ],
   androidStatusBar: {
     barStyle: "dark-content",

@@ -12,6 +12,10 @@ exports.protect = async (req, res, next) => {
   ) {
     // Bearer token'dan token kısmını al
     token = req.headers.authorization.split(' ')[1];
+  } 
+  // Eğer Authorization header'ında yoksa, query params'tan kontrol et (rapor indirme için)
+  else if (req.query && req.query.token) {
+    token = req.query.token;
   }
 
   // Token yoksa
