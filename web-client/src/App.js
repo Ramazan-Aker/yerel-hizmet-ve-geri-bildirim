@@ -7,6 +7,7 @@ import { Toaster } from 'react-hot-toast';
 // Layouts
 import MainLayout from './components/Layout/MainLayout';
 import AdminLayout from './components/Layout/AdminLayout';
+import WorkerLayout from './components/Layout/WorkerLayout';
 
 // Pages
 import HomePage from './pages/HomePage';
@@ -23,6 +24,14 @@ import AdminDashboardPage from './pages/AdminDashboardPage';
 import AdminIssuesPage from './pages/AdminIssuesPage';
 import AdminIssueDetailPage from './pages/AdminIssueDetailPage';
 import AdminReportsPage from './pages/AdminReportsPage';
+
+// Worker Pages
+import WorkerDashboardPage from './pages/WorkerDashboardPage';
+import WorkerIssuesPage from './pages/WorkerIssuesPage';
+import WorkerIssueDetailPage from './pages/WorkerIssueDetailPage';
+
+// Debug Component
+import Debug from './components/Debug';
 
 // Protected Route Component
 const ProtectedRoute = ({ children, requiredRole }) => {
@@ -68,6 +77,29 @@ const AdminRoute = ({ children }) => {
   return children;
 };
 
+// Worker Route Component
+const WorkerRoute = ({ children }) => {
+  const { isAuthenticated, loading, user } = useAuth();
+
+  if (loading) {
+    return <div className="flex justify-center items-center h-screen">Yükleniyor...</div>;
+  }
+
+  if (!isAuthenticated) {
+    console.log('Çalışan sayfasına erişim için giriş yapılmamış, login sayfasına yönlendiriliyor');
+    return <Navigate to="/login" />;
+  }
+  
+  // Çalışan kontrolü
+  if (user?.role !== 'worker') {
+    console.log('Yetkisiz çalışan erişim denemesi. Kullanıcı rolü:', user?.role);
+    return <Navigate to="/" />;
+  }
+
+  console.log('Çalışan erişimi onaylandı. Kullanıcı rolü:', user?.role);
+  return children;
+};
+
 // Ana Sayfa Yönlendirme Bileşeni
 const HomeRedirect = () => {
   const { isAuthenticated, loading, user } = useAuth();
@@ -84,6 +116,12 @@ const HomeRedirect = () => {
   if (user?.role === 'admin' || user?.role === 'municipal_worker') {
     console.log('Admin kullanıcısı ana sayfaya erişmeye çalışıyor, admin paneline yönlendiriliyor');
     return <Navigate to="/admin" />;
+  }
+  
+  // Çalışan ise çalışan paneline yönlendir
+  if (user?.role === 'worker') {
+    console.log('Çalışan kullanıcısı ana sayfaya erişmeye çalışıyor, çalışan paneline yönlendiriliyor');
+    return <Navigate to="/worker" />;
   }
 
   // Normal kullanıcı ise normal ana sayfaya yönlendir
@@ -140,6 +178,18 @@ const App = () => {
             <Route path="issues" element={<AdminIssuesPage />} />
             <Route path="issues/:id" element={<AdminIssueDetailPage />} />
             <Route path="reports" element={<AdminReportsPage />} />
+            <Route path="debug" element={<Debug />} />
+          </Route>
+          
+          {/* Çalışan Sayfaları */}
+          <Route path="/worker" element={
+            <WorkerRoute>
+              <WorkerLayout />
+            </WorkerRoute>
+          }>
+            <Route index element={<WorkerDashboardPage />} />
+            <Route path="issues" element={<WorkerIssuesPage />} />
+            <Route path="issues/:id" element={<WorkerIssueDetailPage />} />
           </Route>
           
           {/* 404 Route */}

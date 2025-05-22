@@ -1,6 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
-const BASE_URL = 'http://192.168.1.54:5001/api';
+import { getBaseUrl } from './api';
 
 /**
  * Fetch kullanan basit HTTP istemcisi
@@ -13,7 +12,8 @@ const httpClient = {
    * @returns {Promise<any>} - API yanıtı
    */
   get: async (endpoint, options = {}) => {
-    const url = `${BASE_URL}${endpoint}`;
+    const baseUrl = getBaseUrl();
+    const url = `${baseUrl}${endpoint}`;
     const token = await AsyncStorage.getItem('token');
     
     const headers = {
@@ -57,7 +57,8 @@ const httpClient = {
    * @returns {Promise<any>} - API yanıtı
    */
   post: async (endpoint, body = {}, options = {}) => {
-    const url = `${BASE_URL}${endpoint}`;
+    const baseUrl = getBaseUrl();
+    const url = `${baseUrl}${endpoint}`;
     const token = await AsyncStorage.getItem('token');
     
     const headers = {
@@ -68,7 +69,7 @@ const httpClient = {
     
     try {
       console.log(`POST isteği yapılıyor: ${url}`);
-      console.log('İstek gövdesi:', JSON.stringify(body));
+      console.log('İstek gövdesi:', JSON.stringify(body).substring(0, 500) + (JSON.stringify(body).length > 500 ? '...' : ''));
       
       const response = await fetch(url, {
         method: 'POST',

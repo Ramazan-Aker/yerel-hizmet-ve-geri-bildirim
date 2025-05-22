@@ -14,13 +14,15 @@ import {
   Platform,
   FlatList,
   Dimensions,
-  Linking
+  Linking,
+  TouchableWithoutFeedback
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { Picker } from '@react-native-picker/picker';
 import { useAuth } from '../hooks/useAuth';
 import api from '../utils/api';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
 const AdminIssueDetailScreen = ({ route, navigation }) => {
   const { issueId } = route.params;
@@ -45,6 +47,9 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
   const statusPickerRef = useRef(null);
   const workerPickerRef = useRef(null);
   
+  // Municipal worker rolü kontrolü
+  const isMunicipalWorker = user && user.role === 'municipal_worker';
+  
   // Sorunu getir
   const fetchIssue = async () => {
     try {
@@ -56,8 +61,49 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
         // Durumun backend değerini kullan
         setNewStatus(response.data.status);
         setOfficialResponse(response.data.officialResponse?.response || '');
-        setAssignedToName(response.data.assignedTo?.name || 'Atanmamış');
-        setSelectedWorker(response.data.assignedTo?._id || '');
+        
+        // Atanmış çalışan bilgisini doğru ayarla
+        // Hem assignedTo hem de assignedWorker alanlarını kontrol et
+        if (response.data.assignedWorker) {
+          // Obje veya ID olarak gelebilir 
+          if (typeof response.data.assignedWorker === 'string') {
+            setSelectedWorker(response.data.assignedWorker);
+            
+            // Municipal worker rolü için API çağrısı yapmayı atla
+            if (isMunicipalWorker) {
+              setAssignedToName('Atanmış Çalışan');
+            } else {
+              // Sadece admin rolü için API çağrısı yap
+              try {
+                const workerResponse = await api.admin.getWorkerById(response.data.assignedWorker);
+                if (workerResponse.success && workerResponse.data) {
+                  setAssignedToName(workerResponse.data.name || 'Atanmış Çalışan');
+                } else {
+                  setAssignedToName('Atanmış Çalışan');
+                }
+              } catch (error) {
+                console.error('Çalışan bilgisi alınamadı:', error);
+                setAssignedToName('Atanmış Çalışan');
+              }
+            }
+          } else {
+            // Obje olarak geldi
+            setSelectedWorker(response.data.assignedWorker._id || '');
+            setAssignedToName(response.data.assignedWorker.name || 'Atanmış Çalışan');
+          }
+        } else if (response.data.assignedTo) {
+          // Eski sürüm API uyumluluğu için assignedTo alanını da kontrol et
+          if (typeof response.data.assignedTo === 'string') {
+            setSelectedWorker(response.data.assignedTo);
+            setAssignedToName('Atanmış Çalışan');
+          } else {
+            setSelectedWorker(response.data.assignedTo._id || '');
+            setAssignedToName(response.data.assignedTo.name || 'Atanmış Çalışan');
+          }
+        } else {
+          setAssignedToName('Atanmamış');
+          setSelectedWorker('');
+        }
         
         // Konum bilgisi varsa harita bölgesini ayarla
         if (response.data.location && response.data.location.coordinates && 
@@ -73,7 +119,7 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
         }
         
         console.log('Sorun durumu:', response.data.status);
-        console.log('Atanan çalışan ID:', response.data.assignedTo?._id);
+        console.log('Atanan çalışan ID:', response.data.assignedWorker?._id || response.data.assignedTo?._id);
       } else {
         Alert.alert('Hata', 'Sorun detayları yüklenirken bir hata oluştu.');
         navigation.goBack();
@@ -90,6 +136,31 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
   // Belediye çalışanlarını getir
   const fetchWorkers = async () => {
     try {
+      // Municipal worker rolü için farklı endpoint kullan
+      if (isMunicipalWorker) {
+        try {
+          const response = await api.municipal.getWorkers();
+          if (response.success) {
+            const workersList = response.workers || response.data?.workers || [];
+            console.log('Municipal çalışan listesi alındı:', workersList.length);
+            setWorkers(workersList);
+          } else {
+            console.warn('Municipal çalışanlar yüklenemedi:', response.message);
+            // Hata durumunda en azından bilgilendirici bir mesaj göster
+            setWorkers([
+              { _id: '', name: 'Çalışanlar yüklenemedi, tekrar deneyiniz' }
+            ]);
+          }
+        } catch (error) {
+          console.error('Municipal çalışanları getirme hatası:', error);
+          setWorkers([
+            { _id: '', name: 'Çalışanlar yüklenemedi, tekrar deneyiniz' }
+          ]);
+        }
+        return;
+      }
+      
+      // Admin için normal API çağrısı
       const response = await api.admin.getWorkers();
       
       if (response.success) {
@@ -158,11 +229,18 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
 
     try {
       setUpdating(true);
-      const response = await api.admin.assignIssue(issueId, selectedWorker);
+      
+      // Municipal worker rolü için farklı endpoint kullan
+      let response;
+      if (isMunicipalWorker) {
+        response = await api.municipal.assignIssue(issueId, selectedWorker);
+      } else {
+        response = await api.admin.assignIssue(issueId, selectedWorker);
+      }
 
       if (response.success) {
         Alert.alert('Başarılı', 'Sorun başarıyla atandı.');
-        fetchIssue(); // Güncel veriyi yeniden getir
+        await fetchIssue(); // Güncel veriyi yeniden getir
       } else {
         Alert.alert('Hata', response.message || 'Sorun atanırken bir hata oluştu.');
       }
@@ -199,9 +277,48 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
     }
   };
 
+  const [failedImages, setFailedImages] = useState({});
+  const [modalImageError, setModalImageError] = useState(false);
+  const [progressFailedImages, setProgressFailedImages] = useState({});
+
+  // Görsel modalını aç
   const openImageModal = (imageUrl) => {
     setSelectedImage(imageUrl);
     setModalVisible(true);
+    setModalImageError(false); // Her modal açılışında hata durumunu sıfırla
+  };
+
+  // Resim URL'sini düzeltme fonksiyonu
+  const getFullImageUrl = (imageUrl) => {
+    if (!imageUrl) return null;
+    
+    // Base64 formatındaki görüntüler için doğrudan URL'yi döndür
+    if (imageUrl.startsWith('data:image')) {
+      return imageUrl;
+    }
+    
+    // Eğer URL http ile başlıyorsa, tam URL'dir
+    if (imageUrl.startsWith('http')) {
+      return imageUrl;
+    }
+    
+    // API URL'si ekle
+    const apiBaseUrl = api.getBaseUrl();
+    console.log('API Base URL:', apiBaseUrl);
+    console.log('Orijinal resim URL:', imageUrl);
+    
+    // URL'deki çift slash'ları önlemek için kontrol et
+    let fullUrl;
+    if (imageUrl.startsWith('/') && apiBaseUrl.endsWith('/')) {
+      fullUrl = `${apiBaseUrl.slice(0, -1)}${imageUrl}`;
+    } else if (!imageUrl.startsWith('/') && !apiBaseUrl.endsWith('/')) {
+      fullUrl = `${apiBaseUrl}/${imageUrl}`;
+    } else {
+      fullUrl = `${apiBaseUrl}${imageUrl}`;
+    }
+    
+    console.log('Oluşturulan tam URL:', fullUrl);
+    return fullUrl;
   };
 
   // Durum rengini belirle
@@ -398,19 +515,211 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
           </View>
         </View>
 
-        {/* Resimler */}
+        {/* Fotoğraflar */}
         {issue.images && issue.images.length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Resimler</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imagesContainer}>
-              {issue.images.map((image, index) => (
-                <TouchableOpacity key={index} onPress={() => openImageModal(image)}>
-                  <Image source={{ uri: image }} style={styles.imagePreview} />
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+            <Text style={styles.sectionTitle}>Fotoğraflar</Text>
+            <View style={styles.imagesContainer}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {issue.images.map((image, index) => {
+                  const fullImageUrl = getFullImageUrl(image);
+                  console.log(`Görsel ${index + 1} URL:`, fullImageUrl);
+                  const hasError = failedImages[index];
+                  
+                  return (
+                    <TouchableOpacity 
+                      key={index} 
+                      style={[
+                        styles.imagePreviewContainer,
+                        hasError && styles.failedImageContainer
+                      ]}
+                      onPress={() => openImageModal(image)}
+                    >
+                      {!hasError ? (
+                        <Image 
+                          source={{ uri: fullImageUrl }} 
+                          style={styles.imagePreview} 
+                          resizeMode="cover"
+                          onError={() => {
+                            console.log(`Resim yüklenemedi: ${image}`);
+                            console.log(`Tam URL: ${fullImageUrl}`);
+                            setFailedImages(prev => ({...prev, [index]: true}));
+                          }}
+                        />
+                      ) : (
+                        <View style={styles.errorImageContainer}>
+                          <Icon name="broken-image" size={24} color="#e74c3c" />
+                          <Text style={styles.errorImageText}>Görsel yüklenemedi</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
           </View>
         )}
+
+        {/* Çözüm Fotoğrafları - Hem admin hem de municipal_worker için göster */}
+        {issue.progressPhotos && issue.progressPhotos.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Çözüm Fotoğrafları</Text>
+            <View style={styles.imagesContainer}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {issue.progressPhotos.map((photo, index) => {
+                  // URL'yi doğru şekilde oluştur
+                  let imageUrl = '';
+                  if (typeof photo === 'string') {
+                    imageUrl = photo;
+                  } else if (photo.url) {
+                    imageUrl = photo.url;
+                  } else {
+                    return null; // Geçersiz fotoğraf verisi
+                  }
+                  
+                  const fullImageUrl = getFullImageUrl(imageUrl);
+                  console.log(`Çözüm fotoğrafı ${index + 1} URL:`, fullImageUrl);
+                  const hasError = progressFailedImages[index];
+                  
+                  return (
+                    <TouchableOpacity 
+                      key={index} 
+                      style={[
+                        styles.imagePreviewContainer,
+                        hasError && styles.failedImageContainer
+                      ]}
+                      onPress={() => openImageModal(imageUrl)}
+                    >
+                      {!hasError ? (
+                        <Image 
+                          source={{ uri: fullImageUrl }} 
+                          style={styles.imagePreview} 
+                          resizeMode="cover"
+                          onError={() => {
+                            console.log(`Çözüm fotoğrafı yüklenemedi: ${imageUrl}`);
+                            console.log(`Tam URL: ${fullImageUrl}`);
+                            setProgressFailedImages(prev => ({...prev, [index]: true}));
+                          }}
+                        />
+                      ) : (
+                        <View style={styles.errorImageContainer}>
+                          <Icon name="broken-image" size={24} color="#e74c3c" />
+                          <Text style={styles.errorImageText}>Görsel yüklenemedi</Text>
+                        </View>
+                      )}
+                      
+                      {photo.uploadedAt && (
+                        <View style={styles.photoDateContainer}>
+                          <Text style={styles.photoDateText}>
+                            {new Date(photo.uploadedAt).toLocaleDateString('tr-TR')}
+                          </Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          </View>
+        )}
+
+        {/* Çözüm Süreci Zaman Çizelgesi */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Çözüm Süreci</Text>
+          <View style={styles.timelineContainer}>
+            {/* Oluşturulma */}
+            <View style={styles.timelineItem}>
+              <View style={[styles.timelineDot, { backgroundColor: "#3498db" }]}>
+                <Icon name="schedule" size={16} color="#fff" />
+              </View>
+              {/* Çizgi */}
+              <View style={styles.timelineLine} />
+              <View style={styles.timelineContent}>
+                <Text style={styles.timelineTitle}>Sorun bildirildi</Text>
+                <Text style={styles.timelineDate}>
+                  {new Date(issue.createdAt).toLocaleDateString('tr-TR', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })}
+                </Text>
+              </View>
+            </View>
+            
+            {/* Durum Güncellemeleri */}
+            {issue.updates && issue.updates.map((update, index) => (
+              <View key={index} style={styles.timelineItem}>
+                <View style={[styles.timelineDot, { backgroundColor: getStatusColor(update.status) }]}>
+                  {update.status === 'in_progress' ? (
+                    <Icon name="engineering" size={16} color="#fff" />
+                  ) : update.status === 'resolved' ? (
+                    <Icon name="check-circle" size={16} color="#fff" />
+                  ) : update.status === 'rejected' ? (
+                    <Icon name="cancel" size={16} color="#fff" />
+                  ) : (
+                    <Icon name="info" size={16} color="#fff" />
+                  )}
+                </View>
+                {/* Çizgi - Son öğe değilse göster */}
+                {(index < issue.updates.length - 1 || issue.officialResponse || true) && (
+                  <View style={styles.timelineLine} />
+                )}
+                <View style={styles.timelineContent}>
+                  <Text style={styles.timelineTitle}>{update.text}</Text>
+                  <Text style={styles.timelineDate}>
+                    {new Date(update.date).toLocaleDateString('tr-TR', {
+                      day: '2-digit',
+                      month: '2-digit',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })}
+                  </Text>
+                </View>
+              </View>
+            ))}
+            
+            {/* Resmi Yanıtlar */}
+            {issue.officialResponse && issue.officialResponse.response && (
+              <View style={styles.timelineItem}>
+                <View style={[styles.timelineDot, { backgroundColor: "#3498db" }]}>
+                  <Icon name="comment" size={16} color="#fff" />
+                </View>
+                {/* Çizgi - Her zaman göster */}
+                <View style={styles.timelineLine} />
+                <View style={styles.timelineContent}>
+                  <Text style={styles.timelineTitle}>Resmi Yanıt</Text>
+                  <Text style={styles.timelineText}>{issue.officialResponse.response}</Text>
+                  <Text style={styles.timelineDate}>
+                    {new Date(issue.officialResponse.date).toLocaleDateString('tr-TR', {
+                      day: '2-digit',
+                      month: '2-digit',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })}
+                  </Text>
+                </View>
+              </View>
+            )}
+            
+            {/* Güncel Durum */}
+            <View style={styles.timelineItem}>
+              <View style={[styles.timelineDot, { backgroundColor: getStatusColor(issue.status) }]}>
+                <Icon name="flag" size={16} color="#fff" />
+              </View>
+              {/* Son öğede çizgi yok */}
+              <View style={styles.timelineContent}>
+                <Text style={styles.timelineTitle}>Güncel Durum: {getStatusText(issue.status)}</Text>
+                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(issue.status), alignSelf: 'flex-start', marginTop: 4 }]}>
+                  <Text style={styles.statusText}>{getStatusText(issue.status)}</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        </View>
 
         {/* Yönetim Araçları */}
         <View style={styles.section}>
@@ -437,7 +746,7 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
             <Text style={styles.helperText}>Durumu değiştirdikten sonra "Değişiklikleri Kaydet" butonuna basın</Text>
           </View>
           
-          {/* Çalışan Atama */}
+          {/* Çalışan Atama - Tüm roller için aktif */}
           <View style={styles.formGroup}>
             <Text style={styles.formLabel}>Sorumlu Çalışan</Text>
             
@@ -542,27 +851,45 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
         </View>
       </ScrollView>
 
-      {/* Resim Modali */}
+      {/* Fotoğraf Görüntüleme Modalı */}
       <Modal
-        visible={modalVisible}
+        animationType="fade"
         transparent={true}
+        visible={modalVisible}
         onRequestClose={() => setModalVisible(false)}
       >
-        <View style={styles.modalContainer}>
-          <TouchableOpacity
-            style={styles.closeModalButton}
-            onPress={() => setModalVisible(false)}
-          >
-            <Icon name="close" size={30} color="#fff" />
-          </TouchableOpacity>
-          {selectedImage && (
-            <Image
-              source={{ uri: selectedImage }}
-              style={styles.fullImage}
-              resizeMode="contain"
-            />
-          )}
-        </View>
+        <TouchableWithoutFeedback onPress={() => setModalVisible(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.modalContent}>
+                {selectedImage && !modalImageError ? (
+                  <Image 
+                    source={{ uri: getFullImageUrl(selectedImage) }} 
+                    style={styles.fullImage} 
+                    resizeMode="contain"
+                    onError={() => {
+                      console.log(`Modal resim yüklenemedi: ${selectedImage}`);
+                      console.log(`Modal tam URL: ${getFullImageUrl(selectedImage)}`);
+                      setModalImageError(true);
+                    }}
+                  />
+                ) : modalImageError && (
+                  <View style={styles.modalErrorContainer}>
+                    <Icon name="broken-image" size={48} color="#e74c3c" />
+                    <Text style={styles.modalErrorText}>Görsel yüklenemedi</Text>
+                    <Text style={styles.modalErrorUrl}>{getFullImageUrl(selectedImage)}</Text>
+                  </View>
+                )}
+                <TouchableOpacity 
+                  style={styles.closeButton} 
+                  onPress={() => setModalVisible(false)}
+                >
+                  <Icon name="close" size={24} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
       </Modal>
 
       {/* Durum Seçici Modal */}
@@ -572,31 +899,31 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
         animationType="slide"
         onRequestClose={() => setStatusModalVisible(false)}
       >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setStatusModalVisible(false)}
-        >
-          <View style={styles.modalContent}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.workerModalContainer}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Durumu Seçin</Text>
-              <TouchableOpacity onPress={() => setStatusModalVisible(false)}>
+              <TouchableOpacity 
+                onPress={() => setStatusModalVisible(false)}
+                style={styles.closeModalButton}
+              >
                 <Icon name="close" size={24} color="#666" />
               </TouchableOpacity>
             </View>
+            
             <FlatList
               data={[
-                {label: 'Yeni', value: 'pending'},
-                {label: 'İnceleniyor', value: 'in_progress'},
-                {label: 'Çözüldü', value: 'resolved'},
-                {label: 'Reddedildi', value: 'rejected'}
+                {label: 'Yeni', value: 'pending', color: '#3498db', icon: 'fiber-new'},
+                {label: 'İnceleniyor', value: 'in_progress', color: '#f39c12', icon: 'hourglass-empty'},
+                {label: 'Çözüldü', value: 'resolved', color: '#2ecc71', icon: 'check-circle'},
+                {label: 'Reddedildi', value: 'rejected', color: '#e74c3c', icon: 'cancel'}
               ]}
               keyExtractor={(item) => item.value}
               renderItem={({item}) => (
                 <TouchableOpacity
                   style={[
-                    styles.modalItem,
-                    newStatus === item.value && styles.modalItemSelected
+                    styles.workerItem,
+                    newStatus === item.value && styles.workerItemSelected
                   ]}
                   onPress={() => {
                     console.log(`Durum seçildi: ${item.label} (${item.value})`);
@@ -604,23 +931,41 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
                     setStatusModalVisible(false);
                   }}
                 >
-                  <Text 
-                    style={[
-                      styles.modalItemText,
-                      newStatus === item.value && styles.modalItemTextSelected
-                    ]}
-                  >
-                    {item.label}
-                  </Text>
+                  <View style={styles.workerItemContent}>
+                    <View style={[styles.statusIconContainer, {backgroundColor: `${item.color}20`}]}>
+                      <Icon name={item.icon} size={20} color={item.color} />
+                    </View>
+                    
+                    <Text 
+                      style={[
+                        styles.workerItemText,
+                        newStatus === item.value && styles.workerItemTextSelected
+                      ]}
+                    >
+                      {item.label}
+                    </Text>
+                  </View>
+                  
                   {newStatus === item.value && (
-                    <Icon name="check" size={22} color="#3498db" />
+                    <View style={styles.checkmarkContainer}>
+                      <Icon name="check-circle" size={22} color="#2ecc71" />
+                    </View>
                   )}
                 </TouchableOpacity>
               )}
-              style={styles.modalList}
+              style={styles.workerList}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.workerListContent}
             />
+            
+            <TouchableOpacity 
+              style={styles.cancelButton}
+              onPress={() => setStatusModalVisible(false)}
+            >
+              <Text style={styles.cancelButtonText}>Kapat</Text>
+            </TouchableOpacity>
           </View>
-        </TouchableOpacity>
+        </View>
       </Modal>
 
       {/* Çalışan Seçici Modal */}
@@ -630,56 +975,81 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
         animationType="slide"
         onRequestClose={() => setWorkerModalVisible(false)}
       >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setWorkerModalVisible(false)}
-        >
-          <View style={styles.modalContent}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.workerModalContainer}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Çalışan Seçin</Text>
-              <TouchableOpacity onPress={() => setWorkerModalVisible(false)}>
+              <TouchableOpacity 
+                onPress={() => setWorkerModalVisible(false)}
+                style={styles.closeModalButton}
+              >
                 <Icon name="close" size={24} color="#666" />
               </TouchableOpacity>
             </View>
+            
             <FlatList
               data={[
-                {_id: '', name: 'Seçiniz...'},
+                {_id: 'empty_select', name: 'Seçiniz...'},
                 ...workers
               ]}
-              keyExtractor={(item) => item._id || 'empty'}
+              keyExtractor={(item) => item._id || `worker_${Math.random().toString(36).substring(7)}`}
               renderItem={({item}) => (
                 <TouchableOpacity
                   style={[
-                    styles.modalItem,
-                    selectedWorker === item._id && styles.modalItemSelected
+                    styles.workerItem,
+                    selectedWorker === item._id && styles.workerItemSelected
                   ]}
                   onPress={() => {
                     console.log(`Çalışan seçildi: ${item.name} (${item._id})`);
-                    setSelectedWorker(item._id);
-                    if (item._id) {
+                    setSelectedWorker(item._id === 'empty_select' ? '' : item._id);
+                    if (item._id && item._id !== 'empty_select') {
                       setAssignedToName(item.name);
                     }
                     setWorkerModalVisible(false);
                   }}
                 >
-                  <Text 
-                    style={[
-                      styles.modalItemText,
-                      selectedWorker === item._id && styles.modalItemTextSelected
-                    ]}
-                  >
-                    {item.name}
-                  </Text>
+                  <View style={styles.workerItemContent}>
+                    {item._id !== 'empty_select' ? (
+                      <View style={styles.workerIconContainer}>
+                        <Icon name="person" size={20} color="#3498db" />
+                      </View>
+                    ) : (
+                      <View style={styles.emptySelectIconContainer}>
+                        <Icon name="person-outline" size={20} color="#95a5a6" />
+                      </View>
+                    )}
+                    
+                    <Text 
+                      style={[
+                        styles.workerItemText,
+                        selectedWorker === item._id && styles.workerItemTextSelected,
+                        item._id === 'empty_select' && styles.emptySelectText
+                      ]}
+                    >
+                      {item.name}
+                    </Text>
+                  </View>
+                  
                   {selectedWorker === item._id && (
-                    <Icon name="check" size={22} color="#3498db" />
+                    <View style={styles.checkmarkContainer}>
+                      <Icon name="check-circle" size={22} color="#2ecc71" />
+                    </View>
                   )}
                 </TouchableOpacity>
               )}
-              style={styles.modalList}
+              style={styles.workerList}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.workerListContent}
             />
+            
+            <TouchableOpacity 
+              style={styles.cancelButton}
+              onPress={() => setWorkerModalVisible(false)}
+            >
+              <Text style={styles.cancelButtonText}>Kapat</Text>
+            </TouchableOpacity>
           </View>
-        </TouchableOpacity>
+        </View>
       </Modal>
     </KeyboardAvoidingView>
   );
@@ -768,11 +1138,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginTop: 8,
   },
-  imagePreview: {
-    width: 120,
-    height: 120,
-    borderRadius: 8,
+  imagePreviewContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 4,
     marginRight: 8,
+    marginBottom: 8,
+  },
+  imagePreview: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 4,
   },
   formGroup: {
     marginBottom: 16,
@@ -921,8 +1297,9 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   fullImage: {
-    width: '100%',
-    height: '80%',
+    width: '90%',
+    height: '90%',
+    borderRadius: 8,
   },
   helperText: {
     fontSize: 12,
@@ -940,22 +1317,15 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
   },
   modalContent: {
-    backgroundColor: 'white',
-    borderRadius: 10,
-    width: '100%', 
-    maxWidth: 350,
-    maxHeight: '70%',
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
+    width: '100%',
+    height: '80%',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -1055,6 +1425,259 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     marginLeft: 8,
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 40,
+    right: 20,
+    zIndex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    padding: 8,
+    borderRadius: 20,
+  },
+  disabledPicker: {
+    backgroundColor: '#f1f1f1',
+    borderColor: '#ccc',
+    opacity: 0.8,
+  },
+  disabledPickerText: {
+    fontSize: 16,
+    color: '#666',
+    flex: 1,
+  },
+  imageDebugText: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    color: '#fff',
+    padding: 4,
+  },
+  imageOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 4,
+  },
+  imageNumber: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  failedImageContainer: {
+    backgroundColor: '#f0f0f0',
+    borderWidth: 1,
+    borderColor: '#ccc',
+  },
+  errorImageContainer: {
+    backgroundColor: '#f0f0f0',
+    borderWidth: 1,
+    borderColor: '#ccc',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  errorImageText: {
+    fontSize: 10,
+    color: '#e74c3c',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  photoDateContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    padding: 2,
+  },
+  photoDateText: {
+    fontSize: 8,
+    color: '#fff',
+    textAlign: 'center',
+  },
+  modalErrorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  modalErrorText: {
+    fontSize: 16,
+    color: '#e74c3c',
+    marginBottom: 8,
+  },
+  modalErrorUrl: {
+    fontSize: 12,
+    color: '#95a5a6',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  workerModalContainer: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 20,
+    maxHeight: '80%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  closeModalButton: {
+    padding: 8,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#2c3e50',
+  },
+  workerList: {
+    maxHeight: 350,
+  },
+  workerListContent: {
+    paddingHorizontal: 16,
+  },
+  workerItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  workerItemContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  workerIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#e1f5fe',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  emptySelectIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f5f5f5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  workerItemSelected: {
+    backgroundColor: '#f5f9ff',
+  },
+  workerItemText: {
+    fontSize: 16,
+    color: '#2c3e50',
+  },
+  workerItemTextSelected: {
+    fontWeight: 'bold',
+    color: '#3498db',
+  },
+  emptySelectText: {
+    color: '#95a5a6',
+    fontStyle: 'italic',
+  },
+  checkmarkContainer: {
+    marginLeft: 8,
+  },
+  cancelButton: {
+    marginTop: 16,
+    marginHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    color: '#7f8c8d',
+    fontWeight: 'bold',
+  },
+  statusIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  timelineContainer: {
+    marginTop: 10,
+    paddingVertical: 8,
+  },
+  timelineItem: {
+    flexDirection: 'row',
+    marginBottom: 20,
+    position: 'relative',
+  },
+  timelineDot: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#95a5a6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    zIndex: 2,
+  },
+  timelineContent: {
+    flex: 1,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    padding: 12,
+    marginLeft: 6,
+    borderLeftWidth: 1,
+    borderLeftColor: '#e0e0e0',
+  },
+  timelineLine: {
+    position: 'absolute',
+    left: 17, // half of dot width
+    top: 36, // full dot height
+    bottom: 0,
+    width: 2,
+    backgroundColor: '#e0e0e0',
+    zIndex: 1,
+  },
+  timelineTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#2c3e50',
+    marginBottom: 4,
+  },
+  timelineDate: {
+    fontSize: 12,
+    color: '#95a5a6',
+    marginTop: 4,
+  },
+  timelineText: {
+    fontSize: 14,
+    color: '#34495e',
+    marginTop: 6,
+    marginBottom: 6,
   },
 });
 

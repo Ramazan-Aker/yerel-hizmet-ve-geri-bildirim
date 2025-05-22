@@ -789,8 +789,18 @@ const IssueDetailScreen = ({ route, navigation }) => {
                     source={{ uri: image }}
                     style={styles.image}
                     resizeMode="cover"
+                    defaultSource={null}
                     onError={(e) => {
-                      console.warn(`Image loading error for index ${index}`);
+                      console.warn(`Image loading error for index ${index}, URL: ${image}`);
+                      // API URL'si görüntülere öneklenmiş mi kontrol et
+                      if (image && typeof image === 'string' && !image.startsWith('http')) {
+                        // API URL'si ekle
+                        const apiBaseUrl = api.getBaseUrl();
+                        const fullImageUrl = `${apiBaseUrl}${image.startsWith('/') ? '' : '/'}${image}`;
+                        console.log(`Trying with full URL: ${fullImageUrl}`);
+                        // Resim kaynağını güncelle
+                        e.nativeEvent.target.src = fullImageUrl;
+                      }
                     }}
                   />
                     </TouchableOpacity>

@@ -192,6 +192,12 @@ const testApiConnection = async (testUrl = BASE_URL) => {
   }
 };
 
+// API Base URL'ini almak için yardımcı fonksiyon
+const getBaseUrl = () => {
+  // API URL'den '/api' kısmını çıkar
+  return BASE_URL.replace('/api', '');
+};
+
 // Tüm alternatif IP adreslerini test eden fonksiyon
 const tryAllApiUrls = async () => {
   console.log('Tüm alternatif IP adreslerini deniyorum...');
@@ -646,7 +652,7 @@ const api = {
     client.defaults.baseURL = newBaseUrl;
     console.log(`API Base URL güncellendi: ${newBaseUrl}`);
   },
-  
+
   // Base URL'i al
   getBaseUrl: () => {
     return BASE_URL;
@@ -1717,7 +1723,43 @@ const api = {
       } catch (error) {
         return handleApiError(error, 'Kullanıcı güncellenirken bir hata oluştu');
       }
-    }
+    },
+    
+    // Çalışan bilgisini ID'ye göre getir
+    getWorkerById: async (workerId) => {
+      try {
+        console.log(`${workerId} ID'li çalışan bilgisi getiriliyor`);
+        const token = await AsyncStorage.getItem('token');
+        
+        if (!token) {
+          console.error('Token bulunamadı');
+          return {
+            success: false,
+            message: 'Oturum açık değil'
+          };
+        }
+        
+        // Admin API'den kullanıcı bilgisini getir
+        const response = await client.get(`/admin/users/${workerId}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        return {
+          success: true,
+          data: response.data.data
+        };
+      } catch (error) {
+        console.error(`Çalışan (${workerId}) bilgisi getirilirken hata:`, error);
+        
+        // Daha detaylı hata bilgisi
+        if (error.response) {
+          console.error('API Hata Kodu:', error.response.status);
+          console.error('API Hata Detayı:', error.response.data);
+        }
+        
+        return handleApiError(error, 'Çalışan bilgisi alınırken bir hata oluştu');
+      }
+    },
   },
 
   // Bağlantı durumunu kontrol et
@@ -1733,6 +1775,368 @@ const api = {
       console.error('API bağlantı kontrolü başarısız:', error);
       return { success: false, message: 'API sunucusuna bağlanılamadı' };
     }
+  },
+
+  // Municipal worker (belediye çalışanı) işlemleri
+  municipal: {
+    // Belediye çalışanına ait şehirdeki sorunları getir
+    getIssuesByCity: async (filters = {}) => {
+      try {
+        const response = await client.get('/municipal/issues', { params: filters });
+        return response.data;
+      } catch (error) {
+        return handleApiError(error, 'Şehirdeki sorunlar alınamadı');
+      }
+    },
+    
+    // Sorun detayı getir
+    getIssueById: async (id) => {
+      try {
+        const response = await client.get(`/municipal/issues/${id}`);
+        return response.data;
+      } catch (error) {
+        return handleApiError(error, 'Sorun detayları alınamadı');
+      }
+    },
+    
+    // Belediye çalışanlarını getir
+    getWorkers: async () => {
+      try {
+        const response = await client.get('/municipal/workers');
+        return response.data;
+      } catch (error) {
+        return handleApiError(error, 'Çalışanlar alınamadı');
+      }
+    },
+    
+    // Sorunu çalışana ata
+    assignIssue: async (issueId, workerId) => {
+      try {
+        const response = await client.put(`/admin/issues/${issueId}/assign`, { workerId });
+        return response.data;
+      } catch (error) {
+        return handleApiError(error, 'Sorun atama işlemi başarısız');
+      }
+    },
+    
+    // Sorun durumunu güncelle
+    updateIssueStatus: async (issueId, status) => {
+      try {
+        const response = await client.put(`/municipal/issues/${issueId}/status`, { status });
+        return response.data;
+      } catch (error) {
+        return handleApiError(error, 'Durum güncellenemedi');
+      }
+    },
+    
+    // Resmi yanıt ekle
+    addOfficialResponse: async (issueId, responseText) => {
+      try {
+        const response = await client.post(`/municipal/issues/${issueId}/response`, { 
+          response: responseText 
+        });
+        return response.data;
+      } catch (error) {
+        return handleApiError(error, 'Resmi yanıt eklenemedi');
+      }
+    }
+  },
+  
+  // Worker (çalışan) işlemleri
+  worker: {
+    // Çalışana atanan görevleri getir
+    getAssignedIssues: async () => {
+      try {
+        console.log('Çalışana atanan görevler getiriliyor...');
+        const token = await AsyncStorage.getItem('token');
+        
+        if (!token) {
+          console.error('Token bulunamadı');
+          return {
+            success: false,
+            message: 'Oturum açık değil'
+          };
+        }
+        
+        const response = await client.get('/worker/issues', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        console.log('Görevler başarıyla alındı:', response.status);
+        
+        return {
+          success: true,
+          data: response.data.data || response.data
+        };
+      } catch (error) {
+        console.error('Görevler alınırken hata:', error);
+        
+        // Demo modunda ise demo verileri döndür
+        if (isDemoMode) {
+          console.log('Demo modunda görevler getiriliyor...');
+          return { 
+            success: true, 
+            data: demoData.issues.filter(issue => issue.status === 'in_progress'),
+            isDemoMode: true 
+          };
+        }
+        
+        return handleApiError(error, 'Görevler alınırken bir hata oluştu');
+      }
+    },
+    
+    // Görev detayını getir
+    getIssueById: async (id) => {
+      try {
+        console.log(`${id} ID'li görev detayı getiriliyor...`);
+        const token = await AsyncStorage.getItem('token');
+        
+        if (!token) {
+          console.error('Token bulunamadı');
+          return {
+            success: false,
+            message: 'Oturum açık değil'
+          };
+        }
+        
+        const response = await client.get(`/worker/issues/${id}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        console.log('Görev detayı başarıyla alındı:', response.status);
+        
+        // Yanıt içeriğini detaylı logla
+        const responseData = response.data.data || response.data;
+        console.log('Görev yanıt içeriği:', JSON.stringify({
+          ...responseData,
+          images: responseData.images ? `[${responseData.images.length} adet resim]` : null,
+          progressPhotos: responseData.progressPhotos ? `[${responseData.progressPhotos.length} adet ilerleme fotoğrafı]` : null
+        }, null, 2));
+        
+        // Resim verilerini kontrol et
+        if (responseData && responseData.images) {
+          console.log(`${responseData.images.length} adet resim bulundu`);
+          responseData.images.forEach((img, idx) => {
+            const isBase64 = typeof img === 'string' && img.startsWith('data:image');
+            console.log(`Resim ${idx}: ${isBase64 ? 'Base64 formatında' : (typeof img === 'string' ? img.substring(0, 30) + '...' : 'String değil')}`);
+          });
+        } else {
+          console.log('Görevde resim bulunamadı veya images alanı yok');
+        }
+        
+        return {
+          success: true,
+          data: responseData
+        };
+      } catch (error) {
+        console.error(`Görev (${id}) detayı alınırken hata:`, error);
+        
+        // Demo modunda ise demo verileri döndür
+        if (isDemoMode) {
+          console.log('Demo modunda görev detayı getiriliyor...');
+          const demoIssue = demoData.issues.find(issue => issue._id === id);
+          if (demoIssue) {
+            return { 
+              success: true, 
+              data: demoIssue,
+              isDemoMode: true 
+            };
+          }
+        }
+        
+        return handleApiError(error, 'Görev detayı alınırken bir hata oluştu');
+      }
+    },
+    
+    // Görev durumunu güncelle
+    updateIssueStatus: async (id, status) => {
+      try {
+        console.log(`${id} ID'li görevin durumu güncelleniyor: ${status}`);
+        const token = await AsyncStorage.getItem('token');
+        
+        if (!token) {
+          console.error('Token bulunamadı');
+          return {
+            success: false,
+            message: 'Oturum açık değil'
+          };
+        }
+        
+        const response = await client.put(`/worker/issues/${id}/status`, 
+          { status }, 
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        
+        console.log('Görev durumu başarıyla güncellendi:', response.status);
+        
+        return {
+          success: true,
+          data: response.data.data || response.data
+        };
+      } catch (error) {
+        console.error(`Görev (${id}) durumu güncellenirken hata:`, error);
+        return handleApiError(error, 'Görev durumu güncellenirken bir hata oluştu');
+      }
+    },
+    
+    // Görev için yorum ekle
+    addComment: async (issueId, commentText) => {
+      try {
+        console.log(`${issueId} ID'li göreve yorum ekleniyor...`);
+        const token = await AsyncStorage.getItem('token');
+        
+        if (!token) {
+          console.error('Token bulunamadı');
+          return {
+            success: false,
+            message: 'Oturum açık değil'
+          };
+        }
+        
+        const response = await client.post(`/worker/issues/${issueId}/comments`, 
+          { content: commentText }, 
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        
+        console.log('Yorum başarıyla eklendi:', response.status);
+        
+        return {
+          success: true,
+          data: response.data.data || response.data
+        };
+      } catch (error) {
+        console.error(`Göreve (${issueId}) yorum eklenirken hata:`, error);
+        return handleApiError(error, 'Yorum eklenirken bir hata oluştu');
+      }
+    },
+    
+    // İlerleme fotoğrafı ekle - Web uygulamasındaki gibi basitleştirilmiş
+    addProgressPhoto: async (issueId, photoUri, description = '') => {
+      try {
+        console.log(`${issueId} ID'li göreve ilerleme fotoğrafı ekleniyor...`);
+        const token = await AsyncStorage.getItem('token');
+        
+        if (!token) {
+          console.error('Token bulunamadı');
+          return {
+            success: false,
+            message: 'Oturum açık değil'
+          };
+        }
+        
+        // FormData kullanarak fotoğrafı yükle
+        try {
+          console.log('FormData ile fotoğraf yükleniyor...');
+          
+          // Fotoğraf URI'sini kontrol et
+          if (!photoUri) {
+            console.error('Fotoğraf URI boş');
+            return {
+              success: false,
+              message: 'Geçersiz fotoğraf'
+            };
+          }
+          
+          // FormData oluştur
+          const formData = new FormData();
+          
+          // Dosya adı ve türünü belirle
+          const fileType = photoUri.split('.').pop() || 'jpeg';
+          const fileName = `photo_${Date.now()}.${fileType}`;
+          
+          // Fotoğrafı ekle
+          formData.append('photos', {
+            uri: photoUri,
+            type: `image/${fileType}`,
+            name: fileName
+          });
+          
+          // Açıklama varsa ekle
+          if (description) {
+            formData.append('description', description);
+          }
+          
+          console.log('FormData oluşturuldu, API isteği gönderiliyor...');
+          console.log('Endpoint:', `/worker/issues/${issueId}/photos`);
+          
+          // API isteği gönder - doğru endpoint: /photos (çoğul)
+          const response = await client.post(`/worker/issues/${issueId}/photos`, 
+            formData, 
+            { 
+              headers: { 
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'multipart/form-data'
+              },
+              timeout: 60000 // 60 saniye timeout
+            }
+          );
+          
+          console.log('İlerleme fotoğrafı başarıyla eklendi:', response.status);
+          
+          return {
+            success: true,
+            data: response.data.data || response.data
+          };
+        } catch (uploadError) {
+          console.error('FormData ile yükleme hatası:', uploadError);
+          throw uploadError; // Üst catch bloğunda yakalanacak
+        }
+      } catch (error) {
+        console.error(`Göreve (${issueId}) ilerleme fotoğrafı eklenirken hata:`, error);
+        
+        // Özel hata mesajı
+        if (error.response) {
+          console.error('Sunucu yanıtı:', error.response.status, error.response.data);
+          return {
+            success: false,
+            message: `Sunucu hatası: ${error.response.status}`,
+            error: error.response.data
+          };
+        }
+        
+        return handleApiError(error, 'İlerleme fotoğrafı eklenirken bir hata oluştu');
+      }
+    },
+    
+    // Birden fazla ilerleme fotoğrafı ekle - Web uygulamasındaki gibi basitleştirilmiş
+    addProgressPhotos: async (issueId, photoUris, description = '') => {
+      try {
+        console.log(`${issueId} ID'li göreve ${photoUris.length} adet ilerleme fotoğrafı ekleniyor...`);
+        
+        // Her fotoğrafı tek tek yükle
+        const results = [];
+        let successCount = 0;
+        
+        for (const photoUri of photoUris) {
+          console.log(`Fotoğraf yükleniyor: ${photoUri.substring(0, 30)}...`);
+          const result = await api.worker.addProgressPhoto(issueId, photoUri, description);
+          
+          if (result.success) {
+            console.log('Fotoğraf başarıyla yüklendi');
+            successCount++;
+            results.push(result);
+          } else {
+            console.error('Fotoğraf yüklenemedi:', result.message);
+          }
+        }
+        
+        console.log(`${successCount}/${photoUris.length} fotoğraf başarıyla yüklendi`);
+        
+        return {
+          success: successCount > 0,
+          message: `${successCount}/${photoUris.length} fotoğraf başarıyla yüklendi`,
+          data: results
+        };
+      } catch (error) {
+        console.error(`Göreve (${issueId}) ilerleme fotoğrafları eklenirken hata:`, error);
+        return handleApiError(error, 'İlerleme fotoğrafları eklenirken bir hata oluştu');
+      }
+    }
+  },
+  
+  // Yorumlar
+  comments: {
+    // ... existing code ...
   },
 };
 
@@ -1819,4 +2223,4 @@ const uriToBase64 = async (uri) => {
 export default api; 
 
 // Durum bilgisini dışarıya aç
-export { apiStatus, tryAllApiUrls, enableDemoMode, isDemoMode }; 
+export { apiStatus, tryAllApiUrls, enableDemoMode, isDemoMode, getBaseUrl }; 

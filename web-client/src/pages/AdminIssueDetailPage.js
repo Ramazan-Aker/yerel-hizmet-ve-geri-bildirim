@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { adminService } from '../services/api';
+import { adminService, municipalService } from '../services/api';
 import { MapContainer, TileLayer, Marker } from 'react-leaflet';
 
 const AdminIssueDetailPage = () => {
@@ -20,14 +20,34 @@ const AdminIssueDetailPage = () => {
   const [commentText, setCommentText] = useState('');
   const [submittingComment, setSubmittingComment] = useState(false);
   
+  // Modallar için state'ler
+  const [statusModalVisible, setStatusModalVisible] = useState(false);
+  const [workerModalVisible, setWorkerModalVisible] = useState(false);
+  
+  // Görsel modalı için state'ler
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
+  
+  // Municipal worker rolü kontrolü
+  const isMunicipalWorker = user && user.role === 'municipal_worker';
+  
   // Sorun detaylarını ve çalışanları getir
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
         
-        // Sorun detaylarını al
-        const issueResponse = await adminService.getIssueById(id);
+        let issueResponse;
+        
+        // Belediye çalışanı ise municipal servis kullan
+        if (user && user.role === 'municipal_worker') {
+          console.log('Belediye çalışanı şehrine ait sorunu görüntülüyor');
+          issueResponse = await municipalService.getIssueById(id);
+        } else {
+          // Admin ise normal admin servisini kullan
+          issueResponse = await adminService.getIssueById(id);
+        }
+        
         console.log('Sorun detayları:', issueResponse);
         
         if (issueResponse && issueResponse.data) {
@@ -74,7 +94,7 @@ const AdminIssueDetailPage = () => {
     };
     
     fetchData();
-  }, [id]);
+  }, [id, user]);
   
   // Durum kodunu metne çevir
   const getStatusText = (status) => {
@@ -283,6 +303,45 @@ const AdminIssueDetailPage = () => {
     }
   };
 
+  // Görsel modalını aç
+  const openImageModal = (imageUrl) => {
+    setSelectedImage(imageUrl);
+    setModalVisible(true);
+  };
+  
+  // Resim URL'sini düzeltme fonksiyonu
+  const getFullImageUrl = (imageUrl) => {
+    if (!imageUrl) return null;
+    
+    // Base64 formatındaki görüntüler için doğrudan URL'yi döndür
+    if (imageUrl.startsWith('data:image')) {
+      return imageUrl;
+    }
+    
+    // Eğer URL http ile başlıyorsa, tam URL'dir
+    if (imageUrl.startsWith('http')) {
+      return imageUrl;
+    }
+    
+    // API URL'si ekle
+    const apiBaseUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+    // Sunucu kök URL'sini oluştur (örn. http://localhost:5001)
+    const baseUrl = apiBaseUrl.replace(/\/api$/, '');
+    
+    // URL'deki çift slash'ları önlemek için kontrol et
+    if (imageUrl.startsWith('/')) {
+      return `${baseUrl}${imageUrl}`;
+    } else {
+      return `${baseUrl}/${imageUrl}`;
+    }
+  };
+  
+  // Görsel modalını kapat
+  const closeImageModal = () => {
+    setModalVisible(false);
+    setSelectedImage(null);
+  };
+
   if (loading) {
     return (
       <div className="flex justify-center items-center h-screen">
@@ -359,30 +418,92 @@ const AdminIssueDetailPage = () => {
                 </div>
               </div>
               
-              {/* Görseller */}
+              {/* Fotoğraflar Bölümü */}
               {issue.images && issue.images.length > 0 && (
                 <div className="mb-6">
-                  <h3 className="text-sm font-medium text-gray-500 mb-2">Görseller</h3>
+                  <h3 className="text-sm font-medium text-gray-500 mb-2">Sorun Görselleri</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                    {issue.images.map((image, index) => {
+                      const fullImageUrl = getFullImageUrl(image);
+                      console.log(`Görsel ${index + 1} URL:`, fullImageUrl);
+                      
+                      return (
+                        <div 
+                          key={`image-${index}`} 
+                          className="relative group"
+                          onClick={() => openImageModal(image)}
+                        >
+                          <div className="aspect-w-1 aspect-h-1 w-full overflow-hidden rounded-lg bg-gray-100 cursor-pointer">
+                            <img
+                              src={fullImageUrl}
+                              alt={`Sorun görseli ${index + 1}`}
+                              className="h-full w-full object-cover object-center transition-opacity group-hover:opacity-75"
+                              onError={(e) => {
+                                console.error(`Görsel yüklenemedi: ${fullImageUrl}`);
+                                e.target.onerror = null;
+                                e.target.src = ''; // Boş kaynak
+                                e.target.className = 'hidden'; // Resmi gizle
+                                e.target.parentNode.className = 'flex items-center justify-center h-full bg-gray-200'; // Container'ı gri yap
+                                const textNode = document.createElement('span');
+                                textNode.textContent = 'Görsel Yüklenemedi';
+                                textNode.className = 'text-sm text-gray-500';
+                                e.target.parentNode.appendChild(textNode);
+                              }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              
+              {/* Çözüm Süreci Görselleri */}
+              {issue.progressPhotos && issue.progressPhotos.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="text-sm font-medium text-gray-500 mb-2">Çözüm Süreci Görselleri</h3>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                    {issue.images.map((image, index) => (
-                      <a 
-                        key={index} 
-                        href={image} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="block h-32 overflow-hidden rounded-lg"
-                      >
-                        <img 
-                          src={image} 
-                          alt={`Sorun görseli ${index + 1}`} 
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            e.target.onerror = null;
-                            e.target.src = 'https://via.placeholder.com/300x200.png?text=Görsel+Yüklenemedi';
-                          }}
-                        />
-                      </a>
-                    ))}
+                    {issue.progressPhotos.map((photo, index) => {
+                      // Fotoğraf URL'sini al
+                      let photoUrl = '';
+                      
+                      if (typeof photo === 'string') {
+                        photoUrl = getFullImageUrl(photo);
+                      } else if (photo.url) {
+                        photoUrl = getFullImageUrl(photo.url);
+                      } else {
+                        return null; // Geçersiz fotoğraf verisi
+                      }
+                      
+                      return (
+                        <div 
+                          key={index} 
+                          className="block h-32 overflow-hidden rounded-lg relative hover:opacity-90 transition-opacity cursor-pointer"
+                          onClick={() => openImageModal(photoUrl)}
+                        >
+                          <img 
+                            src={photoUrl} 
+                            alt={`Çözüm görseli ${index + 1}`} 
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              e.target.onerror = null;
+                              e.target.src = ''; // Boş kaynak
+                              e.target.className = 'hidden'; // Resmi gizle
+                              e.target.parentNode.className = 'block h-32 overflow-hidden rounded-lg relative bg-gray-200 flex items-center justify-center'; // Container'ı gri yap
+                              const textNode = document.createElement('span');
+                              textNode.textContent = 'Görsel Yüklenemedi';
+                              textNode.className = 'text-gray-500 text-sm';
+                              e.target.parentNode.appendChild(textNode);
+                            }}
+                          />
+                          {photo.uploadedAt && (
+                            <div className="bg-black bg-opacity-70 text-white text-xs p-1 absolute bottom-0 left-0 right-0">
+                              {new Date(photo.uploadedAt).toLocaleDateString('tr-TR')}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -731,6 +852,40 @@ const AdminIssueDetailPage = () => {
           </div>
         </div>
       </div>
+
+      {/* Görsel Modal */}
+      {modalVisible && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75" onClick={closeImageModal}>
+          <div className="relative max-w-4xl max-h-full p-2" onClick={e => e.stopPropagation()}>
+            <button 
+              onClick={closeImageModal}
+              className="absolute top-4 right-4 bg-black bg-opacity-50 text-white rounded-full p-2 hover:bg-opacity-75 focus:outline-none"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <img 
+              src={selectedImage ? getFullImageUrl(selectedImage) : ''}
+              alt="Büyütülmüş görsel" 
+              className="max-h-[80vh] max-w-full object-contain mx-auto"
+              onError={(e) => {
+                console.error(`Modal görsel yüklenemedi: ${selectedImage}`);
+                e.target.onerror = null;
+                e.target.src = ''; // Boş kaynak
+                e.target.style.display = 'none';
+                const errorMsg = document.createElement('div');
+                errorMsg.innerHTML = `
+                  <div class="bg-white p-4 rounded-lg">
+                    <p class="text-red-500">Görsel yüklenemedi</p>
+                  </div>
+                `;
+                e.target.parentNode.appendChild(errorMsg);
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

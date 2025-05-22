@@ -511,10 +511,10 @@ exports.assignWorker = async (req, res) => {
 
     // Çalışanın varlığını kontrol et
     const worker = await User.findById(workerId);
-    if (!worker || worker.role !== 'municipal_worker') {
+    if (!worker || (worker.role !== 'municipal_worker' && worker.role !== 'worker')) {
       return res.status(404).json({
         success: false,
-        message: 'Geçerli bir belediye çalışanı bulunamadı'
+        message: 'Geçerli bir çalışan bulunamadı'
       });
     }
 
@@ -567,23 +567,52 @@ exports.assignWorker = async (req, res) => {
   }
 };
 
-// @desc    Belediye çalışanlarını getir
+// @desc    Çalışanları getir (atama için)
 // @route   GET /api/admin/workers
 // @access  Private/Admin
 exports.getWorkers = async (req, res) => {
   try {
-    const workers = await User.find({ 
-      role: 'municipal_worker',
+    console.log('getWorkers fonksiyonu çağrıldı');
+    console.log('İstek yapan kullanıcı:', req.user.name, req.user.role, req.user.city);
+    
+    // Filtre oluştur
+    let filter = {
       isActive: true 
-    }).select('name department');
-
+    };
+    
+    // Super admin (role=admin) tüm çalışanları görebilir
+    if (req.user.role === 'admin') {
+      // Worker rolündeki çalışanları getir
+      filter.role = 'worker';
+      console.log('Admin kullanıcısı için filtre:', filter);
+    } 
+    // Belediye çalışanları (municipal_worker) sadece kendi şehirlerindeki çalışanları görebilir
+    else if (req.user.role === 'municipal_worker' && req.user.city) {
+      filter.role = 'worker';
+      filter.city = req.user.city;
+      console.log('Belediye çalışanı için filtre:', filter);
+    }
+    
+    console.log('Filtre kriterlerine göre sorgu yapılıyor:', JSON.stringify(filter));
+    
+    // DB'den kullanıcıları getirmeden önce tüm worker rolündeki kullanıcı sayısını kontrol et
+    const totalWorkers = await User.countDocuments({ role: 'worker' });
+    console.log('Toplam worker rolündeki kullanıcı sayısı:', totalWorkers);
+    
+    // Filtreye göre çalışanları getir
+    const workers = await User.find(filter).select('name email role department city district phone');
+    
+    console.log(`Toplam ${workers.length} çalışan bulundu`);
+    console.log('Bulunan çalışanlar (özet):', workers.map(w => ({ id: w._id, name: w.name, role: w.role, city: w.city })));
+    
+    // Çalışanları döndür
     res.status(200).json({
       success: true,
       count: workers.length,
       data: workers
     });
   } catch (error) {
-    console.error(error);
+    console.error('getWorkers hatası:', error);
     res.status(500).json({
       success: false,
       message: 'Sunucu hatası'

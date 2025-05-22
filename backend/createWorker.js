@@ -1,82 +1,106 @@
 require('dotenv').config();
 const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
 const User = require('./src/models/User');
-
-// Komut satırı argümanlarını al
-const args = process.argv.slice(2);
-const email = args[0];
-const city = args[1] || 'İstanbul';
-const district = args[2] || 'Merkez';
-const department = args[3] || ''; // Departman opsiyonel
-
-// Argüman kontrolü
-if (!email) {
-  console.error('Kullanım: node createWorker.js <email> [city] [district] [department]');
-  console.error('Örnek: node createWorker.js worker@example.com İstanbul Kadıköy');
-  process.exit(1);
-}
+const colors = require('colors');
 
 // MongoDB bağlantısı
 mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true
 })
-.then(() => console.log('MongoDB bağlantısı başarılı'))
+.then(() => console.log('MongoDB bağlantısı başarılı'.green.bold))
 .catch(err => {
-  console.error('MongoDB bağlantı hatası:', err);
+  console.error('MongoDB bağlantı hatası:'.red.bold, err);
   process.exit(1);
 });
 
-// Belediye çalışanı oluştur
-const createWorker = async () => {
+// Kategori listesi
+const categories = [
+  'Altyapı',
+  'Üstyapı',
+  'Çevre',
+  'Ulaşım',
+  'Güvenlik',
+  'Temizlik',
+  'Diğer'
+];
+
+// Sabit değerler
+const city = 'İstanbul';
+const district = 'Merkez';
+const password = 'worker123'; // Tüm çalışanlar için aynı şifre
+
+// Worker kullanıcıları oluştur
+const createWorkers = async () => {
   try {
-    // Kullanıcının var olup olmadığını kontrol et
-    const existingUser = await User.findOne({ email });
+    let createdCount = 0;
+    let existingCount = 0;
     
-    if (existingUser) {
-      // Kullanıcı varsa, rolünü güncelle
-      existingUser.role = 'municipal_worker';
-      existingUser.city = city;
-      existingUser.district = district;
+    // Her kategori için bir worker oluştur
+    for (const category of categories) {
+      // Standardize edilmiş email formatı
+      const email = `worker.${category.toLowerCase().replace(/\s+/g, '').replace(/ı/g, 'i').replace(/ü/g, 'u').replace(/ö/g, 'o').replace(/ğ/g, 'g').replace(/ş/g, 's').replace(/ç/g, 'c')}@sehir.gov.tr`;
       
-      // Departman belirtilmişse ekle
-      if (department) {
-        existingUser.department = department;
+      // Çalışan adı formatı
+      const name = `${category} Çalışanı`;
+      
+      // Telefon numarası formatı (örnek)
+      const phone = `555-${Math.floor(1000 + Math.random() * 9000)}`; // Rastgele 4 haneli
+      
+      // Kullanıcı zaten var mı kontrol et
+      const userExists = await User.findOne({ email: email });
+      
+      if (userExists) {
+        console.log(`${email} adresi ile bir kullanıcı zaten mevcut!`.yellow);
+        existingCount++;
+        continue;
       }
       
-      await existingUser.save();
-      console.log(`Kullanıcı ${email} belediye çalışanı olarak güncellendi.`);
-    } else {
-      // Yeni belediye çalışanı oluştur
-      const newWorker = new User({
-        name: `${city} Sorun İnceleme Görevlisi`,
-        email,
-        password: 'worker123', // Varsayılan şifre
-        city,
-        district,
-        department,
-        role: 'municipal_worker',
+      // Şifreyi hashle
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(password, salt);
+      
+      // Worker nesnesi oluştur
+      const workerData = {
+        name: name,
+        email: email,
+        password: hashedPassword,
+        phone: phone,
+        city: city,
+        district: district,
+        department: category,
+        role: 'worker',
         isActive: true,
-        isVerified: true
+        isVerified: true,
+      };
+      
+      // Kullanıcıyı oluştur
+      const createdUser = await User.create(workerData);
+      
+      console.log(`${category} için saha çalışanı başarıyla oluşturuldu:`.green);
+      console.log({
+        id: createdUser._id,
+        name: createdUser.name,
+        email: createdUser.email,
+        phone: createdUser.phone,
+        department: createdUser.department
       });
       
-      await newWorker.save();
-      console.log(`Yeni sorun inceleme görevlisi oluşturuldu: ${email}`);
-      console.log('Varsayılan şifre: worker123');
+      createdCount++;
     }
     
-    // Mevcut belediye çalışanlarını listele
-    const workers = await User.find({ role: 'municipal_worker' });
-    console.log('\nMevcut Sorun İnceleme Görevlileri:');
-    workers.forEach(worker => {
-      console.log(`- ${worker.name} (${worker.email}) - ${worker.city || 'Şehir belirtilmemiş'}`);
-    });
+    console.log('\n=== ÖZET ==='.bold);
+    console.log(`Toplam ${createdCount} yeni çalışan oluşturuldu.`.green.bold);
+    console.log(`Toplam ${existingCount} çalışan zaten mevcuttu.`.yellow.bold);
+    console.log('\nTüm çalışanlar için şifre:'.cyan.bold, password);
     
     process.exit(0);
   } catch (error) {
-    console.error('Hata:', error);
+    console.error('Kullanıcı oluşturma hatası:'.red.bold, error);
     process.exit(1);
   }
 };
 
-createWorker(); 
+// Fonksiyonu çalıştır
+createWorkers(); 

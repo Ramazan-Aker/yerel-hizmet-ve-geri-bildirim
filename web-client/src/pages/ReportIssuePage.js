@@ -123,11 +123,11 @@ const LocationMarker = ({ position, setPosition, setFormData, setIsLocationManua
       // İlçe adaylarını topla - ham adres verilerinin tüm alanlarından ilçe olabilecekleri bulalım
       const districtCandidates = [];
       
-      if (improvedAddressData.district) {
+      if (improvedAddressData && improvedAddressData.district) {
         districtCandidates.push(improvedAddressData.district);
       }
       
-      if (improvedAddressData.rawData && improvedAddressData.rawData.address) {
+      if (improvedAddressData && improvedAddressData.rawData && improvedAddressData.rawData.address) {
         const addressFields = improvedAddressData.rawData.address;
         // OpenStreetMap'in tüm alanlarını kontrol edelim
         for (const key in addressFields) {
@@ -143,13 +143,13 @@ const LocationMarker = ({ position, setPosition, setFormData, setIsLocationManua
       
       console.log('İlçe adayları:', districtCandidates);
       
-      // Form verilerini güncelleyecek nesneyi hazırla
+      // Form verilerini güncelle - önceki değerden bağımsız olarak güncelle
       let updatedData = {
         address: formattedAddress || 'Konum belirlendi'
       };
       
       // Şehir bilgisini güncelle (eğer varsa)
-      if (improvedAddressData.city) {
+      if (improvedAddressData && improvedAddressData.city) {
         const cityName = improvedAddressData.city.trim();
         
         // Şehir ismi kontrolü - tam eşleşme kontrolü
@@ -197,7 +197,7 @@ const LocationMarker = ({ position, setPosition, setFormData, setIsLocationManua
           if (possibleCity) {
             console.log(`Şehir adı benzerliğine göre ${possibleCity} olarak düzeltildi`);
             updatedData.city = possibleCity;
-        } else {
+          } else {
             // Hala bulunamadıysa, rawData içinde daha fazla bilgi arayalım
             if (improvedAddressData.rawData && improvedAddressData.rawData.address) {
               const rawAddress = improvedAddressData.rawData.address;
@@ -223,7 +223,7 @@ const LocationMarker = ({ position, setPosition, setFormData, setIsLocationManua
         }
       } else {
         // city bilgisi yoksa rawData içindeki adres bilgilerini kontrol edelim
-        if (improvedAddressData.rawData && improvedAddressData.rawData.address) {
+        if (improvedAddressData && improvedAddressData.rawData && improvedAddressData.rawData.address) {
           const rawAddress = improvedAddressData.rawData.address;
           for (const key in rawAddress) {
             // İl olabilecek tüm anahtar isimleri kontrol edelim
@@ -238,7 +238,7 @@ const LocationMarker = ({ position, setPosition, setFormData, setIsLocationManua
       }
       
       // 3. İlçe bilgisini ekle (eğer bulunduysa)
-      if (improvedAddressData.district) {
+      if (improvedAddressData && improvedAddressData.district) {
         const districtName = improvedAddressData.district.trim();
         
         // İlçe adının doğru olduğunu varsayalım, ancak format düzenlemesi yapalım
@@ -271,7 +271,7 @@ const LocationMarker = ({ position, setPosition, setFormData, setIsLocationManua
         }
       } else {
         // district bilgisi yoksa rawData içindeki adres bilgilerini kontrol edelim
-        if (improvedAddressData.rawData && improvedAddressData.rawData.address && updatedData.city) {
+        if (improvedAddressData && improvedAddressData.rawData && improvedAddressData.rawData.address && updatedData.city) {
           const rawAddress = improvedAddressData.rawData.address;
           
           // İlçe olabilecek alternatif alanlar
@@ -322,7 +322,7 @@ const LocationMarker = ({ position, setPosition, setFormData, setIsLocationManua
       }
       
       // Ham adres verilerini de inceleyelim
-      if (improvedAddressData.rawData && improvedAddressData.rawData.address) {
+      if (improvedAddressData && improvedAddressData.rawData && improvedAddressData.rawData.address) {
         console.log('Ham adres verileri:', improvedAddressData.rawData.address);
       }
       
@@ -617,11 +617,11 @@ const ReportIssuePage = () => {
     // İlçe adaylarını topla - ham adres verilerinin tüm alanlarından ilçe olabilecekleri bulalım
     const districtCandidates = [];
     
-    if (improvedAddressData.district) {
+    if (improvedAddressData && improvedAddressData.district) {
       districtCandidates.push(improvedAddressData.district);
     }
     
-    if (improvedAddressData.rawData && improvedAddressData.rawData.address) {
+    if (improvedAddressData && improvedAddressData.rawData && improvedAddressData.rawData.address) {
       const addressFields = improvedAddressData.rawData.address;
       // OpenStreetMap'in tüm alanlarını kontrol edelim
       for (const key in addressFields) {
@@ -646,7 +646,7 @@ const ReportIssuePage = () => {
       };
       
       // Şehir bilgisini güncelle (eğer varsa)
-      if (improvedAddressData.city) {
+      if (improvedAddressData && improvedAddressData.city) {
         const cityName = improvedAddressData.city.trim();
         
         // Şehir ismi kontrolü - tam eşleşme kontrolü
@@ -720,7 +720,7 @@ const ReportIssuePage = () => {
         }
       } else {
         // city bilgisi yoksa rawData içindeki adres bilgilerini kontrol edelim
-        if (improvedAddressData.rawData && improvedAddressData.rawData.address) {
+        if (improvedAddressData && improvedAddressData.rawData && improvedAddressData.rawData.address) {
           const rawAddress = improvedAddressData.rawData.address;
           for (const key in rawAddress) {
             // İl olabilecek tüm anahtar isimleri kontrol edelim
@@ -768,7 +768,7 @@ const ReportIssuePage = () => {
         }
       } else {
         // district bilgisi yoksa rawData içindeki adres bilgilerini kontrol edelim
-        if (improvedAddressData.rawData && improvedAddressData.rawData.address && updatedFormData.city) {
+        if (improvedAddressData && improvedAddressData.rawData && improvedAddressData.rawData.address && updatedFormData.city) {
           const rawAddress = improvedAddressData.rawData.address;
           
           // İlçe olabilecek alternatif alanlar
@@ -801,42 +801,14 @@ const ReportIssuePage = () => {
         }
       }
       
-      // DEBUGGİNG: Güncellenecek form verilerini göster
-      console.log('-- FORM UPDATE DEBUGGING --');
-      console.log('Orijinal formData:', formData);
-      console.log('Güncellenecek formData:', updatedFormData);
-      
-      // İlçe listesini kontrol edelim
-      if (updatedFormData.city) {
-        console.log(`Seçilen şehir (${updatedFormData.city}) için ilçe listesi:`, allDistricts[updatedFormData.city] || 'İlçe listesi bulunamadı');
-        if (updatedFormData.district) {
-          console.log(`Bulunan ilçe (${updatedFormData.district}) listede var mı:`, 
-            allDistricts[updatedFormData.city] ? 
-            allDistricts[updatedFormData.city].includes(updatedFormData.district) : 
-            false
-          );
-        }
-      }
-      
-      // Ham adres verilerini de inceleyelim
-      if (improvedAddressData.rawData && improvedAddressData.rawData.address) {
-        console.log('Ham adres verileri:', improvedAddressData.rawData.address);
-      }
-      
-      // Form verilerini güncelle - önceki değerden bağımsız olarak güncelle
-      setFormData(prev => {
-        const newFormData = { ...prev, ...updatedFormData };
-        console.log('Yeni form verileri:', newFormData);
-        return newFormData;
-      });
-      
-      console.log('Form verileri güncellendi!');
+      return updatedFormData;
     });
   };
 
-  // Şehir değiştiğinde harita merkezini güncelle ve ilçe listesini güncelle
+  // Şehir değiştiğinde, harita merkezini değiştir ve ilçeleri güncelle
   useEffect(() => {
-    if (formData.city && cityCoordinates[formData.city]) {
+    if (formData && formData.city) {
+      console.log(`Şehir değişti: ${formData.city}`);
       const coords = cityCoordinates[formData.city];
         setMapCenter([coords[1], coords[0]]);
       console.log(`Harita merkezi ${formData.city} olarak güncellendi:`, [coords[1], coords[0]]);
@@ -864,7 +836,7 @@ const ReportIssuePage = () => {
         return;
       }
 
-      if (formData.city && formData.district) {
+      if (formData && formData.city && formData.district) {
         try {
           // Geocoding API ile ilçe konumunu bulmaya çalışalım
           const searchQuery = `${formData.district}, ${formData.city}, Türkiye`;
@@ -885,7 +857,7 @@ const ReportIssuePage = () => {
           } else {
             console.log(`İlçe için konum bulunamadı: ${searchQuery}`);
             // Konum bulunamadığında şehir merkezini kullan
-            if (cityCoordinates[formData.city]) {
+            if (formData.city && cityCoordinates[formData.city]) {
               const coords = cityCoordinates[formData.city];
               // Sadece harita merkezini güncelle, konumu işaretleme
               setMapCenter([coords[1], coords[0]]);

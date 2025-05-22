@@ -41,10 +41,10 @@ router.get('/dashboard', authorize(['admin', 'municipal_worker']), getDashboardS
 router.get('/issues/:id', authorize(['admin', 'municipal_worker']), getIssueById);
 router.put('/issues/:id/status', authorize(['admin', 'municipal_worker']), updateIssueStatus);
 router.post('/issues/:id/response', authorize(['admin', 'municipal_worker']), addOfficialResponse);
-router.put('/issues/:id/assign', authorize(['admin']), assignWorker);
+router.put('/issues/:id/assign', authorize(['admin', 'municipal_worker']), assignWorker);
 
-// Belediye çalışanları listesi
-router.get('/workers', authorize(['admin']), getWorkers);
+// Belediye çalışanları listesi - hem admin hem belediye çalışanları erişebilir
+router.get('/workers', authorize(['admin', 'municipal_worker']), getWorkers);
 
 // Raporlar - hem admin hem belediye çalışanları erişebilir
 router.get('/reports', authorize(['admin', 'municipal_worker']), getReports);

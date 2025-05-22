@@ -72,3 +72,36 @@ exports.authorize = (roles) => {
     next();
   };
 };
+
+// Admin yetkisi kontrolü
+exports.authorizeAdmin = (req, res, next) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({
+      success: false,
+      message: 'Sadece yöneticiler bu işlemi yapabilir'
+    });
+  }
+  next();
+};
+
+// Belediye çalışanı yetkisi kontrolü
+exports.authorizeMunicipalWorker = (req, res, next) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'municipal_worker') {
+    return res.status(403).json({
+      success: false,
+      message: 'Sadece belediye personeli bu işlemi yapabilir'
+    });
+  }
+  next();
+};
+
+// Saha çalışanı yetkisi kontrolü
+exports.authorizeWorker = (req, res, next) => {
+  if (req.user.role !== 'worker') {
+    return res.status(403).json({
+      success: false,
+      message: 'Sadece saha çalışanları bu işlemi yapabilir'
+    });
+  }
+  next();
+};

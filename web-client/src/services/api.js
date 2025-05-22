@@ -554,4 +554,104 @@ export const adminService = {
   }
 };
 
+// Worker API servisleri
+export const workerService = {
+  // Çalışana atanan sorunları getir
+  getAssignedIssues: async (filters = {}) => {
+    try {
+      const response = await apiClient.get('/worker/issues', { params: filters });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data?.message || 'Atanan sorunlar alınamadı';
+    }
+  },
+  
+  // Çalışan istatistiklerini getir
+  getWorkerStats: async () => {
+    try {
+      const response = await apiClient.get('/worker/stats');
+      return response.data;
+    } catch (error) {
+      throw error.response?.data?.message || 'İstatistikler alınamadı';
+    }
+  },
+  
+  // Son atanan sorunları getir
+  getRecentAssignedIssues: async (limit = 5) => {
+    try {
+      const response = await apiClient.get('/worker/issues/recent', { params: { limit } });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data?.message || 'Son sorunlar alınamadı';
+    }
+  },
+  
+  // Bir sorunun detayını getir
+  getIssueById: async (id) => {
+    try {
+      const response = await apiClient.get(`/worker/issues/${id}`);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data?.message || 'Sorun detayları alınamadı';
+    }
+  },
+  
+  // Sorun durumunu güncelle
+  updateIssueStatus: async (id, status) => {
+    try {
+      const response = await apiClient.put(`/worker/issues/${id}/status`, { status });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data?.message || 'Durum güncellenemedi';
+    }
+  },
+  
+  // Çözüm fotoğraflarını yükle
+  uploadProgressPhotos: async (id, formData) => {
+    try {
+      const response = await apiClient.post(`/worker/issues/${id}/photos`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data?.message || 'Fotoğraflar yüklenemedi';
+    }
+  },
+  
+  // Yorum ekle
+  addComment: async (id, content) => {
+    try {
+      const response = await apiClient.post(`/worker/issues/${id}/comments`, { content });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data?.message || 'Yorum eklenemedi';
+    }
+  }
+};
+
+// Belediye Çalışanı API servisleri
+export const municipalService = {
+  // Belediye çalışanının şehrine ait sorunları getir
+  getCityIssues: async (filters = {}) => {
+    try {
+      const response = await apiClient.get('/municipal/issues', { params: filters });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data?.message || 'Şehir sorunları alınamadı';
+    }
+  },
+  
+  // Sorun detaylarını getir (şehir kontrolü yapılarak)
+  getIssueById: async (id) => {
+    try {
+      const response = await apiClient.get(`/municipal/issues/${id}`);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data?.message || 'Sorun detayları alınamadı';
+    }
+  },
+};
+
 export default apiClient; 

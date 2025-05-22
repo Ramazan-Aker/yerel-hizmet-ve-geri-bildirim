@@ -222,6 +222,32 @@ const IssueDetailPage = () => {
     }
   };
 
+  // Resim URL'sini düzeltme fonksiyonu
+  const getFullImageUrl = (imageUrl) => {
+    if (!imageUrl) return placeholderImage;
+    
+    // Base64 formatındaki görüntüler için doğrudan URL'yi döndür
+    if (imageUrl.startsWith('data:image')) {
+      return imageUrl;
+    }
+    
+    // Eğer URL http ile başlıyorsa, tam URL'dir
+    if (imageUrl.startsWith('http')) {
+      return imageUrl;
+    }
+    
+    // API URL'si ekle
+    const apiBaseUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001';
+    // URL'deki çift slash'ları önlemek için kontrol et
+    if (imageUrl.startsWith('/') && apiBaseUrl.endsWith('/')) {
+      return `${apiBaseUrl.slice(0, -1)}${imageUrl}`;
+    } else if (!imageUrl.startsWith('/') && !apiBaseUrl.endsWith('/')) {
+      return `${apiBaseUrl}/${imageUrl}`;
+    } else {
+      return `${apiBaseUrl}${imageUrl}`;
+    }
+  };
+
   if (loading) {
     return (
       <div className="container mx-auto px-4 py-8 flex justify-center">
@@ -327,31 +353,38 @@ const IssueDetailPage = () => {
             <div className="mb-8">
               <div className="bg-gray-100 rounded-lg overflow-hidden">
                   <img
-                  src={issue.images[activeImageIndex] || placeholderImage} 
+                  src={getFullImageUrl(issue.images[activeImageIndex])} 
                   alt={`Sorun görseli ${activeImageIndex + 1}`}
                   className="w-full h-96 object-contain"
-                  onError={(e) => { e.target.src = placeholderImage; }}
+                  onError={(e) => { 
+                    console.log(`Resim yüklenemedi: ${issue.images[activeImageIndex]}`);
+                    e.target.src = placeholderImage;
+                  }}
                   />
-                </div>
-                
-                {issue.images.length > 1 && (
-                <div className="flex mt-2 gap-2 overflow-x-auto pb-2">
-                    {issue.images.map((img, index) => (
+              </div>
+              
+              {/* Küçük resimler */}
+              {issue.images.length > 1 && (
+                <div className="flex mt-2 overflow-x-auto pb-2">
+                  {issue.images.map((image, index) => (
                     <div 
-                      key={`thumb-${index}`} 
-                      className={`w-24 h-24 rounded-md overflow-hidden cursor-pointer transition ${activeImageIndex === index ? 'ring-2 ring-blue-500' : 'opacity-70 hover:opacity-100'}`}
-                        onClick={() => setActiveImageIndex(index)}
-                      >
-                        <img
-                          src={img}
-                          alt={`Thumbnail ${index + 1}`}
-                          className="w-full h-full object-cover"
+                      key={index}
+                      onClick={() => setActiveImageIndex(index)}
+                      className={`cursor-pointer mr-2 rounded overflow-hidden border-2 ${
+                        index === activeImageIndex ? 'border-blue-500' : 'border-transparent'
+                      }`}
+                      style={{ minWidth: '60px', height: '60px' }}
+                    >
+                      <img 
+                        src={getFullImageUrl(image)} 
+                        alt={`Küçük görsel ${index + 1}`} 
+                        className="w-full h-full object-cover"
                         onError={(e) => { e.target.src = placeholderImage; }}
-                        />
+                      />
                     </div>
-                    ))}
-                  </div>
-                )}
+                  ))}
+                </div>
+              )}
             </div>
           )}
           
@@ -537,6 +570,54 @@ const IssueDetailPage = () => {
                   <p className="text-sm text-gray-500">Güncel Durum</p>
                 </div>
               </div>
+              
+              {/* Çözüm Süreci Fotoğrafları */}
+              {issue.progressPhotos && issue.progressPhotos.length > 0 && (
+                <div className="ml-4 mt-6">
+                  <h3 className="text-lg font-semibold mb-3">Çözüm Süreci Fotoğrafları</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {issue.progressPhotos.map((photo, index) => {
+                      // Sunucu API URL'sini al (örn. http://localhost:5001/api)
+                      const apiBase = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+                      // Sunucu kök URL'sini oluştur (örn. http://localhost:5001)
+                      const baseUrl = apiBase.replace(/\/api$/, '');
+                      
+                      // Tam fotoğraf URL'sini oluştur
+                      const photoUrl = photo.url.startsWith('http') 
+                        ? photo.url 
+                        : `${baseUrl}${photo.url}`;
+                        
+                      return (
+                        <div key={index} className="rounded-lg overflow-hidden shadow border border-gray-200">
+                          <div className="relative aspect-video">
+                            <img 
+                              src={photoUrl}
+                              alt={`Çözüm süreci fotoğrafı ${index + 1}`}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                e.target.onerror = null;
+                                e.target.src = ''; // Boş kaynak
+                                e.target.className = 'hidden'; // Resmi gizle
+                                e.target.parentNode.className = 'aspect-video bg-gray-200 flex items-center justify-center'; // Container'ı gri yap
+                                const textNode = document.createElement('span');
+                                textNode.textContent = 'Görsel Yüklenemedi';
+                                textNode.className = 'text-gray-500 text-sm';
+                                e.target.parentNode.appendChild(textNode);
+                              }}
+                            />
+                          </div>
+                          <div className="p-3 bg-white">
+                            <div className="flex justify-between items-center text-sm text-gray-500">
+                              <span>{new Date(photo.uploadedAt).toLocaleDateString('tr-TR')}</span>
+                              <span>Görevli: {photo.uploadedBy?.name || 'Belediye Çalışanı'}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
           

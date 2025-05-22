@@ -190,7 +190,7 @@ export const AuthProvider = ({ children }) => {
         if (!userData.role) {
           console.warn('Kullanıcı rolü bulunamadı! Varsayılan rol: user');
           userData.role = 'user'; // Varsayılan rol
-        } else if (userData.role === 'admin' || userData.role === 'municipal_worker') {
+        } else if (userData.role === 'admin' || userData.role === 'municipal_worker' || userData.role === 'worker') {
           console.log('YETKİLİ KULLANICI ROLÜ ALGILANDI:', userData.role);
         }
         

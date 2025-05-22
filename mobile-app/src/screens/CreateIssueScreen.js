@@ -694,7 +694,7 @@ const CreateIssueScreen = ({ navigation }) => {
                 setDistrict(defaultDistrict);
                 setTempDistrict(defaultDistrict);
               }
-            } else {
+        } else {
               // Şehir eşleşmesi bulunamadıysa, varsayılan İstanbul'u kullan
               console.log('KONUM-DEBUG: Şehir eşleşmesi bulunamadı, varsayılan İstanbul seçiliyor');
               setCity('İstanbul');
@@ -880,8 +880,13 @@ const CreateIssueScreen = ({ navigation }) => {
           // Base64 kodlu görüntüleri al (images artık hem URI hem base64 içeriyor)
           for (const img of images) {
             if (img.base64) {
-              processedImages.push(img.base64);
-              console.log(`Resim base64 formatında bulundu, uzunluk: ${img.base64.length.toString().substring(0, 6)}...`);
+              // Base64 formatına "data:image/jpeg;base64," öneki ekle
+              const base64WithPrefix = img.base64.startsWith('data:image/') 
+                ? img.base64 
+                : `data:image/jpeg;base64,${img.base64}`;
+                
+              processedImages.push(base64WithPrefix);
+              console.log(`Resim base64 formatında hazırlandı, uzunluk: ${base64WithPrefix.length.toString().substring(0, 6)}...`);
             }
           }
           
@@ -1032,10 +1037,16 @@ const CreateIssueScreen = ({ navigation }) => {
           { compress: 0.8, format: SaveFormat.JPEG, base64: true }
         );
         
+        // Base64 formatına "data:image/jpeg;base64," öneki ekle
+        let base64Data = manipResult.base64;
+        if (base64Data && !base64Data.startsWith('data:image/')) {
+          base64Data = `data:image/jpeg;base64,${base64Data}`;
+        }
+        
         // İşlenmiş resmi state'e ekle
         const newImage = {
           uri: manipResult.uri,
-          base64: manipResult.base64,
+          base64: base64Data,
           id: `img-${Date.now()}`
         };
         
@@ -1082,10 +1093,16 @@ const CreateIssueScreen = ({ navigation }) => {
           { compress: 0.8, format: SaveFormat.JPEG, base64: true }
         );
         
+        // Base64 formatına "data:image/jpeg;base64," öneki ekle
+        let base64Data = manipResult.base64;
+        if (base64Data && !base64Data.startsWith('data:image/')) {
+          base64Data = `data:image/jpeg;base64,${base64Data}`;
+        }
+        
         // İşlenmiş resmi state'e ekle
         const newImage = {
           uri: manipResult.uri,
-          base64: manipResult.base64,
+          base64: base64Data,
           id: `img-${Date.now()}`
         };
         

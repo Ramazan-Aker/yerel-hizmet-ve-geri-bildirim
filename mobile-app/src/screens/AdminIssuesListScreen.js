@@ -72,10 +72,33 @@ const AdminIssuesListScreen = ({ route, navigation }) => {
   const loadIssues = async () => {
     try {
       setLoading(true);
-      const response = await api.admin.getAdminIssues();
+      
+      let response;
+      
+      // Worker rolü için worker API'sini kullan
+      if (user?.role === 'worker') {
+        console.log('Worker rolü için görevler getiriliyor...');
+        response = await api.worker.getAssignedIssues();
+        
+        if (response.success && response.data) {
+          // Worker API'sinden dönen veri formatını doğru şekilde işle
+          let workerIssues = Array.isArray(response.data) ? response.data : 
+                            (response.data.data && Array.isArray(response.data.data)) ? response.data.data : [];
+          
+          console.log(`Worker için ${workerIssues.length} görev bulundu`);
+          setIssues(workerIssues);
+          setFilteredIssues(workerIssues);
+          setLoading(false);
+          setRefreshing(false);
+          return;
+        }
+      } else {
+        // Admin ve municipal_worker için admin API'sini kullan
+        response = await api.admin.getAdminIssues();
+      }
       
       if (response.success && response.data) {
-        let allIssues = response.data.issues || [];
+        let allIssues = response.data.issues || response.data || [];
         
         // Şehir listesini oluştur (sadece admin için)
         if (user?.role === 'admin') {
@@ -173,7 +196,12 @@ const AdminIssuesListScreen = ({ route, navigation }) => {
 
   // Sorun detayına git
   const handleIssuePress = (issue) => {
-    navigation.navigate('AdminIssueDetail', { issueId: issue._id });
+    // Worker rolü için WorkerIssueDetailScreen'e yönlendir
+    if (user?.role === 'worker') {
+      navigation.navigate('WorkerIssueDetail', { id: issue._id });
+    } else {
+      navigation.navigate('AdminIssueDetail', { issueId: issue._id });
+    }
   };
 
   // Durum rengini belirle
@@ -271,47 +299,51 @@ const AdminIssuesListScreen = ({ route, navigation }) => {
         ) : null}
       </View>
       
-      {/* Filtreler */}
-      <View style={styles.filterRow}>
-        <View style={styles.filterItem}>
-          <Text style={styles.filterLabel}>Durum</Text>
-          <View style={styles.pickerContainer}>
-            <Picker
-              selectedValue={statusFilter}
-              onValueChange={(itemValue) => setStatusFilter(itemValue)}
-              style={styles.picker}
-              mode="dropdown"
-            >
-              <Picker.Item label="Tümü" value="all" />
-              <Picker.Item label="Yeni" value="Yeni" />
-              <Picker.Item label="İnceleniyor" value="İnceleniyor" />
-              <Picker.Item label="Çözüldü" value="Çözüldü" />
-              <Picker.Item label="Reddedildi" value="Reddedildi" />
-            </Picker>
+      {/* Filtreler - Sadece admin ve municipal_worker için göster */}
+      {user?.role !== 'worker' && (
+        <>
+          <View style={styles.filterRow}>
+            <View style={styles.filterItem}>
+              <Text style={styles.filterLabel}>Durum</Text>
+              <View style={styles.pickerContainer}>
+                <Picker
+                  selectedValue={statusFilter}
+                  onValueChange={(itemValue) => setStatusFilter(itemValue)}
+                  style={styles.picker}
+                  mode="dropdown"
+                >
+                  <Picker.Item label="Tümü" value="all" />
+                  <Picker.Item label="Yeni" value="Yeni" />
+                  <Picker.Item label="İnceleniyor" value="İnceleniyor" />
+                  <Picker.Item label="Çözüldü" value="Çözüldü" />
+                  <Picker.Item label="Reddedildi" value="Reddedildi" />
+                </Picker>
+              </View>
+            </View>
+            
+            <View style={styles.filterItem}>
+              <Text style={styles.filterLabel}>Kategori</Text>
+              <View style={styles.pickerContainer}>
+                <Picker
+                  selectedValue={categoryFilter}
+                  onValueChange={(itemValue) => setCategoryFilter(itemValue)}
+                  style={styles.picker}
+                  mode="dropdown"
+                >
+                  <Picker.Item label="Tümü" value="all" />
+                  <Picker.Item label="Altyapı" value="Altyapı" />
+                  <Picker.Item label="Üstyapı" value="Üstyapı" />
+                  <Picker.Item label="Çevre" value="Çevre" />
+                  <Picker.Item label="Ulaşım" value="Ulaşım" />
+                  <Picker.Item label="Güvenlik" value="Güvenlik" />
+                  <Picker.Item label="Temizlik" value="Temizlik" />
+                  <Picker.Item label="Diğer" value="Diğer" />
+                </Picker>
+              </View>
+            </View>
           </View>
-        </View>
-        
-        <View style={styles.filterItem}>
-          <Text style={styles.filterLabel}>Kategori</Text>
-          <View style={styles.pickerContainer}>
-            <Picker
-              selectedValue={categoryFilter}
-              onValueChange={(itemValue) => setCategoryFilter(itemValue)}
-              style={styles.picker}
-              mode="dropdown"
-            >
-              <Picker.Item label="Tümü" value="all" />
-              <Picker.Item label="Altyapı" value="Altyapı" />
-              <Picker.Item label="Üstyapı" value="Üstyapı" />
-              <Picker.Item label="Çevre" value="Çevre" />
-              <Picker.Item label="Ulaşım" value="Ulaşım" />
-              <Picker.Item label="Güvenlik" value="Güvenlik" />
-              <Picker.Item label="Temizlik" value="Temizlik" />
-              <Picker.Item label="Diğer" value="Diğer" />
-            </Picker>
-          </View>
-        </View>
-      </View>
+        </>
+      )}
       
       {/* Şehir Filtresi - Sadece admin için göster */}
       {user?.role === 'admin' && cities.length > 0 && (
@@ -384,6 +416,9 @@ const AdminIssuesListScreen = ({ route, navigation }) => {
         <Text style={styles.headerTitle}>Sorunlar</Text>
         {user?.role === 'municipal_worker' && user?.city && (
           <Text style={styles.headerCity}>{user.city}</Text>
+        )}
+        {user?.role === 'worker' && (
+          <Text style={styles.headerCity}>Atanan Görevler</Text>
         )}
       </View>
       

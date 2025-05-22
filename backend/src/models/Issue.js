@@ -180,8 +180,23 @@ const IssueSchema = mongoose.Schema(
     assignedWorker: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      default: null
     },
+    progressPhotos: [
+      {
+        url: {
+          type: String,
+          required: true
+        },
+        uploadedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User',
+        },
+        uploadedAt: {
+          type: Date,
+          default: Date.now
+        }
+      }
+    ],
     officialResponse: {
       response: {
         type: String,

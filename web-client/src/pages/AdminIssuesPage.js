@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { issueService } from '../services/api';
+import { issueService, municipalService } from '../services/api';
 
 const AdminIssuesPage = () => {
   const { user } = useAuth();
@@ -22,14 +22,17 @@ const AdminIssuesPage = () => {
           apiFilters.status = filter;
         }
         
-        // Belediye çalışanları için şehir filtresini ekle
-        if (user && user.role === 'municipal_worker' && user.city) {
-          console.log('Belediye çalışanı kendi şehrine ait sorunları görüntülüyor:', user.city);
-          apiFilters.city = user.city;
+        let response;
+        
+        // Belediye çalışanları için şehre özgü servis kullan
+        if (user && user.role === 'municipal_worker') {
+          console.log('Belediye çalışanı kendi şehrine ait sorunları görüntülüyor');
+          response = await municipalService.getCityIssues(apiFilters);
+        } else {
+          // Admin için tüm sorunları getir
+          response = await issueService.getAllIssues(apiFilters);
         }
         
-        // Gerçek API çağrısı yap
-        const response = await issueService.getAllIssues(apiFilters);
         console.log('Sorunlar:', response);
         
         if (response && response.data) {

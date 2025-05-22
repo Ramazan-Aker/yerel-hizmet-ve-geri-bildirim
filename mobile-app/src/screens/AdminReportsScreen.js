@@ -121,6 +121,22 @@ const AdminReportsScreen = ({ navigation }) => {
     }
   };
 
+  // Durum kodunu Türkçe metne çevir
+  const getStatusText = (status) => {
+    switch (status) {
+      case 'pending':
+        return 'Yeni';
+      case 'in_progress':
+        return 'İnceleniyor';
+      case 'resolved':
+        return 'Çözüldü';
+      case 'rejected':
+        return 'Reddedildi';
+      default:
+        return status;
+    }
+  };
+
   // Kategori rengini belirle
   const getCategoryColor = (category, index) => {
     const colors = [
@@ -162,7 +178,7 @@ const AdminReportsScreen = ({ navigation }) => {
       // item.status veya item._id'yi kontrol et (backend yanıtına göre değişebilir)
       const statusName = item.status || item._id || 'Bilinmeyen Durum';
       return {
-        name: statusName,
+        name: getStatusText(statusName),
         count: item.count,
         color: getStatusColor(statusName),
         legendFontColor: '#7F7F7F',
@@ -576,33 +592,43 @@ const AdminReportsScreen = ({ navigation }) => {
       >
         {/* Özet Kartlar */}
         <View style={styles.summaryContainer}>
-          <View style={styles.summaryCard}>
-            <View style={styles.summaryIconContainer}>
-              <Icon name="assignment" size={24} color="#3498db" />
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryCard}>
+              <View style={[styles.summaryIconContainer, {backgroundColor: '#e3f2fd'}]}>
+                <Icon name="fiber-new" size={22} color="#3498db" />
+              </View>
+              <Text style={styles.summaryNumber}>
+                {stats.byStatus?.find(s => s.status === 'Yeni' || s.status === 'pending')?.count || 0}
+              </Text>
+              <Text style={styles.summaryLabel}>Yeni</Text>
             </View>
-            <View style={styles.summaryContent}>
-              <Text style={styles.summaryNumber}>{stats.total || 0}</Text>
-              <Text style={styles.summaryLabel}>Toplam Sorun</Text>
-            </View>
-          </View>
-          
-          <View style={styles.summaryCard}>
-            <View style={styles.summaryIconContainer}>
-              <Icon name="assignment-returned" size={24} color="#2ecc71" />
-            </View>
-            <View style={styles.summaryContent}>
+            
+            <View style={styles.summaryCard}>
+              <View style={[styles.summaryIconContainer, {backgroundColor: '#e8f5e9'}]}>
+                <Icon name="check-circle" size={22} color="#2ecc71" />
+              </View>
               <Text style={styles.summaryNumber}>
                 {stats.byStatus?.find(s => s.status === 'Çözüldü' || s.status === 'resolved')?.count || 0}
               </Text>
-              <Text style={styles.summaryLabel}>Çözülen</Text>
+              <Text style={styles.summaryLabel}>Çözüldü</Text>
             </View>
           </View>
           
-          <View style={styles.summaryCard}>
-            <View style={styles.summaryIconContainer}>
-              <Icon name="assignment-late" size={24} color="#f39c12" />
+          <View style={[styles.summaryRow, {marginTop: 8}]}>
+            <View style={styles.summaryCard}>
+              <View style={[styles.summaryIconContainer, {backgroundColor: '#ffebee'}]}>
+                <Icon name="cancel" size={22} color="#e74c3c" />
+              </View>
+              <Text style={styles.summaryNumber}>
+                {stats.byStatus?.find(s => s.status === 'Reddedildi' || s.status === 'rejected')?.count || 0}
+              </Text>
+              <Text style={styles.summaryLabel}>Reddedildi</Text>
             </View>
-            <View style={styles.summaryContent}>
+            
+            <View style={styles.summaryCard}>
+              <View style={[styles.summaryIconContainer, {backgroundColor: '#fff8e1'}]}>
+                <Icon name="assignment-late" size={22} color="#f39c12" />
+              </View>
               <Text style={styles.summaryNumber}>
                 {stats.byStatus?.find(s => s.status === 'İnceleniyor' || s.status === 'in_progress')?.count || 0}
               </Text>
@@ -696,7 +722,7 @@ const AdminReportsScreen = ({ navigation }) => {
                 return (
                   <View key={index} style={styles.detailsItem}>
                     <View style={[styles.colorIndicator, { backgroundColor: getStatusColor(statusName) }]} />
-                    <Text style={styles.detailsLabel}>{statusName}</Text>
+                    <Text style={styles.detailsLabel}>{getStatusText(statusName)}</Text>
                     <Text style={styles.detailsValue}>{item.count}</Text>
                     <Text style={styles.detailsPercent}>
                       {stats.total ? `${Math.round((item.count / stats.total) * 100)}%` : '0%'}
@@ -795,7 +821,7 @@ const AdminReportsScreen = ({ navigation }) => {
         
         {/* Rapor İndirme Butonları */}
         <View style={styles.reportButtonsContainer}>
-          <TouchableOpacity 
+        <TouchableOpacity 
             style={[styles.reportButton, downloadLoading && styles.reportButtonDisabled]}
             onPress={generateAndSharePDF}
             disabled={downloadLoading}
@@ -808,7 +834,7 @@ const AdminReportsScreen = ({ navigation }) => {
                 <Text style={styles.reportButtonText}>PDF İndir</Text>
               </>
             )}
-          </TouchableOpacity>
+        </TouchableOpacity>
           
           <TouchableOpacity 
             style={[styles.reportButton, styles.csvButton, downloadLoading && styles.reportButtonDisabled]}
@@ -855,40 +881,43 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   summaryContainer: {
+    padding: 16,
+  },
+  summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    padding: 16,
   },
   summaryCard: {
     flex: 1,
     backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 12,
+    borderRadius: 12,
+    padding: 16,
     marginHorizontal: 4,
-    flexDirection: 'row',
     alignItems: 'center',
     elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
   },
   summaryIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f2f6ff',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
-  },
-  summaryContent: {
-    flex: 1,
+    marginBottom: 12,
   },
   summaryNumber: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#2c3e50',
+    marginBottom: 4,
   },
   summaryLabel: {
     fontSize: 12,
     color: '#7f8c8d',
+    textAlign: 'center',
   },
   filterContainer: {
     padding: 16,

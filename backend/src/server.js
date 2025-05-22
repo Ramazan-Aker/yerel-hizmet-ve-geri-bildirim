@@ -11,6 +11,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const connectDB = require('./config/db');
+const path = require('path');
 
 // Express app oluştur
 const app = express();
@@ -32,17 +33,43 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
   credentials: true,
   preflightContinue: false,
-  optionsSuccessStatus: 204
+  optionsSuccessStatus: 204,
+  exposedHeaders: ['Content-Range', 'X-Content-Range']
 }));
 
-app.use(helmet());
+// Helmet güvenlik middleware'i - crossOriginResourcePolicy ayarını değiştir
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' }
+}));
+
 app.use(morgan('dev'));
 
-// Rotalar
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/issues', require('./routes/issue'));
-app.use('/api/admin', require('./routes/admin'));
-// app.use('/api/users', require('./routes/users'));
+// Statik dosyaları servis et
+const uploadsPath = path.join(__dirname, '../uploads');
+app.use('/uploads', express.static(uploadsPath));
+console.log(`Statik dosyalar için uploads dizini: ${uploadsPath}`);
+
+// API üzerinden uploads klasörüne erişim için proxy
+app.use('/api/uploads', express.static(uploadsPath));
+console.log(`API üzerinden uploads dizini için proxy: /api/uploads -> ${uploadsPath}`);
+
+// Backend klasörü üzerinden erişim için
+app.use('/backend/uploads', express.static(uploadsPath));
+console.log(`Backend üzerinden uploads dizini için proxy: /backend/uploads -> ${uploadsPath}`);
+
+// Route files
+const authRoutes = require('./routes/auth');
+const issueRoutes = require('./routes/issue');
+const adminRoutes = require('./routes/admin');
+const workerRoutes = require('./routes/worker');
+const municipalRoutes = require('./routes/municipal');
+
+// Mount routes
+app.use('/api/auth', authRoutes);
+app.use('/api/issues', issueRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/worker', workerRoutes);
+app.use('/api/municipal', municipalRoutes);
 
 // Temel rota
 app.get('/', (req, res) => {

@@ -2,50 +2,69 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { authService } from '../services/api';
+import { toast } from 'react-hot-toast';
 
 const LoginPage = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [emailError, setEmailError] = useState('');
   
   const { login } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
-    
-    if (!email || !password) {
-      setError('Lütfen e-posta ve şifre giriniz.');
-      return;
-    }
-    
-    setLoading(true);
     
     try {
-      console.log('Login attempt with:', { email, password });
+      // Uyarıları temizle
+      clearErrors();
+      setLoading(true);
+      
+      // Form verilerini kontrol et
+      if (!email || !password) {
+        setError('Lütfen e-posta ve şifrenizi girin.');
+        return;
+      }
+      
+      // Email format kontrolü
+      if (!validateEmail(email)) {
+        setEmailError('Lütfen geçerli bir e-posta adresi girin.');
+        return;
+      }
+      
+      console.log('Giriş denemesi:', email);
+      
+      // API'den kullanıcı girişi yap
       const response = await authService.login(email, password);
       console.log('Login response:', response);
       
-      if (response && response.data) {
-        // Login fonksiyonuna response.data'yı gönder
+      if (response && response.success) {
+        // Context'e kullanıcı bilgisini kaydet
         await login(response.data);
+        console.log('Giriş başarılı. Kullanıcı rolü:', response.data.role);
+        
+        // Başarılı bildirim göster
+        toast.success('Giriş başarılı!');
         
         // Kullanıcı rolüne göre yönlendirme yap
         if (response.data.role === 'admin' || response.data.role === 'municipal_worker') {
-          console.log('Yönetici kullanıcısı tespit edildi, admin paneline yönlendiriliyor...');
+          console.log('Admin kullanıcısı, yönetim paneline yönlendiriliyor');
           navigate('/admin');
+        } else if (response.data.role === 'worker') {
+          console.log('Çalışan kullanıcısı, çalışan paneline yönlendiriliyor');
+          navigate('/worker');
         } else {
-          console.log('Normal kullanıcı tespit edildi, ana sayfaya yönlendiriliyor...');
+          console.log('Normal kullanıcı, ana sayfaya yönlendiriliyor');
           navigate('/');
         }
       } else {
-        throw new Error('Giriş başarılı ancak kullanıcı bilgileri alınamadı');
+        setError(response?.message || 'Giriş yapılırken bir hata oluştu.');
       }
     } catch (err) {
-      console.error('Login error:', err);
-      setError(err.response?.data?.message || err.message || 'Giriş başarısız. Lütfen tekrar deneyin.');
+      console.error('Giriş hatası:', err);
+      setError(err?.message || 'Giriş yapılırken bir hata oluştu.');
     } finally {
       setLoading(false);
     }
@@ -75,6 +94,16 @@ const LoginPage = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const clearErrors = () => {
+    setError('');
+    setEmailError('');
+  };
+
+  const validateEmail = (email) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
   };
 
   return (
