@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, ActivityIndicator, Image, Platform, Modal, TouchableWithoutFeedback } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
-import * as Camera from 'expo-camera';
 import * as Location from 'expo-location';
 import * as FileSystem from 'expo-file-system';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
@@ -1067,8 +1066,8 @@ const CreateIssueScreen = ({ navigation }) => {
     try {
       setImageLoading(true);
       
-      // İzinleri kontrol et
-      const { status } = await Camera.requestCameraPermissionsAsync();
+      // İzinleri kontrol et - Camera yerine ImagePicker kullan
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
         NotificationManager.error('İzin Gerekli', 'Kamera erişim izni vermeniz gerekiyor.');
         setImageLoading(false);
