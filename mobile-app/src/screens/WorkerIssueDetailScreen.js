@@ -14,6 +14,7 @@ import {
   Dimensions,
   TextInput,
   Platform,
+  Linking,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import MapView, { Marker } from 'react-native-maps';
@@ -362,6 +363,10 @@ const WorkerIssueDetailScreen = ({ route, navigation }) => {
             <Text style={styles.infoValue}>{issue.location?.district || 'Belirtilmemiş'}</Text>
           </View>
           <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Konum:</Text>
+            <Text style={styles.infoValue}>{issue.location?.address || 'Belirtilmemiş'}</Text>
+          </View>
+          <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Atanan:</Text>
             <Text style={styles.infoValue}>{issue.assignedWorker?.name || 'Atanmamış'}</Text>
           </View>
@@ -391,6 +396,26 @@ const WorkerIssueDetailScreen = ({ route, navigation }) => {
                   description={issue.location?.address || ''}
                 />
               </MapView>
+              <TouchableOpacity 
+                style={styles.directionButton}
+                onPress={() => {
+                  const url = `https://www.google.com/maps/dir/?api=1&destination=${mapRegion.latitude},${mapRegion.longitude}`;
+                  Linking.canOpenURL(url).then(supported => {
+                    if (supported) {
+                      Linking.openURL(url);
+                    } else {
+                      Alert.alert(
+                        'Hata',
+                        'Harita uygulaması açılamadı.',
+                        [{ text: 'Tamam' }]
+                      );
+                    }
+                  });
+                }}
+              >
+                <Icon name="directions" size={18} color="#FFFFFF" />
+                <Text style={styles.directionButtonText}>Yol Tarifi Al</Text>
+              </TouchableOpacity>
             </View>
           </View>
         )}
@@ -891,9 +916,32 @@ const styles = StyleSheet.create({
     height: 200,
     borderRadius: 8,
     overflow: 'hidden',
+    position: 'relative',
   },
   map: {
     flex: 1,
+  },
+  directionButton: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: '#3B82F6',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+  },
+  directionButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 4,
   },
   photoDescription: {
     fontSize: 14,

@@ -1,6 +1,6 @@
 import React, { createContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import api from '../utils/api';
+import api, { tryAllApiUrls } from '../utils/api';
 import { Alert } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 
@@ -18,11 +18,33 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const checkServerConnection = async () => {
       try {
+        // Önce api.checkConnection ile deneme
         const result = await api.checkConnection();
-        setServerStatus(result.success ? 'online' : 'offline');
-        setIsOffline(!result.success);
+        
         if (!result.success) {
+          console.warn('İlk bağlantı denemesi başarısız, alternatif URL\'ler deneniyor...');
+          
+          // Alternatif URL'leri deneme
+          try {
+            const altResult = await tryAllApiUrls();
+            if (altResult.success) {
+              console.log('Alternatif URL ile bağlantı sağlandı:', altResult.url);
+              setServerStatus('online');
+              setIsOffline(false);
+              return;
+            }
+          } catch (error) {
+            console.error('Alternatif URL denemesi sırasında hata:', error);
+          }
+          
+          // Hala başarısız
           console.warn('Sunucu bağlantısı kurulamadı:', result.message);
+          setServerStatus('offline');
+          setIsOffline(true);
+        } else {
+          // Bağlantı başarılı
+          setServerStatus('online');
+          setIsOffline(false);
         }
       } catch (error) {
         console.error('Sunucu bağlantı kontrolü sırasında hata:', error);
@@ -116,16 +138,56 @@ export const AuthProvider = ({ children }) => {
   const checkConnection = async () => {
     try {
       setLoading(true);
+      
+      // Önce normal bağlantıyı dene
       const result = await api.checkConnection();
-      setServerStatus(result.success ? 'online' : 'offline');
-      setIsOffline(!result.success);
       
       if (!result.success) {
+        console.warn('Manuel bağlantı kontrolü başarısız, alternatif URL\'ler deneniyor...');
+        
+        // Alternatif URL'leri deneme
+        try {
+          const altResult = await tryAllApiUrls();
+          if (altResult.success) {
+            console.log('Alternatif URL ile bağlantı sağlandı:', altResult.url);
+            setServerStatus('online');
+            setIsOffline(false);
+            
+            // Bağlantı başarılı, kullanıcı bilgilerini güncelle
+            if (user) {
+              try {
+                const { success, data } = await api.auth.getUserProfile();
+                if (success && data && data.user) {
+                  await AsyncStorage.setItem('user', JSON.stringify(data.user));
+                  setUser(data.user);
+                  console.log('Kullanıcı profili güncellendi:', data.user);
+                }
+              } catch (error) {
+                console.warn('Bağlantı kuruldu ancak profil güncellenemedi:', error);
+              }
+            }
+            
+            return true;
+          }
+        } catch (error) {
+          console.error('Alternatif URL denemesi sırasında hata:', error);
+        }
+        
+        // Hala başarısız
+        setServerStatus('offline');
+        setIsOffline(true);
+        
         Alert.alert(
           'Bağlantı Problemi',
-          'Sunucuya bağlanılamıyor. Lütfen internet bağlantınızı kontrol edin.'
+          'Sunucuya bağlanılamıyor. Lütfen internet bağlantınızı kontrol edin veya daha sonra tekrar deneyin.'
         );
+        
+        return false;
       } else {
+        // Bağlantı başarılı
+        setServerStatus('online');
+        setIsOffline(false);
+        
         // Bağlantı başarılı, kullanıcı bilgilerini güncelle
         if (user) {
           try {
@@ -139,9 +201,9 @@ export const AuthProvider = ({ children }) => {
             console.warn('Bağlantı kuruldu ancak profil güncellenemedi:', error);
           }
         }
+        
+        return true;
       }
-      
-      return result.success;
     } catch (error) {
       console.error('Bağlantı kontrolü sırasında hata:', error);
       setServerStatus('offline');

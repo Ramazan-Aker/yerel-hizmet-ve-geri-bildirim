@@ -302,46 +302,46 @@ const AdminIssuesListScreen = ({ route, navigation }) => {
       {/* Filtreler - Sadece admin ve municipal_worker için göster */}
       {user?.role !== 'worker' && (
         <>
-          <View style={styles.filterRow}>
-            <View style={styles.filterItem}>
-              <Text style={styles.filterLabel}>Durum</Text>
-              <View style={styles.pickerContainer}>
-                <Picker
-                  selectedValue={statusFilter}
-                  onValueChange={(itemValue) => setStatusFilter(itemValue)}
-                  style={styles.picker}
-                  mode="dropdown"
-                >
-                  <Picker.Item label="Tümü" value="all" />
-                  <Picker.Item label="Yeni" value="Yeni" />
-                  <Picker.Item label="İnceleniyor" value="İnceleniyor" />
-                  <Picker.Item label="Çözüldü" value="Çözüldü" />
-                  <Picker.Item label="Reddedildi" value="Reddedildi" />
-                </Picker>
-              </View>
-            </View>
-            
-            <View style={styles.filterItem}>
-              <Text style={styles.filterLabel}>Kategori</Text>
-              <View style={styles.pickerContainer}>
-                <Picker
-                  selectedValue={categoryFilter}
-                  onValueChange={(itemValue) => setCategoryFilter(itemValue)}
-                  style={styles.picker}
-                  mode="dropdown"
-                >
-                  <Picker.Item label="Tümü" value="all" />
-                  <Picker.Item label="Altyapı" value="Altyapı" />
-                  <Picker.Item label="Üstyapı" value="Üstyapı" />
-                  <Picker.Item label="Çevre" value="Çevre" />
-                  <Picker.Item label="Ulaşım" value="Ulaşım" />
-                  <Picker.Item label="Güvenlik" value="Güvenlik" />
-                  <Picker.Item label="Temizlik" value="Temizlik" />
-                  <Picker.Item label="Diğer" value="Diğer" />
-                </Picker>
-              </View>
-            </View>
+      <View style={styles.filterRow}>
+        <View style={styles.filterItem}>
+          <Text style={styles.filterLabel}>Durum</Text>
+          <View style={styles.pickerContainer}>
+            <Picker
+              selectedValue={statusFilter}
+              onValueChange={(itemValue) => setStatusFilter(itemValue)}
+              style={styles.picker}
+              mode="dropdown"
+            >
+              <Picker.Item label="Tümü" value="all" />
+              <Picker.Item label="Yeni" value="Yeni" />
+              <Picker.Item label="İnceleniyor" value="İnceleniyor" />
+              <Picker.Item label="Çözüldü" value="Çözüldü" />
+              <Picker.Item label="Reddedildi" value="Reddedildi" />
+            </Picker>
           </View>
+        </View>
+        
+        <View style={styles.filterItem}>
+          <Text style={styles.filterLabel}>Kategori</Text>
+          <View style={styles.pickerContainer}>
+            <Picker
+              selectedValue={categoryFilter}
+              onValueChange={(itemValue) => setCategoryFilter(itemValue)}
+              style={styles.picker}
+              mode="dropdown"
+            >
+              <Picker.Item label="Tümü" value="all" />
+              <Picker.Item label="Altyapı" value="Altyapı" />
+              <Picker.Item label="Üstyapı" value="Üstyapı" />
+              <Picker.Item label="Çevre" value="Çevre" />
+              <Picker.Item label="Ulaşım" value="Ulaşım" />
+              <Picker.Item label="Güvenlik" value="Güvenlik" />
+              <Picker.Item label="Temizlik" value="Temizlik" />
+              <Picker.Item label="Diğer" value="Diğer" />
+            </Picker>
+          </View>
+        </View>
+      </View>
         </>
       )}
       

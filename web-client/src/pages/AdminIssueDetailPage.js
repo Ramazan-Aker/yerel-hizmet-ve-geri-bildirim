@@ -497,9 +497,9 @@ const AdminIssueDetailPage = () => {
                             }}
                           />
                           {photo.uploadedAt && (
-                            <div className="bg-black bg-opacity-70 text-white text-xs p-1 absolute bottom-0 left-0 right-0">
-                              {new Date(photo.uploadedAt).toLocaleDateString('tr-TR')}
-                            </div>
+                          <div className="bg-black bg-opacity-70 text-white text-xs p-1 absolute bottom-0 left-0 right-0">
+                            {new Date(photo.uploadedAt).toLocaleDateString('tr-TR')}
+                          </div>
                           )}
                         </div>
                       );

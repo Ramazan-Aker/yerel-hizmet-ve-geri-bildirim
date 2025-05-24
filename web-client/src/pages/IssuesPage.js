@@ -239,17 +239,31 @@ const IssuesPage = () => {
   const [viewMode, setViewMode] = useState('list'); // 'list' or 'map'
   const [districts, setDistricts] = useState([]);
   const [isApplyingFilters, setIsApplyingFilters] = useState(false);
+  const [showAllCities, setShowAllCities] = useState(false);
   
   // Filter states
   const [filters, setFilters] = useState({
     search: '',
     category: 'Tümü',
     status: 'Tümü',
-    district: ''
+    district: '',
+    city: user?.city || '' // Varsayılan olarak kullanıcının şehrini kullan
   });
 
   // Sort state
   const [sortBy, setSortBy] = useState('newest');
+
+  // Kullanıcı değiştiğinde şehir filtresini güncelle
+  useEffect(() => {
+    if (user && user.city && !showAllCities) {
+      setFilters(prev => ({
+        ...prev,
+        city: user.city
+      }));
+      // Filtreleri uygula
+      setIsApplyingFilters(true);
+    }
+  }, [user, showAllCities]);
 
   // Memoize API query params to avoid unnecessary re-renders
   const apiQueryParams = useMemo(() => {
@@ -259,6 +273,7 @@ const IssuesPage = () => {
     if (filters.category !== 'Tümü') params.category = filters.category;
     if (filters.status !== 'Tümü') params.status = filters.status;
     if (filters.district) params.district = filters.district;
+    if (filters.city) params.city = filters.city;
     
     // Sorting
     params.sort = sortBy;
@@ -339,7 +354,8 @@ const IssuesPage = () => {
       search: '',
       category: 'Tümü',
       status: 'Tümü',
-      district: ''
+      district: '',
+      city: user?.city || ''
     });
     setIsApplyingFilters(true);
   };
@@ -362,6 +378,25 @@ const IssuesPage = () => {
   // Get severity display text
   const getSeverityDisplayText = (severity) => {
     return severityTranslation[severity] || severity;
+  };
+
+  // Tüm şehirler modunu değiştir
+  const handleToggleAllCities = (isAllCitiesMode) => {
+    setShowAllCities(isAllCitiesMode);
+    if (!isAllCitiesMode && user?.city) {
+      // Kullanıcının kendi şehrini filtrele
+      setFilters(prev => ({
+        ...prev,
+        city: user.city
+      }));
+    } else {
+      // Tüm şehirleri göster
+      setFilters(prev => ({
+        ...prev,
+        city: ''
+      }));
+    }
+    setIsApplyingFilters(true);
   };
 
   if (loading) {
@@ -406,6 +441,9 @@ const IssuesPage = () => {
         districts={districts}
         applyFilters={applyFilters}
         resetFilters={resetFilters}
+        showAllCities={showAllCities}
+        onToggleAllCities={handleToggleAllCities}
+        userCity={user?.city}
       />
 
       <div className="flex flex-col sm:flex-row justify-between items-center mb-6">

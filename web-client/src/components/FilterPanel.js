@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { FiFilter, FiChevronDown, FiChevronUp } from 'react-icons/fi';
 
 // Kategoriler
@@ -31,8 +31,24 @@ const sortOptions = [
   { value: 'most_comments', label: 'En Çok Yorumlanan' }
 ];
 
-const FilterPanel = ({ filters, setFilters, sortBy, setSortBy, applyFilters, resetFilters }) => {
+const FilterPanel = ({ 
+  filters, 
+  setFilters, 
+  sortBy, 
+  setSortBy, 
+  applyFilters, 
+  resetFilters,
+  showAllCities,
+  onToggleAllCities,
+  userCity
+}) => {
   const [showFilters, setShowFilters] = useState(false);
+  const [localShowAllCities, setLocalShowAllCities] = useState(showAllCities);
+  
+  // showAllCities prop değiştiğinde yerel state'i güncelle
+  useEffect(() => {
+    setLocalShowAllCities(showAllCities);
+  }, [showAllCities]);
 
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
@@ -44,6 +60,17 @@ const FilterPanel = ({ filters, setFilters, sortBy, setSortBy, applyFilters, res
 
   const handleSortChange = (e) => {
     setSortBy(e.target.value);
+  };
+
+  // Tüm şehirler butonuna tıklandığında filtreleri güncelle
+  const handleAllCitiesToggle = () => {
+    const newState = !localShowAllCities;
+    setLocalShowAllCities(newState);
+    
+    // Parent bileşene durumu bildir
+    if (onToggleAllCities) {
+      onToggleAllCities(newState);
+    }
   };
 
   return (
@@ -61,6 +88,42 @@ const FilterPanel = ({ filters, setFilters, sortBy, setSortBy, applyFilters, res
           {showFilters ? <FiChevronUp /> : <FiChevronDown />}
         </button>
       </div>
+
+      {/* Tüm Şehirler Butonu - Toggle şeklinde */}
+      <div className="mb-4">
+        <button
+          onClick={handleAllCitiesToggle}
+          className={`flex items-center justify-center py-2 px-4 rounded-lg transition w-full md:w-auto font-medium ${
+            localShowAllCities 
+              ? 'bg-green-600 hover:bg-green-700 text-white' 
+              : 'bg-gray-200 hover:bg-gray-300 text-gray-800'
+          }`}
+        >
+          <span className="mr-2">
+            {localShowAllCities ? 'Tüm Şehirler (Açık)' : 'Tüm Şehirler (Kapalı)'}
+          </span>
+          <span className={`inline-block w-3 h-3 rounded-full ${localShowAllCities ? 'bg-white' : 'bg-gray-500'}`}></span>
+        </button>
+      </div>
+      
+      {/* Şehir bilgisi eksikse ve tüm şehirler kapalıysa uyarı göster */}
+      {!localShowAllCities && !userCity && (
+        <div className="mb-4 p-3 bg-yellow-100 text-yellow-800 rounded-lg">
+          <p className="text-sm">
+            Profil sayfanızdan şehir bilgisi eklemediğiniz için tüm şehirlerdeki sorunlar gösteriliyor. 
+            Kendi şehrinize ait sorunları görmek için profil sayfanızdan şehir bilgisi ekleyebilirsiniz.
+          </p>
+        </div>
+      )}
+      
+      {/* Şehir bilgisi varsa ve tüm şehirler kapalıysa bilgi göster */}
+      {!localShowAllCities && userCity && (
+        <div className="mb-4 p-3 bg-blue-100 text-blue-800 rounded-lg">
+          <p className="text-sm">
+            Şu anda sadece <strong>{userCity}</strong> şehrine ait sorunlar gösteriliyor.
+          </p>
+        </div>
+      )}
 
       <div className={`${showFilters ? 'block' : 'hidden'} md:block`}>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">

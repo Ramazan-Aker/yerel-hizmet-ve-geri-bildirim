@@ -593,20 +593,20 @@ const AdminReportsScreen = ({ navigation }) => {
         {/* Özet Kartlar */}
         <View style={styles.summaryContainer}>
           <View style={styles.summaryRow}>
-            <View style={styles.summaryCard}>
+          <View style={styles.summaryCard}>
               <View style={[styles.summaryIconContainer, {backgroundColor: '#e3f2fd'}]}>
                 <Icon name="fiber-new" size={22} color="#3498db" />
-              </View>
+            </View>
               <Text style={styles.summaryNumber}>
                 {stats.byStatus?.find(s => s.status === 'Yeni' || s.status === 'pending')?.count || 0}
               </Text>
               <Text style={styles.summaryLabel}>Yeni</Text>
-            </View>
-            
-            <View style={styles.summaryCard}>
+          </View>
+          
+          <View style={styles.summaryCard}>
               <View style={[styles.summaryIconContainer, {backgroundColor: '#e8f5e9'}]}>
                 <Icon name="check-circle" size={22} color="#2ecc71" />
-              </View>
+            </View>
               <Text style={styles.summaryNumber}>
                 {stats.byStatus?.find(s => s.status === 'Çözüldü' || s.status === 'resolved')?.count || 0}
               </Text>
@@ -615,10 +615,10 @@ const AdminReportsScreen = ({ navigation }) => {
           </View>
           
           <View style={[styles.summaryRow, {marginTop: 8}]}>
-            <View style={styles.summaryCard}>
+          <View style={styles.summaryCard}>
               <View style={[styles.summaryIconContainer, {backgroundColor: '#ffebee'}]}>
                 <Icon name="cancel" size={22} color="#e74c3c" />
-              </View>
+            </View>
               <Text style={styles.summaryNumber}>
                 {stats.byStatus?.find(s => s.status === 'Reddedildi' || s.status === 'rejected')?.count || 0}
               </Text>

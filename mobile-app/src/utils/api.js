@@ -400,12 +400,12 @@ checkAndPingApi().then(success => {
 // Axios client instance oluştur
 const client = axios.create({
   baseURL: BASE_URL,
-  timeout: 30000, // 30 saniye timeout (2 dakika -> 30 saniye olarak azaltıldı)
+  timeout: 60000, // 30 saniye timeout (30 sn -> 60 sn olarak artırıldı)
   headers: {
     'Content-Type': 'application/json',
   },
   // Retry mekanizması için yapılandırma
-  retry: 2, // Daha az yeniden deneme (5 -> 2)
+  retry: 3, // Daha fazla yeniden deneme (2 -> 3)
   retryDelay: 1500, // Daha kısa bekleme süresi (3 sn -> 1.5 sn)
   withCredentials: true,
 });
@@ -1767,7 +1767,7 @@ const api = {
     try {
       // /health endpoint'i yerine /issues endpoint'ini kullanıyoruz (var olduğunu biliyoruz)
       const response = await client.get('/issues', { 
-        timeout: 5000,
+        timeout: 15000, // 5000ms'den 15000ms'ye çıkardık
         params: { limit: 1 } // Sadece 1 kayıt isteyelim, performans için
       });
       return { success: true, data: { status: 'online' } };
@@ -2223,4 +2223,4 @@ const uriToBase64 = async (uri) => {
 export default api; 
 
 // Durum bilgisini dışarıya aç
-export { apiStatus, tryAllApiUrls, enableDemoMode, isDemoMode, getBaseUrl }; 
+export { apiStatus, tryAllApiUrls, enableDemoMode, isDemoMode, getBaseUrl, testApiConnection }; 
