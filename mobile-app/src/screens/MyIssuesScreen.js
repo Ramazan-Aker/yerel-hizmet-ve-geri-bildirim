@@ -8,7 +8,8 @@ import {
   ActivityIndicator,
   RefreshControl,
   Image,
-  ScrollView
+  ScrollView,
+  Alert
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { useAuth } from '../hooks/useAuth';
@@ -24,10 +25,27 @@ const MyIssuesScreen = ({ navigation }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('all'); // 'all', 'pending', 'solved'
   const [isDemoMode, setIsDemoMode] = useState(false);
+  const [error, setError] = useState('');
+
+  // Worker rolü kontrolü - ekran yüklendiğinde
+  useEffect(() => {
+    if (user?.role === 'worker') {
+      console.log('Worker rolü için bildirimlerim özelliği kullanılamaz, geri yönlendiriliyor...');
+      navigation.goBack();
+    }
+  }, [user, navigation]);
 
   // Sorunları getir
   const fetchMyIssues = useCallback(async (shouldRefresh = false) => {
     try {
+      // Worker rolü kontrolü
+      if (user?.role === 'worker') {
+        console.log('Worker rolü için bildirimlerim özelliği kullanılamaz');
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
       if (shouldRefresh) {
         setRefreshing(true);
       } else {
@@ -42,24 +60,34 @@ const MyIssuesScreen = ({ navigation }) => {
         console.log(`${response.data.length} bildirim bulundu`);
         setIssues(response.data);
         setIsDemoMode(false);
+        setError('');
       } else {
         console.error('API hata döndürdü:', response.message);
         setIssues([]);
         setIsDemoMode(true);
+        setError(response.message || 'Bildirimler yüklenirken bir hata oluştu.');
       }
     } catch (error) {
       console.error('Sorunlar getirilirken hata oluştu:', error);
       setIssues([]);
       setIsDemoMode(true);
+      setError('Bildirimler yüklenirken bir hata oluştu.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [user]);
 
   // Ekran odaklandığında çalışır
   useFocusEffect(
     useCallback(() => {
+      // Worker rolü kontrolü
+      if (user?.role === 'worker') {
+        console.log('Worker rolü için bildirimlerim özelliği kullanılamaz, geri yönlendiriliyor...');
+        navigation.goBack();
+        return;
+      }
+
       console.log('MyIssuesScreen odaklandı, bildirimler yenileniyor...');
       fetchMyIssues();
       
@@ -67,13 +95,20 @@ const MyIssuesScreen = ({ navigation }) => {
         // Ekran odaktan çıktığında yapılacak temizlik işlemleri
         console.log('MyIssuesScreen odaktan çıktı');
       };
-    }, [fetchMyIssues])
+    }, [fetchMyIssues, user, navigation])
   );
 
   // Sayfa yüklendiğinde sorunları getir
   useEffect(() => {
-    fetchMyIssues();
-  }, [fetchMyIssues]);
+    if (user?.role !== 'worker') {
+      fetchMyIssues();
+    }
+  }, [fetchMyIssues, user]);
+
+  // Worker rolü kontrolü - ana render öncesi
+  if (user?.role === 'worker') {
+    return null; // Worker rolü için hiçbir şey gösterme, zaten useEffect ile geri yönlendirilecek
+  }
 
   // Sekmeye göre sorunları filtrele
   useEffect(() => {
@@ -289,11 +324,11 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 3,
-    elevation: 5,
+    elevation: 3,
   },
   headerTitle: {
     color: '#fff',
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
   },
   tabContainer: {
@@ -424,6 +459,38 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   createButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    color: '#F44336',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginTop: 16,
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  errorSubText: {
+    color: '#666',
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  backButton: {
+    backgroundColor: '#3b82f6',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    marginTop: 20,
+  },
+  backButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',

@@ -6,11 +6,15 @@ import { MaterialIcons, FontAwesome5, Ionicons } from '@expo/vector-icons';
 import moment from 'moment';
 import 'moment/locale/tr';
 import MapView, { Marker } from 'react-native-maps';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 moment.locale('tr');
 
 // Ekran genişliğini alalım
 const { width } = Dimensions.get('window');
+
+// Önbellek anahtarı oluşturan yardımcı fonksiyon
+const getCacheKey = (issueId) => `issue_cache_${issueId}`;
 
 const IssueDetailScreen = ({ route, navigation }) => {
   // Route parametrelerini al (yedek verilerle birlikte)
@@ -22,6 +26,7 @@ const IssueDetailScreen = ({ route, navigation }) => {
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [retryAttempt, setRetryAttempt] = useState(0);
   const [usingFallback, setUsingFallback] = useState(false);
+  const [usingCache, setUsingCache] = useState(false);
   
   // Fotoğraf görüntüleme state'leri
   const [selectedImage, setSelectedImage] = useState(null);
@@ -50,9 +55,64 @@ const IssueDetailScreen = ({ route, navigation }) => {
     fetchIssueDetails();
   }, [issueId, retryAttempt]);
 
+  // Önbellekten veri yükleme fonksiyonu
+  const loadFromCache = async () => {
+    try {
+      const cacheKey = getCacheKey(issueId);
+      const cachedData = await AsyncStorage.getItem(cacheKey);
+      
+      if (cachedData) {
+        const { data, timestamp } = JSON.parse(cachedData);
+        const cacheAge = Date.now() - timestamp;
+        const maxCacheAge = 5 * 60 * 1000; // 5 dakika
+        
+        // Önbellek geçerli mi kontrol et
+        if (cacheAge < maxCacheAge) {
+          console.log(`Önbellekten veri yükleniyor (${Math.round(cacheAge / 1000)} saniye önce kaydedilmiş)`);
+          setIssue(data);
+          setUsingCache(true);
+          setUsingFallback(false);
+          return true;
+        } else {
+          console.log('Önbellek süresi dolmuş, yeni veri alınacak');
+        }
+      }
+      return false;
+    } catch (error) {
+      console.error('Önbellek okuma hatası:', error);
+      return false;
+    }
+  };
+
+  // Önbelleğe veri kaydetme fonksiyonu
+  const saveToCache = async (data) => {
+    try {
+      const cacheKey = getCacheKey(issueId);
+      const cacheData = {
+        data,
+        timestamp: Date.now()
+      };
+      
+      await AsyncStorage.setItem(cacheKey, JSON.stringify(cacheData));
+      console.log('Veri önbelleğe kaydedildi');
+    } catch (error) {
+      console.error('Önbellek yazma hatası:', error);
+    }
+  };
+
   const fetchIssueDetails = async () => {
     setLoading(true);
     setError(null);
+    
+    // Önce önbellekten yüklemeyi dene
+    const cachedDataLoaded = await loadFromCache();
+    if (cachedDataLoaded) {
+      setLoading(false);
+      
+      // Arka planda güncel veriyi de getir
+      fetchFreshData();
+      return;
+    }
     
     try {
       console.log(`Sorun detaylarını getiriyorum, ID: ${issueId}`);
@@ -158,6 +218,10 @@ const IssueDetailScreen = ({ route, navigation }) => {
         // Sorun nesnesini ayarla
         setIssue(issueData);
         setUsingFallback(false);
+        setUsingCache(false);
+        
+        // Önbelleğe kaydet
+        saveToCache(issueData);
       } else {
         console.error('API yanıtında veri bulunamadı veya başarısız', response);
         
@@ -172,6 +236,7 @@ const IssueDetailScreen = ({ route, navigation }) => {
             createdAt: new Date().toISOString()
           });
           setUsingFallback(true);
+          setUsingCache(false);
         } else {
           setError(response.message || 'Sorun detayları alınamadı. Sunucudan geçersiz yanıt.');
         }
@@ -190,11 +255,107 @@ const IssueDetailScreen = ({ route, navigation }) => {
           createdAt: new Date().toISOString()
         });
         setUsingFallback(true);
+        setUsingCache(false);
       } else {
         setError(`Sorun detayları yüklenirken bir hata oluştu: ${error.message || error}`);
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Arka planda güncel veriyi getir (önbellek kullanıldığında)
+  const fetchFreshData = async () => {
+    try {
+      console.log('Arka planda güncel veri alınıyor...');
+      const response = await api.issues.getById(issueId);
+      
+      if (response.success && response.data) {
+        // Veri işleme adımları (önbellekten yükleme ile aynı)
+        const issueData = response.data;
+        
+        // Resmi yanıtları düzenle
+        let allResponses = [];
+        
+        // officialResponse objesi varsa işle
+        if (issueData.officialResponse) {
+          // İşleme kodu (yukarıdaki ile aynı)
+          if (typeof issueData.officialResponse === 'object') {
+            const standardResponse = {
+              text: issueData.officialResponse.response || issueData.officialResponse.text || '',
+              date: issueData.officialResponse.createdAt || issueData.officialResponse.date || new Date(),
+              respondent: issueData.officialResponse.respondedBy?.name || 
+                         issueData.officialResponse.respondent?.name || 
+                         issueData.officialResponse.respondent || 'Yetkili'
+            };
+            
+            if (standardResponse.text) {
+              allResponses.push(standardResponse);
+            }
+          } else if (typeof issueData.officialResponse === 'string' && issueData.officialResponse.trim()) {
+            allResponses.push({
+              text: issueData.officialResponse,
+              date: issueData.updatedAt || issueData.createdAt || new Date(),
+              respondent: 'Yetkili'
+            });
+          }
+        }
+        
+        // officialResponses dizisi varsa işle
+        if (issueData.officialResponses && Array.isArray(issueData.officialResponses) && issueData.officialResponses.length > 0) {
+          issueData.officialResponses.forEach((response) => {
+            if (response && (response.text || response.response)) {
+              allResponses.push({
+                text: response.text || response.response || '',
+                date: response.date || response.createdAt || new Date(),
+                respondent: response.respondent || 'Yetkili'
+              });
+            }
+          });
+        }
+        
+        // Yanıtları sırala
+        allResponses.sort((a, b) => new Date(b.date) - new Date(a.date));
+        
+        // Otomatik yanıt ekle
+        if ((issueData.status === 'resolved' || issueData.status === 'rejected' || 
+             issueData.status === 'solved' || issueData.status === 'çözüldü' || 
+             issueData.status === 'reddedildi') && allResponses.length === 0) {
+          
+          const autoResponse = {
+            text: issueData.status === 'resolved' || issueData.status === 'solved' || issueData.status === 'çözüldü'
+              ? 'Bu sorun yetkililer tarafından çözülmüştür.' 
+              : 'Bu sorun yetkililer tarafından reddedilmiştir.',
+            date: issueData.updatedAt || issueData.createdAt || new Date(),
+            respondent: 'Sistem'
+          };
+          
+          allResponses.push(autoResponse);
+        }
+        
+        // Yanıtları issue nesnesine ekle
+        issueData.officialResponses = allResponses;
+        
+        // API uyumluluğu için tekil officialResponse alanını da ayarla
+        if (allResponses.length > 0) {
+          const latestResponse = allResponses[0];
+          issueData.officialResponse = {
+            response: latestResponse.text,
+            createdAt: latestResponse.date,
+            respondedBy: { name: latestResponse.respondent }
+          };
+        }
+        
+        // Güncel veriyi state'e ve önbelleğe kaydet
+        setIssue(issueData);
+        setUsingCache(false);
+        saveToCache(issueData);
+        
+        console.log('Güncel veri başarıyla alındı ve güncellendi');
+      }
+    } catch (error) {
+      console.error('Arka planda güncel veri alınırken hata:', error);
+      // Sessizce hata yönetimi - kullanıcıya bildirim gösterme
     }
   };
 
@@ -494,12 +655,14 @@ const IssueDetailScreen = ({ route, navigation }) => {
           </View>
         </View>
         
-        {/* Yedek veri uyarısı */}
-        {usingFallback && (
-          <View style={styles.fallbackWarning}>
-              <MaterialIcons name="warning" size={24} color="#856404" />
-              <Text style={styles.fallbackText}>
-                Sunucudan güncel veriler alınamadı. Yedek veriler görüntüleniyor.
+        {/* Önbellek veya Yedek veri uyarısı */}
+        {(usingFallback || usingCache) && (
+          <View style={[styles.fallbackWarning, usingCache ? {backgroundColor: '#e8f4fd'} : {backgroundColor: '#fff3cd'}]}>
+              <MaterialIcons name={usingCache ? "cached" : "warning"} size={24} color={usingCache ? "#0288d1" : "#856404"} />
+              <Text style={[styles.fallbackText, usingCache ? {color: '#0288d1'} : {color: '#856404'}]}>
+                {usingCache 
+                  ? 'Önbellekten yüklenen veriler görüntüleniyor.' 
+                  : 'Sunucudan güncel veriler alınamadı. Yedek veriler görüntüleniyor.'}
               </Text>
               <TouchableOpacity style={styles.retryButtonSmall} onPress={handleRetry}>
               <Text style={styles.retryButtonTextSmall}>Yenile</Text>
@@ -805,6 +968,58 @@ const IssueDetailScreen = ({ route, navigation }) => {
                   />
                     </TouchableOpacity>
               ))}
+            </ScrollView>
+          </View>
+        )}
+        
+        {/* Çözüm Fotoğrafları */}
+        {issue.progressPhotos && issue.progressPhotos.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Çözüm Fotoğrafları</Text>
+            <ScrollView horizontal={true} showsHorizontalScrollIndicator={false}>
+              {issue.progressPhotos.map((photo, index) => {
+                // URL'yi doğru şekilde oluştur
+                let imageUrl = '';
+                if (typeof photo === 'string') {
+                  imageUrl = photo;
+                } else if (photo.url) {
+                  imageUrl = photo.url;
+                } else {
+                  return null; // Geçersiz fotoğraf verisi
+                }
+                
+                // API URL'si ekle
+                const apiBaseUrl = api.getBaseUrl();
+                const fullImageUrl = imageUrl.startsWith('http') ? imageUrl : `${apiBaseUrl}${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}`;
+                
+                return (
+                  <TouchableOpacity 
+                    key={`progress-${index}`} 
+                    style={styles.imageContainer}
+                    onPress={() => {
+                      setSelectedImage(fullImageUrl);
+                      setModalVisible(true);
+                    }}
+                  >
+                    <Image
+                      source={{ uri: fullImageUrl }}
+                      style={styles.image}
+                      resizeMode="cover"
+                      defaultSource={null}
+                      onError={(e) => {
+                        console.warn(`Çözüm fotoğrafı yükleme hatası (${index}), URL: ${fullImageUrl}`);
+                      }}
+                    />
+                    {photo.uploadedAt && (
+                      <View style={styles.photoDateContainer}>
+                        <Text style={styles.photoDateText}>
+                          {moment(photo.uploadedAt).format('D MMM YYYY')}
+                        </Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
             </ScrollView>
           </View>
         )}
@@ -1783,6 +1998,23 @@ const styles = StyleSheet.create({
   officialResponseLoadingText: {
     color: '#666',
     marginLeft: 10,
+  },
+  modalErrorUrl: {
+    fontSize: 10,
+    color: '#999',
+    marginTop: 5,
+  },
+  photoDateContainer: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    padding: 5,
+    borderRadius: 5,
+  },
+  photoDateText: {
+    color: '#fff',
+    fontSize: 12,
   },
 });
 

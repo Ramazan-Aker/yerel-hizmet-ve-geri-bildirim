@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { authService } from '../services/api';
@@ -7,30 +7,81 @@ import { toast } from 'react-hot-toast';
 const LoginPage = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState(() => {
+    // Sayfa yüklendiğinde localStorage'dan hata mesajını al
+    const savedError = localStorage.getItem('loginError');
+    if (savedError) {
+      // Bir kereliğine kullan ve temizle
+      localStorage.removeItem('loginError');
+      return savedError;
+    }
+    return '';
+  });
   const [loading, setLoading] = useState(false);
   const [emailError, setEmailError] = useState('');
+  const errorRef = useRef(null);
   
   const { login } = useAuth();
   const navigate = useNavigate();
+
+  // Hata mesajını temizleme işlemini manuel kontrol ediyoruz
+  const clearErrors = () => {
+    setError('');
+    setEmailError('');
+    localStorage.removeItem('loginError'); // localStorage'dan da temizle
+  };
+
+  // Kullanıcı form alanlarına yazmaya başladığında hata mesajını temizleme
+  useEffect(() => {
+    if (email || password) {
+      clearErrors();
+    }
+  }, [email, password]);
+  
+  // Hata mesajı değiştiğinde DOM'a ekleyelim
+  useEffect(() => {
+    if (error) {
+      // Hata mesajı varsa, DOM'da kalıcı bir element olarak gösterelim
+      const errorContainer = document.getElementById('login-error-container');
+      if (errorContainer) {
+        errorContainer.style.display = 'block';
+        errorContainer.innerHTML = `
+          <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4 relative" role="alert">
+            <p class="font-medium">${error}</p>
+            <button 
+              onclick="document.getElementById('login-error-container').style.display='none';" 
+              class="absolute top-0 right-0 p-2 text-red-700"
+              aria-label="Kapat"
+            >
+              <span class="text-xl">&times;</span>
+            </button>
+          </div>
+        `;
+      }
+    }
+  }, [error]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     
     try {
-      // Uyarıları temizle
-      clearErrors();
       setLoading(true);
       
       // Form verilerini kontrol et
       if (!email || !password) {
-        setError('Lütfen e-posta ve şifrenizi girin.');
+        const errorMsg = 'Lütfen e-posta ve şifrenizi girin.';
+        setError(errorMsg);
+        localStorage.setItem('loginError', errorMsg); // Hatayı localStorage'a kaydet
+        setLoading(false);
         return;
       }
       
       // Email format kontrolü
       if (!validateEmail(email)) {
-        setEmailError('Lütfen geçerli bir e-posta adresi girin.');
+        const errorMsg = 'Lütfen geçerli bir e-posta adresi girin.';
+        setEmailError(errorMsg);
+        localStorage.setItem('loginError', errorMsg); // Hatayı localStorage'a kaydet
+        setLoading(false);
         return;
       }
       
@@ -60,11 +111,54 @@ const LoginPage = () => {
           navigate('/');
         }
       } else {
-        setError(response?.message || 'Giriş yapılırken bir hata oluştu.');
+        // API'den başarısız yanıt geldi, hata mesajını göster
+        const errorMsg = response?.message || 'Giriş yapılırken bir hata oluştu.';
+        setError(errorMsg);
+        localStorage.setItem('loginError', errorMsg); // Hatayı localStorage'a kaydet
+        
+        // Sayfayı yeniden yükle - bu hata mesajının görünmesini sağlar
+        if (!error) {
+          window.location.reload();
+        }
+        
+        // Toast ile de hata mesajını göster
+        toast.error(errorMsg, {
+          duration: 5000 // 5 saniye göster
+        });
       }
     } catch (err) {
       console.error('Giriş hatası:', err);
-      setError(err?.message || 'Giriş yapılırken bir hata oluştu.');
+      
+      let errorMessage = '';
+      
+      // String olarak gelen hata mesajını doğrudan göster
+      if (typeof err === 'string') {
+        errorMessage = err;
+      } else {
+        // Daha açıklayıcı hata mesajları
+        if (err.message && (
+            err.message.includes('Invalid credentials') || 
+            err.message.includes('Geçersiz kimlik bilgileri'))) {
+          errorMessage = 'E-posta veya şifre hatalı. Lütfen bilgilerinizi kontrol ediniz.';
+        } else if (err.message && err.message.includes('not found')) {
+          errorMessage = 'Bu e-posta adresi ile kayıtlı bir kullanıcı bulunamadı.';
+        } else {
+          errorMessage = err?.message || 'Giriş yapılırken bir hata oluştu. Lütfen tekrar deneyiniz.';
+        }
+      }
+      
+      setError(errorMessage);
+      localStorage.setItem('loginError', errorMessage); // Hatayı localStorage'a kaydet
+      
+      // Sayfayı yeniden yükle - bu hata mesajının görünmesini sağlar
+      if (!error) {
+        window.location.reload();
+      }
+      
+      // Toast ile de hata mesajını göster
+      toast.error(errorMessage, {
+        duration: 5000 // 5 saniye göster
+      });
     } finally {
       setLoading(false);
     }
@@ -89,16 +183,13 @@ const LoginPage = () => {
         }
       }
     } catch (err) {
-      setError('Demo hesabı ile giriş başarısız oldu.');
+      const errorMsg = 'Demo hesabı ile giriş başarısız oldu.';
+      setError(errorMsg);
+      localStorage.setItem('loginError', errorMsg);
       console.error(err);
     } finally {
       setLoading(false);
     }
-  };
-
-  const clearErrors = () => {
-    setError('');
-    setEmailError('');
   };
 
   const validateEmail = (email) => {
@@ -110,9 +201,32 @@ const LoginPage = () => {
     <div className="max-w-md mx-auto">
       <h1 className="text-3xl font-bold text-center mb-8">Giriş Yap</h1>
       
-      {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4" role="alert">
-          <p>{error}</p>
+      {/* Kalıcı hata mesajı konteynerı - JavaScript ile manipüle edilecek */}
+      <div id="login-error-container" style={{ display: error ? 'block' : 'none' }}>
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4 relative" role="alert">
+            <p className="font-medium">{error}</p>
+            <button 
+              onClick={() => clearErrors()} 
+              className="absolute top-0 right-0 p-2 text-red-700"
+              aria-label="Kapat"
+            >
+              <span className="text-xl">&times;</span>
+            </button>
+          </div>
+        )}
+      </div>
+      
+      {emailError && (
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4 relative" role="alert">
+          <p className="font-medium">{emailError}</p>
+          <button 
+            onClick={() => setEmailError('')} 
+            className="absolute top-0 right-0 p-2 text-red-700"
+            aria-label="Kapat"
+          >
+            <span className="text-xl">&times;</span>
+          </button>
         </div>
       )}
       

@@ -23,6 +23,19 @@ const WorkerLayout = () => {
           <div className="flex items-center space-x-4">
             {user && (
               <div className="flex items-center">
+                <NavLink 
+                  to="/worker/profile"
+                  className={({ isActive }) =>
+                    `mr-4 flex items-center ${
+                      isActive ? 'text-white font-medium' : 'text-blue-100 hover:text-white'
+                    }`
+                  }
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+                  </svg>
+                  <span className="text-sm hidden md:inline">Profilim</span>
+                </NavLink>
                 <span className="mr-2 text-sm hidden md:inline">{user.name}</span>
                 <button
                   onClick={handleLogout}

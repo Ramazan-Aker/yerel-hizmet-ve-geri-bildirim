@@ -48,7 +48,80 @@ export const authService = {
       const response = await apiClient.post('/auth/login', { email, password });
       return response.data;
     } catch (error) {
-      throw error.response?.data?.message || 'Giriş başarısız';
+      console.error('Login API hatası:', error);
+      
+      // Ağ hatası kontrolü - bağlantı sorunu
+      if (!error.response) {
+        if (error.message && error.message.includes('Network Error')) {
+          return {
+            success: false,
+            message: 'Sunucuya bağlanılamadı. Lütfen internet bağlantınızı kontrol ediniz.'
+          };
+        }
+        
+        if (error.message && error.message.includes('timeout')) {
+          return {
+            success: false,
+            message: 'Sunucu yanıt vermedi. Lütfen daha sonra tekrar deneyiniz.'
+          };
+        }
+        
+        return {
+          success: false,
+          message: 'Bağlantı hatası. Lütfen internet bağlantınızı kontrol ediniz.'
+        };
+      }
+      
+      // Daha ayrıntılı hata mesajları
+      if (error.response) {
+        const status = error.response.status;
+        const errorData = error.response.data;
+        
+        if (status === 401) {
+          // Kimlik doğrulama hatası
+          return { 
+            success: false, 
+            message: 'E-posta veya şifre hatalı. Lütfen bilgilerinizi kontrol ediniz.',
+            status: 401
+          };
+        } else if (status === 404) {
+          // Kullanıcı bulunamadı
+          return { 
+            success: false, 
+            message: 'Bu e-posta adresi ile kayıtlı bir kullanıcı bulunamadı.',
+            status: 404
+          };
+        } else if (status === 400) {
+          // Geçersiz istek
+          return { 
+            success: false, 
+            message: errorData?.message || 'Geçersiz giriş bilgileri.',
+            status: 400
+          };
+        } else if (status >= 500) {
+          // Sunucu hatası
+          return { 
+            success: false, 
+            message: 'Sunucu hatası. Lütfen daha sonra tekrar deneyiniz.',
+            status: status
+          };
+        }
+        
+        // Özel hata mesajı varsa kullan
+        if (errorData && errorData.message) {
+          return { 
+            success: false, 
+            message: errorData.message,
+            status: status
+          };
+        }
+      }
+      
+      // Genel hata durumu
+      return { 
+        success: false, 
+        message: 'Giriş başarısız. Lütfen bilgilerinizi kontrol ediniz.'
+      };
     }
   },
 
@@ -573,6 +646,17 @@ export const workerService = {
       return response.data;
     } catch (error) {
       throw error.response?.data?.message || 'İstatistikler alınamadı';
+    }
+  },
+  
+  // Çalışan profil bilgilerini getir (mobil uygulamayla uyumlu)
+  getWorkerProfile: async () => {
+    try {
+      // /worker/profile endpoint'i yerine mevcut /auth/me endpoint'ini kullan
+      const response = await apiClient.get('/auth/me');
+      return response.data;
+    } catch (error) {
+      throw error.response?.data?.message || 'Profil bilgileri alınamadı';
     }
   },
   

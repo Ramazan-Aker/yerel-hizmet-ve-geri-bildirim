@@ -23,6 +23,7 @@ import MapView, { Marker, Callout, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
 import api from '../utils/api';
 import { useFocusEffect } from '@react-navigation/native';
+import moment from 'moment';
 
 const { width } = Dimensions.get('window');
 
@@ -150,6 +151,151 @@ const IssuesScreen = ({ navigation }) => {
       borderRadius: 6,
     }
   });
+
+  // Görüntü optimizasyonu için yardımcı fonksiyonlar
+  const getOptimizedImageUrl = (imageUrl, width = 300) => {
+    if (!imageUrl) return null;
+    
+    // Eğer zaten optimize edilmiş bir URL ise doğrudan döndür
+    if (imageUrl.includes('?width=')) {
+      return imageUrl;
+    }
+    
+    // URL'ye boyut parametresi ekle
+    return `${imageUrl}?width=${width}&quality=70`;
+  };
+
+  // Görüntü önbelleği için basit bir mekanizma
+  const imageCache = {
+    cache: {},
+    preloadImage: (uri) => {
+      if (!uri) return Promise.resolve();
+      
+      return new Promise((resolve, reject) => {
+        if (imageCache.cache[uri]) {
+          resolve(uri);
+          return;
+        }
+        
+        Image.prefetch(uri)
+          .then(() => {
+            imageCache.cache[uri] = true;
+            resolve(uri);
+          })
+          .catch(err => {
+            console.warn('Image preloading failed:', uri, err);
+            reject(err);
+          });
+      });
+    }
+  };
+
+  // FlatList için performans optimizasyonları
+  const getItemLayout = (data, index) => ({
+    length: 200, // Her öğenin yaklaşık yüksekliği
+    offset: 200 * index,
+    index,
+  });
+
+  const keyExtractor = (item) => item._id.toString();
+
+  // Render edilecek öğe bileşeni - performans için memo ile sarmalayalım
+  const IssueItem = React.memo(({ item, onPress }) => {
+    // Optimize edilmiş görüntü URL'si al
+    const thumbnailUrl = item.images && item.images.length > 0 
+      ? getOptimizedImageUrl(item.images[0], 150) 
+      : null;
+    
+    // Görüntüyü arka planda önyükle
+    React.useEffect(() => {
+      if (thumbnailUrl) {
+        imageCache.preloadImage(thumbnailUrl);
+      }
+    }, [thumbnailUrl]);
+    
+    return (
+      <TouchableOpacity 
+        style={styles.issueItem} 
+        onPress={() => onPress(item)}
+        activeOpacity={0.7}
+      >
+        {thumbnailUrl ? (
+          <Image 
+            source={{ uri: thumbnailUrl }} 
+            style={styles.issueImage}
+            resizeMode="cover"
+          />
+        ) : (
+          <View style={[styles.issueImage, styles.noImage]}>
+            <Icon name="image-not-supported" size={30} color="#ccc" />
+          </View>
+        )}
+        
+        <View style={styles.issueContent}>
+          <Text style={styles.issueTitle} numberOfLines={2}>{item.title}</Text>
+          
+          <View style={styles.issueMetadata}>
+            <View style={styles.metadataItem}>
+              <Icon name="category" size={14} color="#666" />
+              <Text style={styles.metadataText}>
+                {getCategoryLabel(item.category)}
+              </Text>
+            </View>
+            
+            <View style={styles.metadataItem}>
+              <Icon name="access-time" size={14} color="#666" />
+              <Text style={styles.metadataText}>
+                {moment(item.createdAt).fromNow()}
+              </Text>
+            </View>
+          </View>
+          
+          <View style={styles.issueFooter}>
+            <View style={styles.locationContainer}>
+              <Icon name="location-on" size={14} color="#666" />
+              <Text style={styles.locationText} numberOfLines={1}>
+                {item.location && item.location.district ? item.location.district : 'Konum belirtilmemiş'}
+                {item.location && item.location.city ? `, ${item.location.city}` : ''}
+              </Text>
+            </View>
+            
+            <View style={[styles.statusBadge, {backgroundColor: getStatusColor(item.status)}]}>
+              <Text style={styles.statusText}>{getStatusLabel(item.status)}</Text>
+            </View>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  });
+
+  // Boş liste durumu bileşeni
+  const EmptyListComponent = React.memo(({ isLoading, error, onRetry }) => {
+    if (isLoading) return null;
+    
+    return (
+      <View style={styles.emptyContainer}>
+        {error ? (
+          <>
+            <Icon name="error-outline" size={60} color="#F44336" />
+            <Text style={styles.emptyText}>Sorunlar yüklenirken bir hata oluştu.</Text>
+            <TouchableOpacity style={styles.retryButton} onPress={onRetry}>
+              <Text style={styles.retryButtonText}>Tekrar Dene</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <Icon name="inbox" size={60} color="#ccc" />
+            <Text style={styles.emptyText}>Henüz bildirilmiş sorun bulunmuyor.</Text>
+          </>
+        )}
+      </View>
+    );
+  });
+
+  // Liste ayırıcı bileşeni
+  const ItemSeparator = React.memo(() => (
+    <View style={styles.separator} />
+  ));
 
   // Sorunları getir
   const fetchIssues = useCallback(async (shouldRefresh = false) => {
@@ -350,48 +496,6 @@ const IssuesScreen = ({ navigation }) => {
     <TouchableOpacity onPress={onPress} style={styles.customPickerButton}>
       <Text style={styles.customPickerButtonText}>{text}</Text>
       <Icon name="arrow-drop-down" size={24} color="#3b82f6" />
-    </TouchableOpacity>
-  );
-
-  // Her bir sorun kartını render et
-  const renderIssueItem = ({ item }) => (
-    <TouchableOpacity 
-      style={styles.card} 
-      onPress={() => navigateToDetail(item)}
-    >
-      <View style={styles.cardHeader}>
-        <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
-        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
-          <Text style={styles.statusText}>{getStatusText(item.status)}</Text>
-        </View>
-      </View>
-      
-      {item.images && item.images.length > 0 && (
-        <Image 
-          source={{ uri: item.images[0] }} 
-          style={styles.cardImage} 
-          resizeMode="cover"
-        />
-      )}
-      
-      <View style={styles.cardDetails}>
-        <View style={styles.detailRow}>
-          <Icon name="category" size={16} color="#666" />
-          <Text style={styles.detailText}>{item.category}</Text>
-        </View>
-        
-        <View style={styles.detailRow}>
-          <Icon name="location-on" size={16} color="#666" />
-          <Text style={styles.detailText} numberOfLines={1}>
-            {item.location?.district || 'Belirtilmemiş'}, {item.location?.city || 'Belirtilmemiş'}
-          </Text>
-        </View>
-        
-        <View style={styles.detailRow}>
-          <Icon name="event" size={16} color="#666" />
-          <Text style={styles.detailText}>{formatDate(item.createdAt)}</Text>
-        </View>
-      </View>
     </TouchableOpacity>
   );
 
@@ -680,9 +784,22 @@ const IssuesScreen = ({ navigation }) => {
         ) : (
           <FlatList
             data={filteredIssues}
-            renderItem={renderIssueItem}
-            keyExtractor={(item) => item._id}
-            contentContainerStyle={styles.listContent}
+            renderItem={({ item }) => (
+              <IssueItem 
+                item={item} 
+                onPress={navigateToDetail} 
+              />
+            )}
+            keyExtractor={keyExtractor}
+            getItemLayout={getItemLayout}
+            ItemSeparatorComponent={ItemSeparator}
+            ListEmptyComponent={
+              <EmptyListComponent 
+                isLoading={loading} 
+                error={isDemoMode} 
+                onRetry={fetchIssues} 
+              />
+            }
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}
@@ -690,17 +807,20 @@ const IssuesScreen = ({ navigation }) => {
                 colors={['#3b82f6']}
               />
             }
-            ListEmptyComponent={() => (
-              <View style={styles.emptyContainer}>
-                <Icon name="search-off" size={60} color="#ccc" />
-                <Text style={styles.emptyText}>
-                  Sonuç bulunamadı
-                </Text>
-                <Text style={styles.emptySubText}>
-                  Filtreleri değiştirmeyi deneyin
-                </Text>
-              </View>
-            )}
+            initialNumToRender={10}
+            maxToRenderPerBatch={10}
+            windowSize={5}
+            removeClippedSubviews={true}
+            onEndReached={fetchIssues}
+            onEndReachedThreshold={0.5}
+            ListFooterComponent={
+              loading ? (
+                <View style={styles.loadMoreContainer}>
+                  <ActivityIndicator size="small" color="#2196F3" />
+                  <Text style={styles.loadMoreText}>Daha fazla yükleniyor...</Text>
+                </View>
+              ) : null
+            }
           />
         )
       )}
@@ -1149,6 +1269,66 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     borderWidth: 1,
     borderColor: '#ddd',
+  },
+  issueItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+  },
+  issueImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 8,
+    marginRight: 12,
+  },
+  issueContent: {
+    flex: 1,
+  },
+  issueTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 4,
+  },
+  issueMetadata: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  metadataItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  metadataText: {
+    fontSize: 14,
+    color: '#666',
+  },
+  issueFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  locationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  locationText: {
+    fontSize: 14,
+    color: '#666',
+  },
+  separator: {
+    height: 1,
+    backgroundColor: '#eee',
+  },
+  loadMoreContainer: {
+    padding: 12,
+    alignItems: 'center',
+  },
+  loadMoreText: {
+    fontSize: 14,
+    color: '#2196F3',
+    marginTop: 4,
   },
 });
 

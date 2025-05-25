@@ -22,6 +22,7 @@ const CreateIssueScreen = ({ navigation }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
+  const [severity, setSeverity] = useState('Orta'); // Önem derecesi için state
   const [images, setImages] = useState([]);
   const [city, setCity] = useState('');
   const [district, setDistrict] = useState('');
@@ -815,6 +816,7 @@ const CreateIssueScreen = ({ navigation }) => {
     if (!title) validationErrors.title = 'Başlık zorunludur';
     if (!description) validationErrors.description = 'Açıklama zorunludur';
     if (!category) validationErrors.category = 'Kategori zorunludur';
+    if (!severity) validationErrors.severity = 'Önem derecesi zorunludur';
     if (!city) validationErrors.city = 'Şehir zorunludur';
     
     // İlçe kontrolü - şehir seçilmişse ve o şehrin ilçeleri varsa bir ilçe seçilmiş olmalı
@@ -858,6 +860,7 @@ const CreateIssueScreen = ({ navigation }) => {
         title: title.trim(),
         description: description.trim(),
         category, // Kategori ID'si olarak gönder, etiketini değil
+        severity, // Önem derecesi
         status: "pending", // Varsayılan durum
         location: {
           address: address.trim(),
@@ -988,11 +991,19 @@ const CreateIssueScreen = ({ navigation }) => {
 
   const categories = [
     { value: 'Altyapı', label: 'Altyapı' },
+    { value: 'Üstyapı', label: 'Üstyapı' },
     { value: 'Çevre', label: 'Çevre' },
     { value: 'Ulaşım', label: 'Ulaşım' },
     { value: 'Güvenlik', label: 'Güvenlik' },
     { value: 'Temizlik', label: 'Temizlik' },
     { value: 'Diğer', label: 'Diğer' }
+  ];
+
+  const severities = [
+    { value: 'Düşük', label: 'Düşük' },
+    { value: 'Orta', label: 'Orta' },
+    { value: 'Yüksek', label: 'Yüksek' },
+    { value: 'Kritik', label: 'Kritik' }
   ];
 
   // Add state for picker modals
@@ -1001,6 +1012,7 @@ const CreateIssueScreen = ({ navigation }) => {
   
   // Add temporary states for picker values
   const [tempCategory, setTempCategory] = useState('');
+  const [tempSeverity, setTempSeverity] = useState('Orta');
   const [tempCity, setTempCity] = useState('');
   const [tempDistrict, setTempDistrict] = useState('');
 
@@ -1152,7 +1164,6 @@ const CreateIssueScreen = ({ navigation }) => {
   // Function to open the specific picker
   const openPicker = (picker) => {
     console.log('DEBUG - Opening picker:', picker);
-    console.log('DEBUG - Current city:', city);
     
     // Initialize temp values with current values
     if (picker === 'category') {
@@ -1160,6 +1171,11 @@ const CreateIssueScreen = ({ navigation }) => {
       setCurrentPicker(picker);
       setPickerVisible(true);
     } 
+    else if (picker === 'severity') {
+      setTempSeverity(severity || 'Orta');
+      setCurrentPicker(picker);
+      setPickerVisible(true);
+    }
     else if (picker === 'city') {
       setTempCity(city || '');
       setCurrentPicker(picker);
@@ -1182,6 +1198,10 @@ const CreateIssueScreen = ({ navigation }) => {
         console.log('DEBUGv3 - closePicker - Setting category from', category, 'to', tempCategory);
         setCategory(tempCategory);
       } 
+      else if (currentPicker === 'severity') {
+        console.log('DEBUGv3 - closePicker - Setting severity from', severity, 'to', tempSeverity);
+        setSeverity(tempSeverity);
+      }
       else if (currentPicker === 'city') {
         // Şehir değişirse (mevcut şehirden farklıysa)
         if (tempCity !== city) {
@@ -1230,6 +1250,10 @@ const CreateIssueScreen = ({ navigation }) => {
         console.log('DEBUGv3 - closePicker - Cancelled, resetting tempCategory to', category);
         setTempCategory(category || '');
       } 
+      else if (currentPicker === 'severity') {
+        console.log('DEBUGv3 - closePicker - Cancelled, resetting tempSeverity to', severity);
+        setTempSeverity(severity || 'Orta');
+      }
       else if (currentPicker === 'city') {
         console.log('DEBUGv3 - closePicker - Cancelled, resetting tempCity to', city);
         setTempCity(city || '');
@@ -1460,6 +1484,16 @@ const CreateIssueScreen = ({ navigation }) => {
         </View>
         
         <View style={styles.inputGroup}>
+          <Text style={styles.label}>Önem Derecesi <Text style={styles.required}>*</Text></Text>
+          <CustomPickerButton 
+            label="Önem Derecesi" 
+            value={severity} 
+            placeholder="Önem Derecesi Seçin"
+            onPress={() => openPicker('severity')} 
+          />
+        </View>
+        
+        <View style={styles.inputGroup}>
           <Text style={styles.label}>Şehir <Text style={styles.required}>*</Text></Text>
           <CustomPickerButton 
             label="Şehir" 
@@ -1498,6 +1532,7 @@ const CreateIssueScreen = ({ navigation }) => {
                     </TouchableOpacity>
                     <Text style={styles.modalTitle}>
                       {currentPicker === 'category' ? 'Kategori Seçin' : 
+                       currentPicker === 'severity' ? 'Önem Derecesi Seçin' : 
                        currentPicker === 'city' ? 'Şehir Seçin' : 
                        currentPicker === 'district' ? 'İlçe Seçin' : ''}
                     </Text>
@@ -1522,6 +1557,22 @@ const CreateIssueScreen = ({ navigation }) => {
                         <Picker.Item label="Kategori seçin" value="" color="#999" />
               {categories.map((cat) => (
                           <Picker.Item key={cat.value} label={cat.label} value={cat.value} color="#333" />
+              ))}
+            </Picker>
+                    )}
+        
+                    {currentPicker === 'severity' && (
+            <Picker
+                        selectedValue={tempSeverity}
+                        onValueChange={(value) => setTempSeverity(value)}
+                        style={[styles.modalPicker, Platform.OS === 'android' ? styles.androidPicker : {}]}
+                        itemStyle={styles.pickerItem}
+                        mode={Platform.OS === 'android' ? 'dropdown' : 'dialog'}
+                        dropdownIconColor="#333"
+            >
+                        <Picker.Item label="Önem Derecesi seçin" value="" color="#999" />
+              {severities.map((sev) => (
+                          <Picker.Item key={sev.value} label={sev.label} value={sev.value} color="#333" />
               ))}
             </Picker>
                     )}

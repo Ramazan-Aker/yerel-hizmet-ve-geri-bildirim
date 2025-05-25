@@ -29,6 +29,7 @@ import AdminReportsPage from './pages/AdminReportsPage';
 import WorkerDashboardPage from './pages/WorkerDashboardPage';
 import WorkerIssuesPage from './pages/WorkerIssuesPage';
 import WorkerIssueDetailPage from './pages/WorkerIssueDetailPage';
+import WorkerProfilePage from './pages/WorkerProfilePage';
 
 // Debug Component
 import Debug from './components/Debug';
@@ -190,6 +191,7 @@ const App = () => {
             <Route index element={<WorkerDashboardPage />} />
             <Route path="issues" element={<WorkerIssuesPage />} />
             <Route path="issues/:id" element={<WorkerIssueDetailPage />} />
+            <Route path="profile" element={<WorkerProfilePage />} />
           </Route>
           
           {/* 404 Route */}

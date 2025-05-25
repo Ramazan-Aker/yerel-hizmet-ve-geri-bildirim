@@ -34,6 +34,14 @@ const ProfileScreen = ({ navigation }) => {
   // Kullanıcının bildirimleri için state değişkenleri
   const [userReports, setUserReports] = useState([]);
   const [reportsLoading, setReportsLoading] = useState(true);
+  
+  // Worker rolü için görev istatistikleri
+  const [workerStats, setWorkerStats] = useState({
+    assignedIssues: 0,
+    resolvedIssues: 0,
+    loading: true,
+    error: null
+  });
 
   // Kullanıcı bilgileri değiştiğinde state'i güncelle
   useEffect(() => {
@@ -88,6 +96,46 @@ const ProfileScreen = ({ navigation }) => {
   useEffect(() => {
     fetchUserReports();
   }, [fetchUserReports]);
+
+  // Worker rolü için istatistikleri yükle
+  useEffect(() => {
+    const fetchWorkerStats = async () => {
+      if (user?.role === 'worker') {
+        try {
+          setWorkerStats(prev => ({ ...prev, loading: true, error: null }));
+          console.log('Worker istatistikleri getiriliyor...');
+          
+          const response = await api.worker.getWorkerStats();
+          
+          if (response.success && response.data) {
+            console.log('Worker istatistikleri alındı:', response.data);
+            setWorkerStats({
+              assignedIssues: response.data.assignedIssues || 0,
+              resolvedIssues: response.data.resolvedIssues || 0,
+              loading: false,
+              error: null
+            });
+          } else {
+            console.error('Worker istatistikleri alınamadı:', response.message);
+            setWorkerStats(prev => ({
+              ...prev,
+              loading: false,
+              error: 'İstatistikler yüklenemedi'
+            }));
+          }
+        } catch (error) {
+          console.error('Worker istatistikleri yüklenirken hata:', error);
+          setWorkerStats(prev => ({
+            ...prev,
+            loading: false,
+            error: 'İstatistikler yüklenemedi: ' + error.message
+          }));
+        }
+      }
+    };
+    
+    fetchWorkerStats();
+  }, [user?.role]);
 
   // Profil bilgilerini yenile
   const refreshUserData = useCallback(async () => {
@@ -438,68 +486,109 @@ const ProfileScreen = ({ navigation }) => {
           </View>
         </View>
 
-        {/* Kullanıcının Bildirimleri */}
-        <View style={styles.reportsContainer}>
-          <Text style={styles.sectionTitle}>Bildirimlerim</Text>
-          
-          {reportsLoading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color="#3b82f6" />
-              <Text style={styles.loadingText}>Bildirimler yükleniyor...</Text>
-            </View>
-          ) : userReports.length > 0 ? (
-            userReports.map((report) => (
-              <TouchableOpacity 
-                key={report.id}
-                style={styles.reportCard}
-                onPress={() => navigateToReportDetail(report)}
+        {/* Kullanıcının Bildirimleri - Worker rolü için gizle */}
+        {user?.role !== 'worker' && (
+          <View style={styles.reportsContainer}>
+            <Text style={styles.sectionTitle}>Bildirimlerim</Text>
+            
+            {reportsLoading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color="#3b82f6" />
+                <Text style={styles.loadingText}>Bildirimler yükleniyor...</Text>
+              </View>
+            ) : userReports.length > 0 ? (
+              userReports.map((report) => (
+                <TouchableOpacity 
+                  key={report.id}
+                  style={styles.reportCard}
+                  onPress={() => navigateToReportDetail(report)}
+                >
+                  <View style={styles.reportInfo}>
+                    <Text style={styles.reportTitle}>{report.title}</Text>
+                    <Text style={styles.reportDate}>{report.date}</Text>
+                  </View>
+                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(report.status) }]}>
+                    <Text style={styles.statusText}>{getStatusText(report.status)}</Text>
+                  </View>
+                </TouchableOpacity>
+              ))
+            ) : (
+              <View style={styles.emptyReports}>
+                <Icon name="info" size={40} color="#ccc" />
+                <Text style={styles.emptyReportsText}>Henüz bir bildiriminiz bulunmuyor.</Text>
+              </View>
+            )}
+            
+            {/* Worker rolü için "Yeni Bildirim Oluştur" butonunu gizle */}
+            {user?.role !== 'worker' && (
+              <TouchableOpacity
+                style={styles.newReportButton}
+                onPress={() => navigation.navigate('CreateIssue')}
               >
-                <View style={styles.reportInfo}>
-                  <Text style={styles.reportTitle}>{report.title}</Text>
-                  <Text style={styles.reportDate}>{report.date}</Text>
-                </View>
-                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(report.status) }]}>
-                  <Text style={styles.statusText}>{getStatusText(report.status)}</Text>
-                </View>
+                <Icon name="add-circle" size={20} color="#3b82f6" />
+                <Text style={styles.newReportButtonText}>Yeni Bildirim Oluştur</Text>
               </TouchableOpacity>
-            ))
-          ) : (
-            <View style={styles.emptyReports}>
-              <Icon name="info" size={40} color="#ccc" />
-              <Text style={styles.emptyReportsText}>Henüz bir bildiriminiz bulunmuyor.</Text>
-            </View>
-          )}
-          
-          <TouchableOpacity
-            style={styles.newReportButton}
-            onPress={() => navigation.navigate('CreateIssue')}
-          >
-            <Icon name="add-circle" size={20} color="#3b82f6" />
-            <Text style={styles.newReportButtonText}>Yeni Bildirim Oluştur</Text>
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity
-          style={styles.menuItem}
-          onPress={async () => {
-            // MyIssues sayfasına gitmeden önce bildirimleri yenile
-            setReportsLoading(true);
-            try {
-              await fetchUserReports();
-            } catch (error) {
-              console.error('Bildirimler yenilenirken hata:', error);
-            } finally {
-              setReportsLoading(false);
-              navigation.navigate('MyIssues');
-            }
-          }}
-        >
-          <Icon name="assignment" size={24} color="#3b82f6" style={styles.menuIcon} />
-          <View style={styles.menuTextContainer}>
-            <Text style={styles.menuText}>Bildirdiğim Sorunlar</Text>
-            <Icon name="chevron-right" size={24} color="#ccc" />
+            )}
           </View>
-        </TouchableOpacity>
+        )}
+
+        {/* Worker rolü için görev istatistikleri */}
+        {user?.role === 'worker' && (
+          <View style={styles.reportsContainer}>
+            <Text style={styles.sectionTitle}>Görev İstatistikleri</Text>
+            
+            {workerStats.loading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color="#3b82f6" />
+                <Text style={styles.loadingText}>İstatistikler yükleniyor...</Text>
+              </View>
+            ) : workerStats.error ? (
+              <View style={styles.emptyReports}>
+                <Icon name="error" size={40} color="#f44336" />
+                <Text style={styles.errorText}>{workerStats.error}</Text>
+              </View>
+            ) : (
+              <View style={styles.statsContainer}>
+                <View style={styles.statCard}>
+                  <Icon name="assignment" size={32} color="#3b82f6" />
+                  <Text style={styles.statValue}>{workerStats.assignedIssues}</Text>
+                  <Text style={styles.statLabel}>Atanan Görev</Text>
+                </View>
+                
+                <View style={styles.statCard}>
+                  <Icon name="check-circle" size={32} color="#4CAF50" />
+                  <Text style={styles.statValue}>{workerStats.resolvedIssues}</Text>
+                  <Text style={styles.statLabel}>Çözülen Görev</Text>
+                </View>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Worker rolü için "Bildirdiğim Sorunlar" menüsünü gizle */}
+        {user?.role !== 'worker' && (
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={async () => {
+              // MyIssues sayfasına gitmeden önce bildirimleri yenile
+              setReportsLoading(true);
+              try {
+                await fetchUserReports();
+              } catch (error) {
+                console.error('Bildirimler yenilenirken hata:', error);
+              } finally {
+                setReportsLoading(false);
+                navigation.navigate('MyIssues');
+              }
+            }}
+          >
+            <Icon name="assignment" size={24} color="#3b82f6" style={styles.menuIcon} />
+            <View style={styles.menuTextContainer}>
+              <Text style={styles.menuText}>Bildirdiğim Sorunlar</Text>
+            </View>
+            <Icon name="chevron-right" size={24} color="#ccc" />
+          </TouchableOpacity>
+        )}
       </View>
     </ScrollView>
   );
@@ -754,6 +843,31 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '500',
+  },
+  errorText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#f44336',
+    textAlign: 'center',
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  statCard: {
+    flex: 1,
+    alignItems: 'center',
+    padding: 10,
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 16,
+    color: '#666',
   },
 });
 

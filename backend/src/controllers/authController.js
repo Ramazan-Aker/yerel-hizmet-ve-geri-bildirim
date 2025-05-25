@@ -94,7 +94,7 @@ exports.login = async (req, res) => {
       console.log('Kullanıcı bulunamadı:', email);
       return res.status(401).json({
         success: false,
-        message: 'Geçersiz e-posta veya şifre'
+        message: 'E-posta adresi veya şifre hatalı'
       });
     }
 
@@ -105,7 +105,7 @@ exports.login = async (req, res) => {
       console.log('Şifre eşleşmiyor:', email);
       return res.status(401).json({
         success: false,
-        message: 'Geçersiz e-posta veya şifre'
+        message: 'E-posta adresi veya şifre hatalı'
       });
     }
 

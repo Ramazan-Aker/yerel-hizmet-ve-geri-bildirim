@@ -85,15 +85,35 @@ export const AuthProvider = ({ children }) => {
         setIsAuthenticated(true);
         setError(null);
         
+        // Hata mesajını localStorage'dan temizle
+        localStorage.removeItem('loginError');
+        
         console.log('Kullanıcı başarıyla giriş yaptı:', userData.name);
         return true;
       } else {
-        setError('Geçersiz kullanıcı verisi');
+        const errorMsg = 'Geçersiz kullanıcı verisi';
+        setError(errorMsg);
+        // Hata mesajını localStorage'a kaydet
+        localStorage.setItem('loginError', errorMsg);
         return false;
       }
     } catch (err) {
-      setError('Giriş başarısız');
-      console.error(err);
+      console.error('Login error in context:', err);
+      
+      // Hata mesajını belirle
+      let errorMsg = 'Giriş başarısız';
+      
+      if (typeof err === 'string') {
+        errorMsg = err;
+      } else if (err.message) {
+        errorMsg = err.message;
+      }
+      
+      setError(errorMsg);
+      
+      // Hata mesajını localStorage'a kaydet
+      localStorage.setItem('loginError', errorMsg);
+      
       return false;
     }
   };

@@ -311,6 +311,11 @@ const WorkerNavigator = () => {
         component={WorkerIssueDetailScreen} 
         key="worker-issue-detail-screen" 
       />
+      <Stack.Screen 
+        name="IssueDetail" 
+        component={IssueDetailScreen} 
+        key="issue-detail-screen" 
+      />
     </Stack.Navigator>
   );
 };
