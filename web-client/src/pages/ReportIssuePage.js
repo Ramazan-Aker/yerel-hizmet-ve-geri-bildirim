@@ -553,6 +553,12 @@ const ReportIssuePage = () => {
             // Form verilerini güncelle
             processAddressData(improvedAddressData, formattedAddress);
             
+            // Konum manuel olarak ayarlandı
+            setIsLocationManuallySet(true);
+            
+            // Harita merkezini mevcut konuma ayarla
+            setMapCenter([preciseLat, preciseLng]);
+            
             toast.success('Konumunuz ve adres bilgileriniz alındı');
           } else {
             console.log('Konum reddedildi, tekrar deneniyor...');
@@ -831,15 +837,18 @@ const ReportIssuePage = () => {
     const updatePositionBasedOnDistrict = async () => {
       // Eğer konum zaten manuel olarak belirlendiyse (konum butonu ya da harita tıklaması ile), 
       // ilçe değişikliğine göre haritayı güncelleme
-      if (isLocationManuallySet) {
+      if (isLocationManuallySet && position) {
         console.log('Konum manuel olarak belirlendiği için ilçe değişikliğine göre harita güncellenmeyecek');
         return;
       }
 
-      if (formData && formData.city && formData.district) {
+      const currentCity = formData.city;
+      const currentDistrict = formData.district;
+
+      if (currentCity && currentDistrict) {
         try {
           // Geocoding API ile ilçe konumunu bulmaya çalışalım
-          const searchQuery = `${formData.district}, ${formData.city}, Türkiye`;
+          const searchQuery = `${currentDistrict}, ${currentCity}, Türkiye`;
           console.log(`İlçe konumu aranıyor: ${searchQuery}`);
           
           // Basit bir yaklaşım: OpenStreetMap Nominatim API kullanımı (gerçek projede daha gelişmiş API kullanılabilir)
@@ -853,12 +862,15 @@ const ReportIssuePage = () => {
             
             // Harita merkezini ve konumu güncelle
             setMapCenter(newPosition);
-            setPosition(newPosition);
+            // Kullanıcı henüz konum seçmediyse, pozisyonu da güncelle
+            if (!position) {
+              setPosition(newPosition);
+            }
           } else {
             console.log(`İlçe için konum bulunamadı: ${searchQuery}`);
             // Konum bulunamadığında şehir merkezini kullan
-            if (formData.city && cityCoordinates[formData.city]) {
-              const coords = cityCoordinates[formData.city];
+            if (currentCity && cityCoordinates[currentCity]) {
+              const coords = cityCoordinates[currentCity];
               // Sadece harita merkezini güncelle, konumu işaretleme
               setMapCenter([coords[1], coords[0]]);
             }
@@ -870,16 +882,31 @@ const ReportIssuePage = () => {
     };
     
     updatePositionBasedOnDistrict();
-  }, [formData.district, formData.city, isLocationManuallySet]);
+  }, [formData.district, formData.city, isLocationManuallySet, position, cityCoordinates]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
     
-    // Şehir değişirse ilçeyi sıfırla ve konum manuel belirleme bayrağını sıfırla
+    // Şehir değişirse ilçeyi sıfırla
     if (name === 'city') {
       setFormData(prev => ({ ...prev, district: '' }));
-      setIsLocationManuallySet(false); // Şehir değiştiğinde konum manuel seçimini sıfırla
+      
+      // Eğer konumu kullanıcı manuel olarak belirlemediyse (konumumu kullan butonu kullanılmadıysa)
+      // veya eski bir konum yoksa, yeni şehir merkezi kullanılacak
+      if (!position || !isLocationManuallySet) {
+        console.log('Şehir değişti, konum manuel seçilmediği için konum sıfırlanıyor');
+        setIsLocationManuallySet(false);
+        
+        // Şehir koordinatlarını harita merkezi olarak ayarla
+        if (cityCoordinates[value]) {
+          const coords = cityCoordinates[value];
+          setMapCenter([coords[1], coords[0]]);
+        }
+      } else {
+        console.log('Şehir değişti, ancak konum manuel seçildiği için korunuyor');
+        // Konum kullanıcı tarafından belirlenmişse, pozisyonu koruyoruz
+      }
     }
   };
 

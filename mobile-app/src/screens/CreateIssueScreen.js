@@ -782,6 +782,17 @@ const CreateIssueScreen = ({ navigation }) => {
       );
     }
     
+    // Harita bölgesini kullanıcının seçtiği konuma göre yeniden ayarla
+    if (coordinates) {
+      setMapRegion({
+        latitude: coordinates.latitude,
+        longitude: coordinates.longitude,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01
+      });
+      console.log('KONUM-ONAY: Harita bölgesi kullanıcının konumuna ayarlandı:', coordinates);
+    }
+    
     // Başarılı bildirimi göster (sadece bir kez)
     NotificationManager.success('Başarılı', 'Konum bilgileriniz kaydedildi');
   };
@@ -1309,6 +1320,30 @@ const CreateIssueScreen = ({ navigation }) => {
   const MapPreview = () => {
     if (!coordinates) return null;
     
+    // Harita bölgesi için özel kontrol
+    const ensureMapRegionIsCorrect = () => {
+      // Eğer map region ile koordinatlar arasında büyük fark varsa güncelle
+      if (mapRegion) {
+        const distLat = Math.abs(mapRegion.latitude - coordinates.latitude);
+        const distLong = Math.abs(mapRegion.longitude - coordinates.longitude);
+        
+        if (distLat > 0.001 || distLong > 0.001) {
+          console.log('HARITA-FIX: Harita bölgesi ile koordinatlar arasında fark var, harita güncelleniyor');
+          setMapRegion({
+            latitude: coordinates.latitude,
+            longitude: coordinates.longitude,
+            latitudeDelta: 0.01,
+            longitudeDelta: 0.01
+          });
+        }
+      }
+    };
+    
+    // Bileşen oluşturulduğunda map region'ı kontrol et
+    useEffect(() => {
+      ensureMapRegionIsCorrect();
+    }, [coordinates]);
+    
     return (
       <View style={styles.mapPreviewContainer}>
         <Text style={styles.mapTitle}>Konum Önizlemesi</Text>
@@ -1316,16 +1351,27 @@ const CreateIssueScreen = ({ navigation }) => {
           provider={PROVIDER_GOOGLE}
           style={styles.mapPreview}
           region={mapRegion}
+          initialRegion={{
+            latitude: coordinates.latitude,
+            longitude: coordinates.longitude,
+            latitudeDelta: 0.01,
+            longitudeDelta: 0.01
+          }}
           pitchEnabled={false}
           rotateEnabled={false}
           zoomEnabled={true}
           scrollEnabled={true}
+          onMapReady={() => {
+            // Harita hazır olduğunda bölge kontrolü yap
+            ensureMapRegionIsCorrect();
+          }}
         >
           <Marker
             coordinate={{
               latitude: coordinates.latitude,
               longitude: coordinates.longitude
             }}
+            title="Seçili Konum"
           />
           {locationAccuracy && (
             <Circle
@@ -1758,6 +1804,12 @@ const CreateIssueScreen = ({ navigation }) => {
                   provider={PROVIDER_GOOGLE}
                   style={styles.confirmMap}
                   region={mapRegion}
+                  initialRegion={{
+                    latitude: coordinates ? coordinates.latitude : 0,
+                    longitude: coordinates ? coordinates.longitude : 0,
+                    latitudeDelta: 0.01,
+                    longitudeDelta: 0.01
+                  }}
                   pitchEnabled={false}
                   rotateEnabled={false}
                   zoomEnabled={false}
@@ -1768,6 +1820,7 @@ const CreateIssueScreen = ({ navigation }) => {
                       latitude: coordinates ? coordinates.latitude : 0,
                       longitude: coordinates ? coordinates.longitude : 0
                     }}
+                    title="Konumunuz"
                   />
                   {locationAccuracy && (
                     <Circle
