@@ -1175,7 +1175,7 @@ const CreateIssueScreen = ({ navigation }) => {
       setTempSeverity(severity || 'Orta');
       setCurrentPicker(picker);
       setPickerVisible(true);
-    }
+    } 
     else if (picker === 'city') {
       setTempCity(city || '');
       setCurrentPicker(picker);
@@ -1201,7 +1201,7 @@ const CreateIssueScreen = ({ navigation }) => {
       else if (currentPicker === 'severity') {
         console.log('DEBUGv3 - closePicker - Setting severity from', severity, 'to', tempSeverity);
         setSeverity(tempSeverity);
-      }
+      } 
       else if (currentPicker === 'city') {
         // Şehir değişirse (mevcut şehirden farklıysa)
         if (tempCity !== city) {
@@ -1253,7 +1253,7 @@ const CreateIssueScreen = ({ navigation }) => {
       else if (currentPicker === 'severity') {
         console.log('DEBUGv3 - closePicker - Cancelled, resetting tempSeverity to', severity);
         setTempSeverity(severity || 'Orta');
-      }
+      } 
       else if (currentPicker === 'city') {
         console.log('DEBUGv3 - closePicker - Cancelled, resetting tempCity to', city);
         setTempCity(city || '');

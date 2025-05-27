@@ -864,7 +864,7 @@ const ReportIssuePage = () => {
             setMapCenter(newPosition);
             // Kullanıcı henüz konum seçmediyse, pozisyonu da güncelle
             if (!position) {
-              setPosition(newPosition);
+            setPosition(newPosition);
             }
           } else {
             console.log(`İlçe için konum bulunamadı: ${searchQuery}`);

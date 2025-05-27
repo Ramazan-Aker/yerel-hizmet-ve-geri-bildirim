@@ -34,7 +34,7 @@ const ProfileScreen = ({ navigation }) => {
   // Kullanıcının bildirimleri için state değişkenleri
   const [userReports, setUserReports] = useState([]);
   const [reportsLoading, setReportsLoading] = useState(true);
-  
+
   // Worker rolü için görev istatistikleri
   const [workerStats, setWorkerStats] = useState({
     assignedIssues: 0,
@@ -63,6 +63,11 @@ const ProfileScreen = ({ navigation }) => {
     try {
       setReportsLoading(true);
       console.log('Kullanıcı bildirimleri getiriliyor...');
+      
+      // Token kontrolü
+      const token = await AsyncStorage.getItem('token');
+      console.log('Token mevcut:', !!token);
+      
       const response = await api.issues.getMyIssues();
       
       if (response.success) {
@@ -82,10 +87,26 @@ const ProfileScreen = ({ navigation }) => {
         setUserReports(formattedReports);
       } else {
         console.error('Bildirimler getirilemedi:', response.message);
+        
+        // 500 hatası için özel mesaj
+        if (response.message && response.message.includes('500')) {
+          console.error('Sunucu hatası tespit edildi. API endpoint kontrolü gerekebilir.');
+        }
+        
         setUserReports([]);
       }
     } catch (error) {
       console.error('Bildirimler getirilirken hata oluştu:', error);
+      
+      // Hata detaylarını logla
+      if (error.response) {
+        console.error('API Yanıt Hatası:', error.response.status, error.response.data);
+      } else if (error.request) {
+        console.error('API İstek Hatası:', error.request);
+      } else {
+        console.error('Genel Hata:', error.message);
+      }
+      
       setUserReports([]);
     } finally {
       setReportsLoading(false);
@@ -488,46 +509,59 @@ const ProfileScreen = ({ navigation }) => {
 
         {/* Kullanıcının Bildirimleri - Worker rolü için gizle */}
         {user?.role !== 'worker' && (
-          <View style={styles.reportsContainer}>
+        <View style={styles.reportsContainer}>
+          <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Bildirimlerim</Text>
-            
-            {reportsLoading ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="small" color="#3b82f6" />
-                <Text style={styles.loadingText}>Bildirimler yükleniyor...</Text>
-              </View>
-            ) : userReports.length > 0 ? (
-              userReports.map((report) => (
-                <TouchableOpacity 
-                  key={report.id}
-                  style={styles.reportCard}
-                  onPress={() => navigateToReportDetail(report)}
-                >
-                  <View style={styles.reportInfo}>
-                    <Text style={styles.reportTitle}>{report.title}</Text>
-                    <Text style={styles.reportDate}>{report.date}</Text>
-                  </View>
-                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(report.status) }]}>
-                    <Text style={styles.statusText}>{getStatusText(report.status)}</Text>
-                  </View>
-                </TouchableOpacity>
-              ))
-            ) : (
-              <View style={styles.emptyReports}>
-                <Icon name="info" size={40} color="#ccc" />
-                <Text style={styles.emptyReportsText}>Henüz bir bildiriminiz bulunmuyor.</Text>
-              </View>
-            )}
-            
+            <TouchableOpacity 
+              onPress={fetchUserReports}
+              style={styles.refreshButton}
+            >
+              <Icon name="refresh" size={20} color="#3b82f6" />
+            </TouchableOpacity>
+          </View>
+          
+          {reportsLoading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color="#3b82f6" />
+              <Text style={styles.loadingText}>Bildirimler yükleniyor...</Text>
+            </View>
+          ) : userReports.length > 0 ? (
+            userReports.map((report) => (
+              <TouchableOpacity 
+                key={report.id}
+                style={styles.reportCard}
+                onPress={() => navigateToReportDetail(report)}
+              >
+                <View style={styles.reportInfo}>
+                  <Text style={styles.reportTitle}>{report.title}</Text>
+                  <Text style={styles.reportDate}>{report.date}</Text>
+                </View>
+                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(report.status) }]}>
+                  <Text style={styles.statusText}>{getStatusText(report.status)}</Text>
+                </View>
+              </TouchableOpacity>
+            ))
+          ) : (
+            <View style={styles.emptyReports}>
+              <Icon name="info" size={40} color="#ccc" />
+              <Text style={styles.emptyReportsText}>
+                Henüz bir bildiriminiz bulunmuyor.
+              </Text>
+              <Text style={styles.emptyReportsSubText}>
+                Sunucu bağlantısı sorunu yaşıyorsanız, yenile butonunu deneyin.
+              </Text>
+            </View>
+          )}
+          
             {/* Worker rolü için "Yeni Bildirim Oluştur" butonunu gizle */}
             {user?.role !== 'worker' && (
-              <TouchableOpacity
-                style={styles.newReportButton}
-                onPress={() => navigation.navigate('CreateIssue')}
-              >
-                <Icon name="add-circle" size={20} color="#3b82f6" />
-                <Text style={styles.newReportButtonText}>Yeni Bildirim Oluştur</Text>
-              </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.newReportButton}
+            onPress={() => navigation.navigate('CreateIssue')}
+          >
+            <Icon name="add-circle" size={20} color="#3b82f6" />
+            <Text style={styles.newReportButtonText}>Yeni Bildirim Oluştur</Text>
+          </TouchableOpacity>
             )}
           </View>
         )}
@@ -553,8 +587,8 @@ const ProfileScreen = ({ navigation }) => {
                   <Icon name="assignment" size={32} color="#3b82f6" />
                   <Text style={styles.statValue}>{workerStats.assignedIssues}</Text>
                   <Text style={styles.statLabel}>Atanan Görev</Text>
-                </View>
-                
+        </View>
+
                 <View style={styles.statCard}>
                   <Icon name="check-circle" size={32} color="#4CAF50" />
                   <Text style={styles.statValue}>{workerStats.resolvedIssues}</Text>
@@ -567,27 +601,27 @@ const ProfileScreen = ({ navigation }) => {
 
         {/* Worker rolü için "Bildirdiğim Sorunlar" menüsünü gizle */}
         {user?.role !== 'worker' && (
-          <TouchableOpacity
-            style={styles.menuItem}
-            onPress={async () => {
-              // MyIssues sayfasına gitmeden önce bildirimleri yenile
-              setReportsLoading(true);
-              try {
-                await fetchUserReports();
-              } catch (error) {
-                console.error('Bildirimler yenilenirken hata:', error);
-              } finally {
-                setReportsLoading(false);
-                navigation.navigate('MyIssues');
-              }
-            }}
-          >
-            <Icon name="assignment" size={24} color="#3b82f6" style={styles.menuIcon} />
-            <View style={styles.menuTextContainer}>
-              <Text style={styles.menuText}>Bildirdiğim Sorunlar</Text>
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={async () => {
+            // MyIssues sayfasına gitmeden önce bildirimleri yenile
+            setReportsLoading(true);
+            try {
+              await fetchUserReports();
+            } catch (error) {
+              console.error('Bildirimler yenilenirken hata:', error);
+            } finally {
+              setReportsLoading(false);
+              navigation.navigate('MyIssues');
+            }
+          }}
+        >
+          <Icon name="assignment" size={24} color="#3b82f6" style={styles.menuIcon} />
+          <View style={styles.menuTextContainer}>
+            <Text style={styles.menuText}>Bildirdiğim Sorunlar</Text>
             </View>
             <Icon name="chevron-right" size={24} color="#ccc" />
-          </TouchableOpacity>
+        </TouchableOpacity>
         )}
       </View>
     </ScrollView>
@@ -782,6 +816,23 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
     textAlign: 'center',
+  },
+  emptyReportsSubText: {
+    marginTop: 5,
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  refreshButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: '#f0f7ff',
   },
   newReportButton: {
     flexDirection: 'row',

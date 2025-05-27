@@ -14,7 +14,9 @@ import {
   SafeAreaView,
   StatusBar,
   Alert,
-  Platform
+  Platform,
+  ActionSheetIOS,
+  Modal
 } from 'react-native';
 import RNPickerSelect from 'react-native-picker-select';
 import { useAuth } from '../hooks/useAuth';
@@ -56,11 +58,17 @@ const IssuesScreen = ({ navigation }) => {
   // Sıralama seçeneği
   const [sortBy, setSortBy] = useState('newest');
   
-  // Tüm şehirleri göster
+  // Tüm şehirleri göster - varsayılan olarak kapalı (kullanıcı önce kendi şehrini görsün)
   const [showAllCities, setShowAllCities] = useState(false);
 
   // Filtrelenmiş sorunlar
   const [filteredIssues, setFilteredIssues] = useState([]);
+
+  // Dropdown modal states
+  const [dropdownVisible, setDropdownVisible] = useState(false);
+  const [dropdownTitle, setDropdownTitle] = useState('');
+  const [dropdownOptions, setDropdownOptions] = useState([]);
+  const [dropdownCallback, setDropdownCallback] = useState(null);
 
   // Kategoriler
   const categories = [
@@ -156,13 +164,43 @@ const IssuesScreen = ({ navigation }) => {
   const getOptimizedImageUrl = (imageUrl, width = 300) => {
     if (!imageUrl) return null;
     
-    // Eğer zaten optimize edilmiş bir URL ise doğrudan döndür
-    if (imageUrl.includes('?width=')) {
-      return imageUrl;
+    // URL formatını kontrol et
+    if (typeof imageUrl !== 'string') {
+      console.warn('Geçersiz görüntü URL formatı:', imageUrl);
+      return null;
     }
     
-    // URL'ye boyut parametresi ekle
-    return `${imageUrl}?width=${width}&quality=70`;
+    try {
+      // Tam URL kontrolü
+      if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+        // Eğer zaten optimize edilmiş bir URL ise doğrudan döndür
+        if (imageUrl.includes('?width=')) {
+          return imageUrl;
+        }
+        
+        // URL'ye boyut parametresi ekle
+        return `${imageUrl}?width=${width}&quality=70`;
+      } 
+      
+      // Göreceli URL ise, API base URL'sini ekle
+      else if (imageUrl.startsWith('/')) {
+        const baseUrl = api.getBaseUrl ? api.getBaseUrl() : 'https://api.sorunbildir.com'; // API base URL'si
+        const fullUrl = `${baseUrl}${imageUrl}`;
+        return `${fullUrl}?width=${width}&quality=70`;
+      }
+      
+      // Görüntü verisi ise (base64 veya benzeri)
+      else if (imageUrl.startsWith('data:image')) {
+        return imageUrl;
+      }
+      
+      // Desteklenmeyen format
+      console.warn('Desteklenmeyen görüntü URL formatı:', imageUrl);
+      return imageUrl;
+    } catch (error) {
+      console.error("Görüntü URL'si işlenirken hata:", error);
+      return null;
+    }
   };
 
   // Görüntü önbelleği için basit bir mekanizma
@@ -201,10 +239,28 @@ const IssuesScreen = ({ navigation }) => {
 
   // Render edilecek öğe bileşeni - performans için memo ile sarmalayalım
   const IssueItem = React.memo(({ item, onPress }) => {
+    // Görüntüleri düzgün şekilde al
+    let imageSource = null;
+    
+    if (item.images && Array.isArray(item.images) && item.images.length > 0) {
+      // Standart dizi formatı
+      imageSource = item.images[0];
+    } else if (item.images && typeof item.images === 'string') {
+      // Tek string olarak gelme durumu
+      imageSource = item.images;
+    } else if (item.image) {
+      // Alternatif alan adı
+      imageSource = item.image;
+    } else if (item.photos && Array.isArray(item.photos) && item.photos.length > 0) {
+      // Alternatif alan adı
+      imageSource = item.photos[0];
+    } else if (item.photo) {
+      // Alternatif alan adı
+      imageSource = item.photo;
+    }
+    
     // Optimize edilmiş görüntü URL'si al
-    const thumbnailUrl = item.images && item.images.length > 0 
-      ? getOptimizedImageUrl(item.images[0], 150) 
-      : null;
+    const thumbnailUrl = imageSource ? getOptimizedImageUrl(imageSource, 150) : null;
     
     // Görüntüyü arka planda önyükle
     React.useEffect(() => {
@@ -224,6 +280,7 @@ const IssuesScreen = ({ navigation }) => {
             source={{ uri: thumbnailUrl }} 
             style={styles.issueImage}
             resizeMode="cover"
+            onError={(error) => console.error(`Görüntü yükleme hatası: ${error.nativeEvent.error}`, thumbnailUrl)}
           />
         ) : (
           <View style={[styles.issueImage, styles.noImage]}>
@@ -298,7 +355,7 @@ const IssuesScreen = ({ navigation }) => {
   ));
 
   // Sorunları getir
-  const fetchIssues = useCallback(async (shouldRefresh = false) => {
+  const fetchIssues = useCallback(async (shouldRefresh = false, forceShowAllCities = null) => {
     try {
       if (shouldRefresh) {
         setRefreshing(true);
@@ -307,16 +364,29 @@ const IssuesScreen = ({ navigation }) => {
       }
 
       console.log('Sorunlar getiriliyor...');
-      console.log('Tüm şehirleri göster:', showAllCities);
       
       // API'den sorunları al
-      const response = await api.issues.getAll({ showAllCities });
+      const params = {};
+      
+      // forceShowAllCities parametresi varsa onu kullan, yoksa state'i kullan
+      const shouldShowAllCities = forceShowAllCities !== null ? forceShowAllCities : showAllCities;
+      
+      // Varsayılan olarak kullanıcının şehrine ait sorunları getir
+      // showAllCities false ise ve kullanıcının şehri varsa
+      if (!shouldShowAllCities && user?.city) {
+        params.city = user.city;
+        console.log(`Sadece ${user.city} şehrine ait sorunlar getiriliyor...`);
+      } else {
+        console.log('Tüm şehirlere ait sorunlar getiriliyor...');
+      }
+      
+      const response = await api.issues.getAll(params);
       
       if (response.success) {
         console.log(`${response.data.data?.length || 0} sorun bulundu`);
         
-        // API'nin döndüğü veri yapısını kontrol et
-        if (response.data.data) {
+        // API yanıt yapısı kontrol et
+        if (response.data && response.data.data) {
           setIssues(response.data.data);
         } else {
           setIssues(response.data);
@@ -325,7 +395,7 @@ const IssuesScreen = ({ navigation }) => {
         if (response.isDemoMode) {
           setIsDemoMode(true);
         } else {
-        setIsDemoMode(false);
+          setIsDemoMode(false);
         }
       } else {
         console.error('API hata döndürdü:', response.message);
@@ -339,7 +409,7 @@ const IssuesScreen = ({ navigation }) => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [showAllCities]);
+  }, [user?.city]);
 
   // Ekran odaklandığında çalışır
   useFocusEffect(
@@ -358,6 +428,21 @@ const IssuesScreen = ({ navigation }) => {
   useEffect(() => {
     fetchIssues();
   }, [fetchIssues]);
+
+  // Kullanıcı bilgisi değiştiğinde şehir filtresi varsayılanını ayarla
+  useEffect(() => {
+    if (user?.city) {
+      // Kullanıcının şehri tespit edildiğinde, varsayılan olarak sadece kendi şehrini göster
+      console.log(`Kullanıcının şehri tespit edildi (${user.city}), kendi şehri varsayılan olarak seçildi`);
+      // showAllCities zaten false olarak başlatıldı, bu yüzden bir değişiklik yapmaya gerek yok
+    }
+  }, [user?.city]);
+
+  // Şehir filtresi değiştiğinde sorunları yeniden getir
+  useEffect(() => {
+    console.log('Şehir filtresi değişti, sorunlar yeniden yükleniyor...');
+    fetchIssues(false, showAllCities);
+  }, [showAllCities, fetchIssues]);
 
   // Sayfa yüklendiğinde konum izni iste
   useEffect(() => {
@@ -449,6 +534,20 @@ const IssuesScreen = ({ navigation }) => {
 
   // Durum metni
   const getStatusText = (status) => {
+    return statusTranslation[status] || status;
+  };
+
+  // Kategori metni - Eksik fonksiyonu ekliyoruz
+  const getCategoryLabel = (category) => {
+    if (!category) return 'Belirtilmemiş';
+    
+    // Standart kategori adlarını gönderen fonksiyon
+    return category || 'Belirtilmemiş';
+  };
+
+  // Durum etiketi - Türkçe metni döndürür
+  const getStatusLabel = (status) => {
+    if (!status) return 'Belirtilmemiş';
     return statusTranslation[status] || status;
   };
 
@@ -563,6 +662,34 @@ const IssuesScreen = ({ navigation }) => {
     }
   };
 
+  // Custom dropdown gösterme fonksiyonu
+  const showDropdown = (title, options, onSelect) => {
+    if (Platform.OS === 'ios') {
+      // iOS için ActionSheet kullan
+      const optionTexts = options.map(opt => opt.label);
+      optionTexts.push('İptal');
+      
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: optionTexts,
+          cancelButtonIndex: optionTexts.length - 1,
+          title: title,
+        },
+        (buttonIndex) => {
+          if (buttonIndex < options.length) {
+            onSelect(options[buttonIndex].value);
+          }
+        }
+      );
+    } else {
+      // Android için custom modal
+      setDropdownTitle(title);
+      setDropdownOptions(options);
+      setDropdownCallback(() => onSelect);
+      setDropdownVisible(true);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Connection Status Bar */}
@@ -588,6 +715,20 @@ const IssuesScreen = ({ navigation }) => {
           onChangeText={(text) => setFilters(prev => ({ ...prev, search: text }))}
         />
         
+        {/* Şehir Bilgisi */}
+        <View style={styles.cityInfoContainer}>
+          <Icon name="location-city" size={18} color="#3b82f6" />
+          <Text style={styles.cityInfoText}>
+            {showAllCities ? 
+              'Tüm şehirlerdeki sorunlar gösteriliyor' : 
+              (user?.city ? 
+                `${user.city} şehrindeki sorunlar gösteriliyor` : 
+                'Şehir bilgisi bulunamadı'
+              )
+            }
+          </Text>
+        </View>
+        
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -595,7 +736,7 @@ const IssuesScreen = ({ navigation }) => {
         >
           {/* Tüm Şehirler Göster/Gizle Toggle */}
           <View style={styles.filterItem}>
-            <Text style={styles.filterLabel}>Tüm Şehirler:</Text>
+            <Text style={styles.filterLabel}>Şehir Filtresi:</Text>
             <View style={styles.toggleContainer}>
               <TouchableOpacity
                 style={[
@@ -603,7 +744,9 @@ const IssuesScreen = ({ navigation }) => {
                   showAllCities ? styles.toggleActive : styles.toggleInactive
                 ]}
                 onPress={() => {
+                  console.log('Şehir filtresi toggle:', !showAllCities ? 'Tüm şehirler' : (user?.city ? user.city : 'Kendi şehir'));
                   setShowAllCities(!showAllCities);
+                  // fetchIssues useEffect ile otomatik çalışacak
                 }}
               >
                 <View style={[
@@ -611,92 +754,51 @@ const IssuesScreen = ({ navigation }) => {
                   showAllCities ? styles.toggleIndicatorRight : styles.toggleIndicatorLeft
                 ]} />
               </TouchableOpacity>
-              <Text style={styles.toggleText}>
-                {showAllCities ? 'Açık' : 'Kapalı'}
+              <Text style={[
+                styles.toggleText, 
+                showAllCities ? styles.toggleTextActive : styles.toggleTextInactive
+              ]}>
+                {showAllCities ? 'Tüm Şehirler' : (user?.city ? user.city : 'Kendi Şehir')}
               </Text>
             </View>
           </View>
           
           <View style={styles.filterItem}>
             <Text style={styles.filterLabel}>Kategori:</Text>
-            {Platform.OS === 'ios' ? (
-            <View style={styles.pickerWrapper}>
-              <RNPickerSelect
-                placeholder={{}}
-                items={categoryItems}
-                onValueChange={(value) => setFilters(prev => ({ ...prev, category: value }))}
-                value={filters.category}
-                  style={{
-                    inputIOS: styles.pickerIOS,
-                    iconContainer: styles.iconContainer,
-                  }}
-                useNativeAndroidPickerStyle={false}
-                Icon={() => <Icon name="arrow-drop-down" size={24} color="#3b82f6" />}
-              />
-            </View>
-            ) : (
-              <TouchableOpacity 
-                style={styles.customPickerWrapper}
-                onPress={() => {
-                  // Android için özel açılır menü
-                  Alert.alert(
-                    'Kategori Seçin',
-                    '',
-                    categoryItems.map(item => ({
-                      text: item.label,
-                      onPress: () => setFilters(prev => ({ ...prev, category: item.value }))
-                    })),
-                    { cancelable: true }
-                  );
-                }}
-              >
-                <Text style={styles.customPickerText}>{
-                  categoryItems.find(item => item.value === filters.category)?.label || 'Tümü'
-                }</Text>
-                <Icon name="arrow-drop-down" size={24} color="#3b82f6" />
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity 
+              style={styles.customPickerWrapper}
+              onPress={() => {
+                showDropdown(
+                  'Kategori Seçin',
+                  categoryItems,
+                  (value) => setFilters(prev => ({ ...prev, category: value }))
+                );
+              }}
+            >
+              <Text style={styles.customPickerText}>{
+                categoryItems.find(item => item.value === filters.category)?.label || 'Tümü'
+              }</Text>
+              <Icon name="arrow-drop-down" size={24} color="#3b82f6" />
+            </TouchableOpacity>
           </View>
           
           <View style={styles.filterItem}>
             <Text style={styles.filterLabel}>Durum:</Text>
-            {Platform.OS === 'ios' ? (
-            <View style={styles.pickerWrapper}>
-              <RNPickerSelect
-                placeholder={{}}
-                items={statusItems}
-                onValueChange={(value) => setFilters(prev => ({ ...prev, status: value }))}
-                value={filters.status}
-                  style={{
-                    inputIOS: styles.pickerIOS,
-                    iconContainer: styles.iconContainer,
-                  }}
-                useNativeAndroidPickerStyle={false}
-                Icon={() => <Icon name="arrow-drop-down" size={24} color="#3b82f6" />}
-              />
-            </View>
-            ) : (
-              <TouchableOpacity 
-                style={styles.customPickerWrapper}
-                onPress={() => {
-                  // Android için özel açılır menü
-                  Alert.alert(
-                    'Durum Seçin',
-                    '',
-                    statusItems.map(item => ({
-                      text: item.label,
-                      onPress: () => setFilters(prev => ({ ...prev, status: item.value }))
-                    })),
-                    { cancelable: true }
-                  );
-                }}
-              >
-                <Text style={styles.customPickerText}>{
-                  statusItems.find(item => item.value === filters.status)?.label || 'Tümü'
-                }</Text>
-                <Icon name="arrow-drop-down" size={24} color="#3b82f6" />
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity 
+              style={styles.customPickerWrapper}
+              onPress={() => {
+                showDropdown(
+                  'Durum Seçin',
+                  statusItems,
+                  (value) => setFilters(prev => ({ ...prev, status: value }))
+                );
+              }}
+            >
+              <Text style={styles.customPickerText}>{
+                statusItems.find(item => item.value === filters.status)?.label || 'Tümü'
+              }</Text>
+              <Icon name="arrow-drop-down" size={24} color="#3b82f6" />
+            </TouchableOpacity>
           </View>
           
           <View style={styles.filterItem}>
@@ -711,34 +813,13 @@ const IssuesScreen = ({ navigation }) => {
           
           <View style={styles.filterItem}>
             <Text style={styles.filterLabel}>Sırala:</Text>
-            {Platform.OS === 'ios' ? (
-            <View style={styles.pickerWrapper}>
-              <RNPickerSelect
-                placeholder={{}}
-                items={sortByItems}
-                onValueChange={(value) => setSortBy(value)}
-                value={sortBy}
-                  style={{
-                    inputIOS: styles.pickerIOS,
-                    iconContainer: styles.iconContainer,
-                  }}
-                useNativeAndroidPickerStyle={false}
-                Icon={() => <Icon name="arrow-drop-down" size={24} color="#3b82f6" />}
-              />
-            </View>
-            ) : (
               <TouchableOpacity 
                 style={styles.customPickerWrapper}
                 onPress={() => {
-                  // Android için özel açılır menü
-                  Alert.alert(
+                  showDropdown(
                     'Sıralama Seçin',
-                    '',
-                    sortByItems.map(item => ({
-                      text: item.label,
-                      onPress: () => setSortBy(item.value)
-                    })),
-                    { cancelable: true }
+                    sortByItems,
+                    (value) => setSortBy(value)
                   );
                 }}
               >
@@ -747,7 +828,6 @@ const IssuesScreen = ({ navigation }) => {
                 }</Text>
                 <Icon name="arrow-drop-down" size={24} color="#3b82f6" />
               </TouchableOpacity>
-            )}
           </View>
         </ScrollView>
         
@@ -818,7 +898,7 @@ const IssuesScreen = ({ navigation }) => {
                 <View style={styles.loadMoreContainer}>
                   <ActivityIndicator size="small" color="#2196F3" />
                   <Text style={styles.loadMoreText}>Daha fazla yükleniyor...</Text>
-                </View>
+              </View>
               ) : null
             }
           />
@@ -909,6 +989,48 @@ const IssuesScreen = ({ navigation }) => {
       >
         <Icon name="add" size={24} color="#fff" />
       </TouchableOpacity>
+
+      {/* Custom Dropdown Modal for Android */}
+      <Modal
+        visible={dropdownVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setDropdownVisible(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setDropdownVisible(false)}
+        >
+          <View style={styles.dropdownContainer}>
+            <View style={styles.dropdownHeader}>
+              <Text style={styles.dropdownTitle}>{dropdownTitle}</Text>
+              <TouchableOpacity 
+                onPress={() => setDropdownVisible(false)}
+                style={styles.closeButton}
+              >
+                <Icon name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.dropdownList}>
+              {dropdownOptions.map((option, index) => (
+                <TouchableOpacity
+                  key={index}
+                  style={styles.dropdownOption}
+                  onPress={() => {
+                    if (dropdownCallback) {
+                      dropdownCallback(option.value);
+                    }
+                    setDropdownVisible(false);
+                  }}
+                >
+                  <Text style={styles.dropdownOptionText}>{option.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -949,43 +1071,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 4,
     color: '#333',
-  },
-  pickerWrapper: {
-    borderRadius: 8,
-    marginTop: 5,
-    marginBottom: 10,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 6,
-    height: 45,
-    justifyContent: 'center',
-  },
-  pickerIOS: {
-    fontSize: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    color: '#000000',
-    paddingRight: 30,
-    height: 45,
-    fontWeight: '500',
-  },
-  pickerAndroid: {
-    fontSize: 14,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    color: '#000000',
-    paddingRight: 30,
-    height: 45,
-    fontWeight: '500',
-  },
-  iconContainer: {
-    top: 12,
-    right: 10,
-  },
-  viewContainer: {
-    backgroundColor: 'transparent',
-    borderRadius: 6,
   },
   districtInput: {
     backgroundColor: '#fff',
@@ -1200,10 +1285,17 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   toggleText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#333',
+    color: '#666',
+    fontSize: 12,
     marginLeft: 8,
+  },
+  toggleTextActive: {
+    color: '#3b82f6',
+    fontWeight: 'bold',
+  },
+  toggleTextInactive: {
+    color: '#666',
+    fontWeight: 'normal',
   },
   customPickerButton: {
     flexDirection: 'row',
@@ -1222,11 +1314,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: '#3b82f6',
     borderRadius: 6,
     padding: 12,
     height: 45,
     width: 160,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1,
   },
   customPickerText: {
     fontSize: 14,
@@ -1329,6 +1426,62 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#2196F3',
     marginTop: 4,
+  },
+  cityInfoContainer: {
+    padding: 12,
+    backgroundColor: '#edf5ff',
+    borderRadius: 8,
+    marginBottom: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#3b82f6',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  cityInfoText: {
+    fontSize: 14,
+    color: '#3b82f6',
+    fontWeight: '500',
+    flex: 1,
+    marginLeft: 4,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dropdownContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    width: '80%',
+    maxHeight: '80%',
+  },
+  dropdownHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  dropdownTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  closeButton: {
+    padding: 8,
+  },
+  dropdownList: {
+    flex: 1,
+  },
+  dropdownOption: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  dropdownOptionText: {
+    fontSize: 14,
+    color: '#333',
   },
 });
 

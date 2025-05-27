@@ -54,6 +54,10 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
   const fetchIssue = async () => {
     try {
       setLoading(true);
+      
+      // Önbelleği temizle - fresh data almak için
+      api.clearCache();
+      
       const response = await api.issues.getIssueById(issueId);
       
       if (response.success && response.data) {
@@ -191,30 +195,29 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
     setWorkerModalVisible(true);
   };
 
-  // Sorunu güncelle
-  const updateIssue = async () => {
+  // Durum güncelleme
+  const updateStatus = async () => {
     try {
       setUpdating(true);
       console.log('Güncellenecek durum:', newStatus);
-      console.log('Atanacak çalışan ID:', selectedWorker || 'Atanmayacak');
 
-      const updateData = {
-        status: newStatus,
-        officialResponse: officialResponse,
-        assignedTo: selectedWorker || null
-      };
-
-      const response = await api.admin.updateIssue(issueId, updateData);
+      // Municipal worker veya admin için uygun endpoint kullan
+      let response;
+      if (isMunicipalWorker) {
+        response = await api.admin.updateIssueStatus(issueId, newStatus);
+      } else {
+        response = await api.admin.updateIssueStatus(issueId, newStatus);
+      }
 
       if (response.success) {
-        Alert.alert('Başarılı', 'Sorun başarıyla güncellendi.');
-        fetchIssue(); // Güncel veriyi yeniden getir
+        Alert.alert('Başarılı', 'Sorun durumu başarıyla güncellendi.');
+        await fetchIssue(); // Güncel veriyi yeniden getir
       } else {
-        Alert.alert('Hata', response.message || 'Sorun güncellenirken bir hata oluştu.');
+        Alert.alert('Hata', response.message || 'Sorun durumu güncellenirken bir hata oluştu.');
       }
     } catch (error) {
-      console.error('Sorun güncelleme hatası:', error);
-      Alert.alert('Hata', 'Sorun güncellenirken bir hata oluştu.');
+      console.error('Sorun durumu güncelleme hatası:', error);
+      Alert.alert('Hata', 'Sorun durumu güncellenirken bir hata oluştu.');
     } finally {
       setUpdating(false);
     }
@@ -261,11 +264,18 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
 
     try {
       setUpdating(true);
-      const response = await api.admin.addOfficialResponse(issueId, officialResponse);
+      
+      // Municipal worker veya admin için uygun endpoint kullan
+      let response;
+      if (isMunicipalWorker) {
+        response = await api.admin.addOfficialResponse(issueId, officialResponse);
+      } else {
+        response = await api.admin.addOfficialResponse(issueId, officialResponse);
+      }
 
       if (response.success) {
         Alert.alert('Başarılı', 'Resmi dönüş başarıyla kaydedildi.');
-        fetchIssue(); // Güncel veriyi yeniden getir
+        await fetchIssue(); // Güncel veriyi yeniden getir
       } else {
         Alert.alert('Hata', response.message || 'Resmi dönüş oluşturulurken bir hata oluştu.');
       }
@@ -812,10 +822,10 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
             </TouchableOpacity>
           </View>
           
-          {/* Kaydet Butonu */}
+          {/* Durum Güncelle Butonu */}
           <TouchableOpacity 
             style={styles.saveButton}
-            onPress={updateIssue}
+            onPress={updateStatus}
             disabled={updating}
           >
             {updating ? (
@@ -823,7 +833,7 @@ const AdminIssueDetailScreen = ({ route, navigation }) => {
             ) : (
               <>
                 <Icon name="save" size={20} color="#fff" />
-                <Text style={styles.saveButtonText}>Değişiklikleri Kaydet</Text>
+                <Text style={styles.saveButtonText}>Durumu Güncelle</Text>
               </>
             )}
           </TouchableOpacity>

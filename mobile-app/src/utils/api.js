@@ -492,7 +492,7 @@ client.cachedGet = async (url, config = {}) => {
   
   // Önbellek anahtarı oluştur
   const cacheKey = cache.createKey(url, config.params);
-  
+    
   // Önbellekten veri almayı dene
   if (useCache) {
     const cachedData = cache.get(cacheKey);
@@ -902,53 +902,129 @@ const api = {
     // Tüm sorunları getir
     getAll: async (params = {}) => {
       try {
-        await checkAndPingApi();
-        const token = await AsyncStorage.getItem('token');
-        const user = JSON.parse(await AsyncStorage.getItem('user'));
+        console.log('Tüm sorunlar getiriliyor...');
+        console.log('Filtreler:', params);
         
-        if (!token) {
-          console.log('Token bulunamadı, misafir olarak sorunlar getiriliyor');
-        }
-        
-        // İstek parametrelerini hazırla
-        const requestParams = { ...params };
-        
-        // Belediye çalışanları için şehir filtresi zorunlu
-        if (user?.role === 'municipal_worker' && user?.city) {
-          requestParams.city = user.city;
-          console.log('Belediye çalışanı için şehir filtresi eklendi:', user.city);
-        }
-        // Normal kullanıcı için opsiyonel şehir filtresi
-        else if (!requestParams.city && user?.city && !requestParams.showAllCities) {
-          requestParams.city = user.city;
-          console.log('Kullanıcı şehrine göre filtreleniyor:', user.city);
-        }
-        
-        // showAllCities parametresi API'ye gönderilmemeli
-        if (requestParams.showAllCities) {
-          delete requestParams.showAllCities;
-        }
-        
-        console.log('Sorunlar için kullanılan parametreler:', requestParams);
-        
-        // Önbellekli GET isteği kullan
-        const response = await client.cachedGet('/issues', {
-          headers: { Authorization: `Bearer ${token}` },
-          params: requestParams,
-          useCache: true,
-          cacheTTL: 2 * 60 * 1000 // 2 dakika
+        // API isteği için parametreleri hazırla
+        const queryParams = new URLSearchParams();
+        Object.keys(params).forEach(key => {
+          if (params[key] !== undefined && params[key] !== null && params[key] !== '') {
+            queryParams.append(key, params[key]);
+          }
         });
         
-        let issuesData = response.data.data || [];
-        console.log(`API yanıtı: ${issuesData.length} sorun bulundu`);
+        // Özel olarak şehir parametresi kontrolü
+        if (params.city && params.city !== '') {
+          console.log(`Şehir filtresi uygulanıyor: ${params.city}`);
+          // Backend API endpoint şehir parametresini bu formatta bekliyor olabilir
+          queryParams.set('city', params.city);
+        }
         
-        return {
+        console.log('API isteği parametreleri:', queryParams.toString());
+        
+        // API'den tüm sorunları getir
+        const response = await client.get(`/issues?${queryParams.toString()}`);
+        
+        console.log(`${response.data.data.length} sorun başarıyla getirildi`);
+        
+        return { 
           success: true,
-          data: issuesData,
-          pagination: response.data.pagination || null
+          data: response.data
         };
       } catch (error) {
-        return handleApiError(error, 'Sorunlar alınırken bir hata oluştu');
+        console.error('Sorunlar getirilirken hata:', error);
+        
+        // Demo modunda ise demo verileri döndür
+        if (isDemoMode) {
+          console.log('Demo modunda sorunlar getiriliyor...');
+          
+          // Demo verilerinden filtreleme yap
+          let demoIssues = [...demoData.issues];
+          
+          // Demo için basit filtreleme
+          if (params.category && params.category !== 'Tümü') {
+            demoIssues = demoIssues.filter(issue => issue.category === params.category);
+          }
+          
+          if (params.status && params.status !== 'Tümü') {
+            demoIssues = demoIssues.filter(issue => issue.status === params.status);
+          }
+          
+          // Şehir filtresi
+          if (params.city && params.city !== '') {
+            demoIssues = demoIssues.filter(issue => 
+              issue.location && 
+              issue.location.city && 
+              issue.location.city.toLowerCase() === params.city.toLowerCase()
+            );
+          }
+          
+          // Demo sayfalama
+          const page = params.page || 1;
+          const limit = params.limit || 10;
+          const startIndex = (page - 1) * limit;
+          const endIndex = page * limit;
+          
+          const paginatedIssues = demoIssues.slice(startIndex, endIndex);
+          
+            return { 
+            success: true, 
+            data: {
+              data: paginatedIssues,
+              pagination: {
+                total: demoIssues.length,
+                page,
+                limit,
+                pages: Math.ceil(demoIssues.length / limit)
+              }
+            },
+            isDemoMode: true 
+          };
+        }
+        
+        return handleApiError(error, 'Sorunlar getirilirken bir hata oluştu');
+      }
+    },
+    
+    // Genel istatistikleri getir
+    getPublicStats: async () => {
+      try {
+        console.log('Genel istatistikler getiriliyor...');
+        
+        // API'den genel istatistikleri getir
+        const response = await client.get('/issues/stats');
+        
+        console.log('İstatistikler başarıyla alındı');
+        
+          return {
+            success: true,
+            data: response.data.data
+          };
+      } catch (error) {
+        console.error('İstatistikler getirilirken hata:', error);
+        
+        // Demo modunda ise demo istatistikleri döndür
+        if (isDemoMode) {
+          console.log('Demo modunda istatistikler getiriliyor...');
+          
+          // Demo verilerinden hesapla
+          const totalIssues = demoData.issues.length;
+          const resolvedIssues = demoData.issues.filter(issue => issue.status === 'resolved').length;
+          
+          return {
+            success: true,
+            data: {
+              totalIssues,
+              resolvedIssues,
+              totalUsers: 157,
+              activeUsers: 82,
+              averageResolveTime: 3
+            },
+            isDemoMode: true 
+          };
+        }
+        
+        return handleApiError(error, 'İstatistikler getirilirken bir hata oluştu');
       }
     },
     
@@ -957,7 +1033,6 @@ const api = {
       try {
         await checkAndPingApi();
         const token = await AsyncStorage.getItem('token');
-        const user = JSON.parse(await AsyncStorage.getItem('user'));
         
         if (!token) {
           return {
@@ -965,24 +1040,30 @@ const api = {
             message: 'Oturum açmanız gerekiyor'
           };
         }
+
+        // Kullanıcı bilgisini kontrol et
+        const userStr = await AsyncStorage.getItem('user');
+        const user = userStr ? JSON.parse(userStr) : null;
         
-        // Worker rolü için bu fonksiyon kullanılmamalı
-        if (user?.role === 'worker') {
+        // Worker rolü kontrolü
+        if (user && user.role === 'worker') {
           console.log('Worker rolü için getMyIssues fonksiyonu kullanılamaz');
           return {
-            success: true,  // Hata döndürmek yerine başarılı döndür
+            success: true,
             data: [],       // Boş liste döndür
             workerRole: true // Worker rolü olduğunu belirt
           };
         }
         
         console.log('Kullanıcının kendi sorunları getiriliyor...');
+        console.log('Token başlangıcı:', token ? token.substring(0, 20) + '...' : 'yok');
+        console.log('Kullanıcı bilgisi:', user ? { id: user.id, role: user.role } : 'yok');
         
-        // Önbellekli GET isteği kullan
-        const response = await client.cachedGet('/issues/my', {
+        // Önbellekli GET isteği kullan - Doğru endpoint: /issues/myissues
+        const response = await client.cachedGet('/issues/myissues', {
           headers: { Authorization: `Bearer ${token}` },
-          useCache: true,
-          cacheTTL: 2 * 60 * 1000 // 2 dakika
+          useCache: false, // Profil sayfası için cache kullanma
+          timeout: 10000 // 10 saniye timeout
         });
         
         let myIssuesData = response.data.data || [];
@@ -993,6 +1074,19 @@ const api = {
           data: myIssuesData
         };
       } catch (error) {
+        console.error('getMyIssues API Error:', error);
+        
+        // Hata detaylarını daha detaylı logla
+        if (error.response) {
+          console.error('API Response Error:', {
+            status: error.response.status,
+            statusText: error.response.statusText,
+            data: error.response.data
+          });
+        } else if (error.request) {
+          console.error('API Request Error:', error.request);
+        }
+        
         return handleApiError(error, 'Bildirimler getirilirken hata oluştu');
       }
     },
@@ -1004,6 +1098,32 @@ const api = {
         const token = await AsyncStorage.getItem('token');
         
         console.log(`Sorun detayları alınıyor, ID: ${id}`);
+        
+        // Önbellekli GET isteği kullan
+        const response = await client.cachedGet(`/issues/${id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          useCache: true,
+          cacheTTL: 3 * 60 * 1000 // 3 dakika
+        });
+        
+        console.log('Sorun detayları başarıyla alındı');
+        
+        return {
+          success: true,
+          data: response.data.data
+        };
+      } catch (error) {
+        return handleApiError(error, 'Sorun detayları alınırken bir hata oluştu');
+      }
+    },
+
+    // Sorun detaylarını getir (getById ile aynı işlevi görür - geriye uyumluluk için)
+    getIssueById: async (id) => {
+      try {
+        await checkAndPingApi();
+        const token = await AsyncStorage.getItem('token');
+        
+        console.log(`Sorun detayları alınıyor (getIssueById), ID: ${id}`);
         
         // Önbellekli GET isteği kullan
         const response = await client.cachedGet(`/issues/${id}`, {
@@ -1143,6 +1263,362 @@ const api = {
     } catch (error) {
       console.error('API bağlantı kontrolü başarısız:', error);
       return { success: false, message: 'API sunucusuna bağlanılamadı' };
+    }
+  },
+
+  // Admin işlemleri
+  admin: {
+    // Admin için tüm sorunları getir
+    getAdminIssues: async (filters = {}) => {
+      try {
+        console.log('Admin sorunları getiriliyor...');
+        const token = await AsyncStorage.getItem('token');
+        
+        if (!token) {
+          return {
+            success: false,
+            message: 'Oturum açmanız gerekiyor'
+          };
+        }
+
+        // API parametrelerini hazırla
+        const queryParams = new URLSearchParams();
+        Object.keys(filters).forEach(key => {
+          if (filters[key] !== undefined && filters[key] !== null && filters[key] !== '') {
+            queryParams.append(key, filters[key]);
+          }
+        });
+
+        const response = await client.get(`/admin/issues?${queryParams.toString()}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        console.log('Admin sorunları başarıyla alındı');
+
+        return {
+          success: true,
+          data: {
+            issues: response.data.data || response.data,
+            total: response.data.total
+          }
+        };
+      } catch (error) {
+        console.error('Admin sorunları alınırken hata:', error);
+        
+        // Demo modunda ise demo verileri döndür
+        if (isDemoMode) {
+          console.log('Demo modunda admin sorunları getiriliyor...');
+          return { 
+            success: true, 
+            data: {
+              issues: demoData.issues,
+              total: demoData.issues.length
+            },
+            isDemoMode: true 
+          };
+        }
+        
+        return handleApiError(error, 'Admin sorunları alınırken bir hata oluştu');
+      }
+    },
+
+    // Sorunu çalışana ata
+    assignIssue: async (issueId, workerId) => {
+      try {
+        console.log(`Sorun ${issueId} çalışan ${workerId}'ye atanıyor...`);
+        const token = await AsyncStorage.getItem('token');
+        
+        if (!token) {
+          return {
+            success: false,
+            message: 'Oturum açmanız gerekiyor'
+          };
+        }
+
+        const response = await client.put(`/admin/issues/${issueId}/assign`, 
+          { workerId }, 
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+
+        console.log('Sorun başarıyla atandı');
+
+        return {
+          success: true,
+          data: response.data.data || response.data
+        };
+      } catch (error) {
+        console.error('Sorun atanırken hata:', error);
+        return handleApiError(error, 'Sorun atama işlemi başarısız');
+      }
+    },
+
+    // Sorun durumunu güncelle
+    updateIssueStatus: async (issueId, status) => {
+      try {
+        console.log(`Sorun ${issueId} durumu güncelleniyor: ${status}`);
+        const token = await AsyncStorage.getItem('token');
+        
+        if (!token) {
+          return {
+            success: false,
+            message: 'Oturum açmanız gerekiyor'
+          };
+        }
+
+        const response = await client.put(`/admin/issues/${issueId}/status`, 
+          { status }, 
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+
+        console.log('Sorun durumu başarıyla güncellendi');
+
+        return {
+          success: true,
+          data: response.data.data || response.data
+        };
+      } catch (error) {
+        console.error('Sorun durumu güncellenirken hata:', error);
+        return handleApiError(error, 'Durum güncellenemedi');
+      }
+    },
+
+    // Çalışanları getir
+    getWorkers: async () => {
+      try {
+        console.log('Çalışanlar getiriliyor...');
+        const token = await AsyncStorage.getItem('token');
+        
+        if (!token) {
+          return {
+            success: false,
+            message: 'Oturum açmanız gerekiyor'
+          };
+        }
+
+        const response = await client.get('/admin/workers', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        console.log('Çalışanlar başarıyla alındı');
+
+        return {
+          success: true,
+          data: response.data.data || response.data
+        };
+      } catch (error) {
+        console.error('Çalışanlar alınırken hata:', error);
+        return handleApiError(error, 'Çalışanlar alınamadı');
+      }
+    },
+
+    // Resmi yanıt ekle
+    addOfficialResponse: async (issueId, responseText) => {
+      try {
+        console.log(`Sorun ${issueId} için resmi yanıt ekleniyor...`);
+        const token = await AsyncStorage.getItem('token');
+        
+        if (!token) {
+          return {
+            success: false,
+            message: 'Oturum açmanız gerekiyor'
+          };
+        }
+
+        const response = await client.post(`/admin/issues/${issueId}/response`, 
+          { response: responseText }, 
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+
+        console.log('Resmi yanıt başarıyla eklendi');
+
+        return {
+          success: true,
+          data: response.data.data || response.data
+        };
+      } catch (error) {
+        console.error('Resmi yanıt eklenirken hata:', error);
+        return handleApiError(error, 'Resmi yanıt eklenemedi');
+      }
+    },
+
+    // Sorun detayını getir
+    getIssueById: async (id) => {
+      try {
+        console.log(`Admin sorun detayı getiriliyor, ID: ${id}`);
+        const token = await AsyncStorage.getItem('token');
+        
+        if (!token) {
+          return {
+            success: false,
+            message: 'Oturum açmanız gerekiyor'
+          };
+        }
+
+        const response = await client.get(`/admin/issues/${id}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        console.log('Admin sorun detayı başarıyla alındı');
+
+        return {
+          success: true,
+          data: response.data.data || response.data
+        };
+      } catch (error) {
+        console.error('Admin sorun detayı alınırken hata:', error);
+        return handleApiError(error, 'Sorun detayları alınamadı');
+      }
+    },
+
+    // Admin istatistikleri getir
+    getStats: async (timeRange = 'last30days') => {
+      try {
+        console.log(`Admin istatistikleri getiriliyor... Zaman aralığı: ${timeRange}`);
+        const token = await AsyncStorage.getItem('token');
+        
+        if (!token) {
+          return {
+            success: false,
+            message: 'Oturum açmanız gerekiyor'
+          };
+        }
+
+        const response = await client.get(`/admin/reports?timeRange=${timeRange}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        console.log('Admin istatistikleri başarıyla alındı');
+
+        // Backend'ten gelen veriyi frontend'in beklediği formata dönüştür
+        const data = response.data.data;
+        
+        // Durum verilerini dönüştür (status alanını ekle)
+        const byStatus = data.byStatus?.map(item => ({
+          ...item,
+          status: item._id,
+          _id: item._id
+        })) || [];
+
+        // Kategori verilerini dönüştür (category alanını ekle)
+        const byCategory = data.byCategory?.map(item => ({
+          ...item,
+          category: item._id,
+          _id: item._id
+        })) || [];
+
+        // İlçe verilerini dönüştür (district alanını ekle)
+        const byDistrict = data.byDistrict?.map(item => ({
+          ...item,
+          district: item._id,
+          _id: item._id
+        })) || [];
+
+        // Şehir verilerini dönüştür (city alanını ekle)
+        const byCity = data.byCity?.map(item => ({
+          ...item,
+          city: item._id,
+          _id: item._id
+        })) || [];
+
+        // Toplam sayısını hesapla
+        const total = byStatus.reduce((sum, item) => sum + item.count, 0);
+
+        return {
+          success: true,
+          data: {
+            total,
+            byStatus,
+            byCategory,
+            byDistrict,
+            byCity,
+            byMonth: data.byMonth || []
+          }
+        };
+      } catch (error) {
+        console.error('Admin istatistikleri alınırken hata:', error);
+        return handleApiError(error, 'İstatistikler alınamadı');
+      }
+    },
+
+    // Sorun güncelle (kapsamlı güncelleme)
+    updateIssue: async (issueId, updateData) => {
+      try {
+        console.log(`Sorun ${issueId} güncelleniyor...`, updateData);
+        const token = await AsyncStorage.getItem('token');
+        
+        if (!token) {
+          return {
+            success: false,
+            message: 'Oturum açmanız gerekiyor'
+          };
+        }
+
+        // Farklı güncelleme işlemleri için ayrı API çağrıları yapıyoruz
+        let response;
+        
+        // Eğer sadece durum güncelleme ise
+        if (updateData.status && Object.keys(updateData).length === 1) {
+          response = await client.put(`/admin/issues/${issueId}/status`, 
+            { status: updateData.status }, 
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+        }
+        // Eğer çalışan atama ise
+        else if (updateData.assignedTo && Object.keys(updateData).length === 1) {
+          response = await client.put(`/admin/issues/${issueId}/assign`, 
+            { workerId: updateData.assignedTo }, 
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+        }
+        // Eğer resmi yanıt ise
+        else if (updateData.officialResponse && Object.keys(updateData).length === 1) {
+          response = await client.post(`/admin/issues/${issueId}/response`, 
+            { response: updateData.officialResponse }, 
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+        }
+        // Karma güncelleme (birden fazla alan)
+        else {
+          // Önce durum güncelle
+          if (updateData.status) {
+            await client.put(`/admin/issues/${issueId}/status`, 
+              { status: updateData.status }, 
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
+          }
+          
+          // Sonra çalışan ata
+          if (updateData.assignedTo) {
+            await client.put(`/admin/issues/${issueId}/assign`, 
+              { workerId: updateData.assignedTo }, 
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
+          }
+          
+          // Son olarak resmi yanıt ekle
+          if (updateData.officialResponse) {
+            response = await client.post(`/admin/issues/${issueId}/response`, 
+              { response: updateData.officialResponse }, 
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
+          } else {
+            // Güncel veriyi al
+            response = await client.get(`/admin/issues/${issueId}`, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+          }
+        }
+
+        console.log('Sorun başarıyla güncellendi');
+
+        return {
+          success: true,
+          data: response.data.data || response.data
+        };
+      } catch (error) {
+        console.error('Sorun güncellenirken hata:', error);
+        return handleApiError(error, 'Sorun güncellenemedi');
+      }
     }
   },
 

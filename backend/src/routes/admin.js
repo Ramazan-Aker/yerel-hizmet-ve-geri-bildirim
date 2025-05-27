@@ -8,6 +8,7 @@ const {
   changeUserRole,
   toggleUserStatus,
   getDashboardStats,
+  getAllIssues,
   getIssueById,
   updateIssueStatus,
   addOfficialResponse,
@@ -38,6 +39,7 @@ router.put('/users/:id/status', authorize(['admin']), toggleUserStatus);
 router.get('/dashboard', authorize(['admin', 'municipal_worker']), getDashboardStats);
 
 // Sorun yönetimi
+router.get('/issues', authorize(['admin', 'municipal_worker']), getAllIssues);
 router.get('/issues/:id', authorize(['admin', 'municipal_worker']), getIssueById);
 router.put('/issues/:id/status', authorize(['admin', 'municipal_worker']), updateIssueStatus);
 router.post('/issues/:id/response', authorize(['admin', 'municipal_worker']), addOfficialResponse);

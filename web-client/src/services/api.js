@@ -226,6 +226,16 @@ export const issueService = {
     }
   },
 
+  // Genel istatistikleri al
+  getPublicStats: async () => {
+    try {
+      const response = await apiClient.get('/issues/stats');
+      return response.data;
+    } catch (error) {
+      throw error.response?.data?.message || 'İstatistikler alınamadı';
+    }
+  },
+
   createIssue: async (issueData) => {
     try {
       // Hata ayıklama için tam gelen veriyi logla

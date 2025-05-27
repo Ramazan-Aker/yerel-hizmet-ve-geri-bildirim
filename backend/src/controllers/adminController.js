@@ -3,6 +3,102 @@ const Issue = require('../models/Issue');
 const PDFDocument = require('pdfkit');
 const { stringify } = require('csv-stringify');
 
+// @desc    Admin/Municipal Worker için tüm sorunları getirme
+// @route   GET /api/admin/issues
+// @access  Private/Admin/Municipal Worker
+exports.getAllIssues = async (req, res) => {
+  try {
+    console.log('Admin/Municipal Worker sorunları getiriliyor...');
+    console.log('Kullanıcı rolü:', req.user.role);
+    console.log('Kullanıcı şehri:', req.user.city);
+
+    // Sayfalama parametreleri
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 100;
+    const startIndex = (page - 1) * limit;
+
+    // Filtreleme parametreleri
+    const filter = {};
+    
+    // Municipal worker sadece kendi şehrindeki sorunları görebilir
+    if (req.user.role === 'municipal_worker') {
+      if (req.user.city) {
+        filter['location.city'] = req.user.city;
+        console.log(`Municipal worker şehir filtresi uygulandı: ${req.user.city}`);
+      } else {
+        console.warn('Municipal worker için şehir bilgisi eksik!');
+        return res.status(400).json({
+          success: false,
+          message: 'Şehir bilginiz eksik. Lütfen profilinizi güncelleyin.'
+        });
+      }
+    }
+
+    // Diğer filtreler
+    if (req.query.category && req.query.category !== 'Tümü') {
+      filter.category = req.query.category;
+    }
+    
+    if (req.query.status && req.query.status !== 'Tümü') {
+      filter.status = req.query.status;
+    }
+    
+    if (req.query.district && req.query.district !== '') {
+      filter['location.district'] = req.query.district;
+    }
+    
+    if (req.query.severity && req.query.severity !== '' && req.query.severity !== 'Tümü') {
+      filter.severity = req.query.severity;
+    }
+
+    // Arama filtresi
+    if (req.query.search && req.query.search !== '') {
+      const searchRegex = new RegExp(req.query.search, 'i');
+      filter.$or = [
+        { title: searchRegex },
+        { description: searchRegex },
+        { 'location.address': searchRegex }
+      ];
+    }
+
+    console.log('Uygulanan filtreler:', filter);
+
+    // Toplam sayı hesaplama
+    const total = await Issue.countDocuments(filter);
+
+    // Sorunları getir
+    const issues = await Issue.find(filter)
+      .populate('user', 'name email')
+      .populate('assignedTo', 'name role')
+      .sort({ createdAt: -1 })
+      .skip(startIndex)
+      .limit(limit);
+
+    console.log(`${issues.length} sorun bulundu (toplam: ${total})`);
+
+    // Sayfalama bilgisi
+    const pagination = {
+      current: page,
+      total: Math.ceil(total / limit),
+      count: issues.length,
+      totalCount: total
+    };
+
+    res.status(200).json({
+      success: true,
+      pagination,
+      data: issues,
+      total: total
+    });
+  } catch (error) {
+    console.error('Admin sorunları alınırken hata:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Sorunlar alınırken sunucu hatası oluştu'
+    });
+  }
+};
+
 // @desc    Tüm kullanıcıları getirme
 // @route   GET /api/admin/users
 // @access  Private/Admin

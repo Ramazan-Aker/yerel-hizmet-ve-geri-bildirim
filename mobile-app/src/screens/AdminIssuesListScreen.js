@@ -281,9 +281,9 @@ const AdminIssuesListScreen = ({ route, navigation }) => {
     </TouchableOpacity>
   );
 
-  const renderHeader = () => (
-    <View style={styles.filtersContainer}>
-      {/* Arama Kutusu */}
+  // Arama kutusunu ayrı bir component olarak ayıralım
+  const renderSearchHeader = () => (
+    <View style={styles.searchHeaderContainer}>
       <View style={styles.searchContainer}>
         <Icon name="search" size={20} color="#95a5a6" style={styles.searchIcon} />
         <TextInput
@@ -291,6 +291,10 @@ const AdminIssuesListScreen = ({ route, navigation }) => {
           placeholder="Ara: Başlık, açıklama, konum..."
           value={searchQuery}
           onChangeText={setSearchQuery}
+          autoCorrect={false}
+          autoCapitalize="none"
+          clearButtonMode="while-editing" // iOS için otomatik temizleme butonu
+          returnKeyType="search"
         />
         {searchQuery ? (
           <TouchableOpacity onPress={() => setSearchQuery('')}>
@@ -298,7 +302,12 @@ const AdminIssuesListScreen = ({ route, navigation }) => {
           </TouchableOpacity>
         ) : null}
       </View>
-      
+    </View>
+  );
+
+  // Filtreler için ayrı bir component
+  const renderFilters = () => (
+    <View style={styles.filtersContainer}>
       {/* Filtreler - Sadece admin ve municipal_worker için göster */}
       {user?.role !== 'worker' && (
         <>
@@ -422,12 +431,15 @@ const AdminIssuesListScreen = ({ route, navigation }) => {
         )}
       </View>
       
+      {/* Arama kutusunu FlatList dışında sabit konumda göster */}
+      {renderSearchHeader()}
+      
       <FlatList
         data={filteredIssues}
         renderItem={renderIssueItem}
         keyExtractor={item => item._id}
         contentContainerStyle={styles.listContainer}
-        ListHeaderComponent={renderHeader}
+        ListHeaderComponent={renderFilters} // Sadece filtreler
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
@@ -441,6 +453,8 @@ const AdminIssuesListScreen = ({ route, navigation }) => {
             </View>
           )
         }
+        keyboardShouldPersistTaps="handled" // Klavye açıkken liste tıklanabilir
+        keyboardDismissMode="on-drag" // Kaydırırken klavyeyi kapat
       />
     </View>
   );
@@ -476,10 +490,18 @@ const styles = StyleSheet.create({
   listContainer: {
     paddingBottom: 16,
   },
+  searchHeaderContainer: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
   filtersContainer: {
     padding: 16,
     backgroundColor: '#fff',
     marginBottom: 8,
+    marginTop: 8, // Arama kutusu ile arası için boşluk
   },
   searchContainer: {
     flexDirection: 'row',
@@ -487,7 +509,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f2f2f2',
     borderRadius: 8,
     paddingHorizontal: 12,
-    marginBottom: 16,
+    height: 44, // Sabit yükseklik
   },
   searchIcon: {
     marginRight: 8,
@@ -497,6 +519,8 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     fontSize: 16,
     color: '#2c3e50',
+    backgroundColor: 'transparent', // Şeffaf arka plan
+    textAlignVertical: 'center', // Android için dikey ortalama
   },
   filterRow: {
     flexDirection: 'row',

@@ -36,23 +36,18 @@ const HomeScreen = ({ navigation }) => {
         setLoading(true);
       }
 
-      // Normal kullanıcılar için genel istatistikleri getir (admin API'si kullanmıyoruz)
-      const response = await api.issues.getAll({ limit: 1 }); // Sadece toplam sayıyı almak için
+      // Genel istatistikleri getir
+      const response = await api.issues.getPublicStats();
 
       console.log('API istatistik yanıtı:', response);
       
-      if (response && response.success) {
-        // Statik bir değer kullanarak çözülen sorun sayısı (gerçek veri yoksa)
-        const resolvedPercentage = 0.65; // %65 çözülmüş kabul edelim (gerçeğe yaklaşık)
-        
-        // İstatistikleri güncelle
+      if (response && response.success && response.data) {
+        // API'den gelen gerçek verileri kullan
         setStats([
-          { id: 1, name: 'Toplam Sorun', value: response.data.pagination?.total.toString() || '0' },
-          { id: 2, name: 'Çözümlenen Sorunlar', value: 
-            Math.round((response.data.pagination?.total || 0) * resolvedPercentage).toString() },
-          { id: 3, name: 'Aktif Kullanıcılar', value: 
-            Math.round((response.data.pagination?.total || 0) * 0.8).toString() }, // Yaklaşık değer
-          { id: 4, name: 'Ortalama Çözüm Süresi', value: '3 gün' }, // Sabit değer
+          { id: 1, name: 'Toplam Sorun', value: response.data.totalIssues.toString() },
+          { id: 2, name: 'Çözümlenen Sorunlar', value: response.data.resolvedIssues.toString() },
+          { id: 3, name: 'Aktif Kullanıcılar', value: response.data.activeUsers.toString() },
+          { id: 4, name: 'Ortalama Çözüm Süresi', value: `${response.data.averageResolveTime} gün` },
         ]);
       } else {
         console.error('API istatistik hatası döndürdü:', response?.message);

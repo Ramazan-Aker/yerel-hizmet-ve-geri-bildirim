@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { adminService } from '../services/api';
+import { issueService } from '../services/api';
 
 const HomePage = () => {
   const [stats, setStats] = useState([
@@ -15,29 +15,17 @@ const HomePage = () => {
     const fetchStats = async () => {
       try {
         setLoading(true);
-        // Gerçek API çağrısı yap
-        const response = await adminService.getDashboardStats();
+        // Genel istatistikleri getir
+        const response = await issueService.getPublicStats();
         console.log('Ana sayfa istatistikleri:', response);
         
-        if (response && response.data) {
-          const issueStats = response.data.issues;
-          const userStats = response.data.users;
-          
-          // Çözülen sorunların sayısını bul
-          let resolvedCount = 0;
-          if (issueStats.byStatus && Array.isArray(issueStats.byStatus)) {
-            const resolvedItem = issueStats.byStatus.find(item => item._id === 'resolved');
-            if (resolvedItem) {
-              resolvedCount = resolvedItem.count;
-            }
-          }
-          
-          // İstatistikleri güncelle
+        if (response && response.success && response.data) {
+          // API'den gelen gerçek verileri kullan
           setStats([
-            { id: 1, name: 'Toplam Sorun', value: issueStats.total.toString() },
-            { id: 2, name: 'Çözümlenen Sorunlar', value: resolvedCount.toString() },
-            { id: 3, name: 'Aktif Kullanıcılar', value: userStats.total.toString() },
-            { id: 4, name: 'Ortalama Çözüm Süresi', value: '3 gün' }, // Bu veri henüz API'den gelmiyor
+            { id: 1, name: 'Toplam Sorun', value: response.data.totalIssues.toString() },
+            { id: 2, name: 'Çözümlenen Sorunlar', value: response.data.resolvedIssues.toString() },
+            { id: 3, name: 'Aktif Kullanıcılar', value: response.data.activeUsers.toString() },
+            { id: 4, name: 'Ortalama Çözüm Süresi', value: `${response.data.averageResolveTime} gün` },
           ]);
         }
       } catch (error) {

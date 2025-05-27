@@ -345,7 +345,11 @@ const IssuesPage = () => {
 
   // Apply filters function - triggers API call by changing isApplyingFilters
   const applyFilters = () => {
-    setIsApplyingFilters(true);
+    // Gereksiz render'ları önlemek için mevcut durum kontrolü yapılır
+    // Eğer zaten filtre uygulama durumundaysak tekrar tetiklenmesini önler
+    if (!isApplyingFilters) {
+      setIsApplyingFilters(true);
+    }
   };
 
   // Reset filters
@@ -357,6 +361,8 @@ const IssuesPage = () => {
       district: '',
       city: user?.city || ''
     });
+    
+    // Filtreleri sıfırlama işleminden sonra uygula
     setIsApplyingFilters(true);
   };
 
@@ -432,12 +438,11 @@ const IssuesPage = () => {
         </Link>
       </div>
 
-      {/* Gelişmiş filtreleme paneli */}
-      <FilterPanel 
-        filters={filters} 
-        setFilters={setFilters} 
-        sortBy={sortBy} 
-        setSortBy={setSortBy} 
+      <FilterPanel
+        filters={filters}
+        setFilters={setFilters}
+        sortBy={sortBy}
+        setSortBy={setSortBy}
         districts={districts}
         applyFilters={applyFilters}
         resetFilters={resetFilters}
@@ -512,6 +517,21 @@ const IssuesPage = () => {
               <div className="p-4">
                 <h2 className="text-xl font-semibold text-gray-800 mb-2 line-clamp-2">{issue.title}</h2>
                 <p className="text-gray-600 text-sm mb-3 line-clamp-2">{issue.description}</p>
+                
+                {/* Location information */}
+                {issue.location && (issue.location.city || issue.location.district) && (
+                  <div className="flex items-center mb-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1 text-gray-500" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                    </svg>
+                    <p className="text-gray-500 text-sm">
+                      {issue.location.district && issue.location.city 
+                        ? `${issue.location.district}, ${issue.location.city}`
+                        : issue.location.district || issue.location.city}
+                    </p>
+                  </div>
+                )}
+                
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-gray-500">
                     {formatDate(issue.createdAt)}
@@ -592,6 +612,21 @@ const IssuesPage = () => {
                       </div>
                       <h3 className="text-lg font-bold mb-1">{issue.title}</h3>
                       <p className="text-sm text-gray-600 mb-2 line-clamp-2">{issue.description}</p>
+                      
+                      {/* Location information */}
+                      {issue.location && (issue.location.city || issue.location.district) && (
+                        <div className="flex items-center mb-2">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1 text-gray-500" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                          </svg>
+                          <p className="text-gray-500 text-xs">
+                            {issue.location.district && issue.location.city 
+                              ? `${issue.location.district}, ${issue.location.city}`
+                              : issue.location.district || issue.location.city}
+                          </p>
+                        </div>
+                      )}
+                      
                       <div className="flex space-x-1 mb-2">
                         <span className={`px-2 py-1 rounded-full text-xs font-semibold ${statusColors[issue.status] || 'bg-gray-100 text-gray-800'}`}>
                               {getStatusDisplayText(issue.status)}

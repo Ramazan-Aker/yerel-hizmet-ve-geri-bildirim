@@ -627,10 +627,32 @@ exports.upvoteIssue = async (req, res) => {
 // @access  Private
 exports.getMyIssues = async (req, res) => {
   try {
+    // Kullanıcı bilgisi kontrolü
+    if (!req.user || !req.user.id) {
+      console.error('getMyIssues: Kullanıcı bilgisi eksik:', req.user);
+      return res.status(401).json({
+        success: false,
+        message: 'Kullanıcı kimlik doğrulaması başarısız'
+      });
+    }
+
     console.log('Kullanıcı kendi sorunlarını görüntülüyor, ID:', req.user.id);
+    console.log('Kullanıcı rolü:', req.user.role);
+    
+    // Worker rolü kontrolü
+    if (req.user.role === 'worker') {
+      console.log('Worker rolü tespit edildi, boş liste döndürülüyor');
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        data: []
+      });
+    }
     
     const issues = await Issue.find({ user: req.user.id })
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .populate('user', 'name email')
+      .populate('assignedTo', 'name role');
 
     console.log(`Kullanıcı için ${issues.length} sorun bulundu`);
     
@@ -641,9 +663,16 @@ exports.getMyIssues = async (req, res) => {
     });
   } catch (error) {
     console.error('Kullanıcı sorunları alınırken hata:', error);
+    console.error('Hata detayları:', {
+      message: error.message,
+      stack: error.stack,
+      userId: req.user?.id,
+      userRole: req.user?.role
+    });
+    
     res.status(500).json({
       success: false,
-      message: 'Sunucu hatası'
+      message: 'Kullanıcı sorunları alınırken sunucu hatası oluştu'
     });
   }
 };
@@ -905,6 +934,79 @@ exports.likeReply = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Sunucu hatası'
+    });
+  }
+};
+
+// @desc    Genel istatistikleri getir
+// @route   GET /api/issues/stats
+// @access  Public
+exports.getPublicStats = async (req, res) => {
+  try {
+    // Toplam sorun sayısı
+    const totalIssues = await Issue.countDocuments();
+    
+    // Durum bazlı sorun sayıları
+    const issuesByStatus = await Issue.aggregate([
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+    
+    // Çözülen sorunların sayısını hesapla
+    const resolvedCount = issuesByStatus.find(item => item._id === 'resolved')?.count || 0;
+    
+    // Toplam kullanıcı sayısı
+    const totalUsers = await User.countDocuments({ role: 'user' });
+    
+    // Aktif kullanıcı sayısı (son 30 gün içinde kayıt olan veya giriş yapan)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const activeUsers = await User.countDocuments({
+      $or: [
+        { lastLogin: { $gte: thirtyDaysAgo } },
+        { createdAt: { $gte: thirtyDaysAgo } }
+      ]
+    });
+    
+    // Ortalama çözüm süresi
+    const resolvedIssues = await Issue.find({ status: 'resolved' });
+    let totalResolveTime = 0;
+    let issuesWithResolveTime = 0;
+    
+    resolvedIssues.forEach(issue => {
+      if (issue.resolvedAt && issue.createdAt) {
+        const resolveTime = new Date(issue.resolvedAt) - new Date(issue.createdAt);
+        const resolveTimeInDays = resolveTime / (1000 * 60 * 60 * 24); // Milisaniyeden güne çevir
+        totalResolveTime += resolveTimeInDays;
+        issuesWithResolveTime++;
+      }
+    });
+    
+    const averageResolveTime = issuesWithResolveTime > 0 
+      ? Math.round(totalResolveTime / issuesWithResolveTime) 
+      : 3; // Veri yoksa varsayılan 3 gün
+    
+    // Sonuçları döndür
+    res.status(200).json({
+      success: true,
+      data: {
+        totalIssues,
+        resolvedIssues: resolvedCount,
+        totalUsers,
+        activeUsers,
+        averageResolveTime
+      }
+    });
+  } catch (error) {
+    console.error('İstatistikler alınırken hata:', error);
+    res.status(500).json({
+      success: false,
+      message: 'İstatistikler alınırken bir hata oluştu'
     });
   }
 };

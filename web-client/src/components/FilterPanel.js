@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { FiFilter, FiChevronDown, FiChevronUp } from 'react-icons/fi';
+import React, { useState, useEffect, useRef } from 'react';
+import { FiFilter, FiChevronDown, FiChevronUp, FiSearch } from 'react-icons/fi';
 
 // Kategoriler
 const categories = [
@@ -44,18 +44,78 @@ const FilterPanel = ({
 }) => {
   const [showFilters, setShowFilters] = useState(false);
   const [localShowAllCities, setLocalShowAllCities] = useState(showAllCities);
+  const [localSearch, setLocalSearch] = useState(filters.search);
+  const debounceTimerRef = useRef(null);
   
   // showAllCities prop değiştiğinde yerel state'i güncelle
   useEffect(() => {
     setLocalShowAllCities(showAllCities);
   }, [showAllCities]);
+  
+  // filters.search değiştiğinde localSearch'ü güncelle (dışarıdan gelen değişiklikler için)
+  useEffect(() => {
+    setLocalSearch(filters.search);
+  }, [filters.search]);
+
+  // Component unmount olduğunda debounce timer'ı temizle
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
-    setFilters(prev => ({
-      ...prev,
-      [name]: value
-    }));
+    
+    // Eğer arama alanı ise, local state'i güncelle ama global state'i hemen güncelleme
+    if (name === 'search') {
+      setLocalSearch(value);
+      
+      // Önceki timer'ı temizle
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      
+      // Yeni timer başlat - kullanıcı yazmayı bıraktıktan 800ms sonra filtreleri uygula
+      debounceTimerRef.current = setTimeout(() => {
+        setFilters(prev => ({ ...prev, search: value }));
+        applyFilters();
+      }, 800);
+    } else {
+      // Diğer filtreler için normal davran
+      setFilters(prev => ({
+        ...prev,
+        [name]: value
+      }));
+    }
+  };
+  
+  // Enter tuşuna basıldığında filtreleri uygula
+  const handleSearchKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      // Timeout'u temizle
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      
+      // Filtreleri hemen uygula
+      setFilters(prev => ({ ...prev, search: localSearch }));
+      applyFilters();
+    }
+  };
+  
+  // Arama butonuna tıklandığında filtreleri uygula
+  const handleSearchButtonClick = () => {
+    // Timeout'u temizle
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    
+    // Filtreleri hemen uygula
+    setFilters(prev => ({ ...prev, search: localSearch }));
+    applyFilters();
   };
 
   const handleSortChange = (e) => {
@@ -132,15 +192,25 @@ const FilterPanel = ({
             <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="search">
               Ara
             </label>
-            <input
-              type="text"
-              id="search"
-              name="search"
-              value={filters.search}
-              onChange={handleFilterChange}
-              placeholder="Başlık, açıklama veya adrese göre ara"
-              className="shadow appearance-none border border-gray-300 rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-            />
+            <div className="relative">
+              <input
+                type="text"
+                id="search"
+                name="search"
+                value={localSearch}
+                onChange={handleFilterChange}
+                onKeyDown={handleSearchKeyDown}
+                placeholder="Başlık, açıklama veya adrese göre ara"
+                className="shadow appearance-none border border-gray-300 rounded w-full py-2 px-3 pr-10 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+              />
+              <button 
+                onClick={handleSearchButtonClick}
+                className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-700 hover:text-blue-600"
+                title="Ara"
+              >
+                <FiSearch />
+              </button>
+            </div>
           </div>
           
           {/* Kategori */}

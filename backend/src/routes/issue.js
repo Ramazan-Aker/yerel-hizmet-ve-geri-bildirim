@@ -12,7 +12,8 @@ const {
   addComment,
   addReply,
   likeComment,
-  likeReply
+  likeReply,
+  getPublicStats
 } = require('../controllers/issueController');
 const { protect, authorize } = require('../middleware/authMiddleware');
 
@@ -20,6 +21,10 @@ const { protect, authorize } = require('../middleware/authMiddleware');
 router.route('/')
   .get(getIssues)
   .post(protect, createIssue);
+
+// Genel istatistikler
+router.route('/stats')
+  .get(getPublicStats);
 
 router.route('/myissues')
   .get(protect, getMyIssues);
