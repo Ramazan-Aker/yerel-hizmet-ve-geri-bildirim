@@ -96,6 +96,11 @@ const HomeScreen = ({ navigation }) => {
     navigation.navigate('Issues');
   };
 
+  // Chatbot'a git
+  const navigateToChatbot = () => {
+    navigation.navigate('Chatbot');
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Bağlantı Durumu Çubuğu */}
@@ -141,6 +146,14 @@ const HomeScreen = ({ navigation }) => {
               onPress={navigateToIssues}
             >
               <Text style={styles.secondaryButtonText}>Sorunları Görüntüle</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.aiButton}
+              onPress={navigateToChatbot}
+            >
+              <Icon name="smart-toy" size={20} color="#fff" />
+              <Text style={styles.aiButtonText}>Şehir Asistanı</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -281,9 +294,10 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   heroBtnContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
+    flexDirection: 'column',
+    alignItems: 'center',
     width: '100%',
+    gap: 12,
   },
   primaryButton: {
     backgroundColor: '#fff',
@@ -309,6 +323,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   secondaryButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  aiButton: {
+    backgroundColor: '#10b981',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    marginHorizontal: 8,
+    minWidth: 150,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  aiButtonText: {
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 14,

@@ -24,6 +24,9 @@ import AdminIssuesListScreen from '../screens/AdminIssuesListScreen';
 import AdminReportsScreen from '../screens/AdminReportsScreen';
 import WorkerIssueDetailScreen from '../screens/WorkerIssueDetailScreen';
 
+// AI Screens
+import ChatbotScreen from '../screens/ChatbotScreen';
+
 // Auth Context
 import { useAuth } from '../hooks/useAuth';
 
@@ -255,6 +258,11 @@ const MainNavigator = () => {
         component={MyIssuesScreen} 
         key="my-issues-screen" 
       />
+      <Stack.Screen 
+        name="Chatbot" 
+        component={ChatbotScreen} 
+        key="chatbot-screen" 
+      />
     </Stack.Navigator>
   );
 };
@@ -288,6 +296,11 @@ const AdminNavigator = () => {
         component={AdminReportsScreen} 
         key="admin-reports-screen" 
       />
+      <Stack.Screen 
+        name="Chatbot" 
+        component={ChatbotScreen} 
+        key="admin-chatbot-screen" 
+      />
     </Stack.Navigator>
   );
 };
@@ -315,6 +328,11 @@ const WorkerNavigator = () => {
         name="IssueDetail" 
         component={IssueDetailScreen} 
         key="issue-detail-screen" 
+      />
+      <Stack.Screen 
+        name="Chatbot" 
+        component={ChatbotScreen} 
+        key="worker-chatbot-screen" 
       />
     </Stack.Navigator>
   );

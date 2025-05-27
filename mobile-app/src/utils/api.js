@@ -967,7 +967,7 @@ const api = {
           
           const paginatedIssues = demoIssues.slice(startIndex, endIndex);
           
-            return { 
+        return { 
             success: true, 
             data: {
               data: paginatedIssues,
@@ -996,7 +996,7 @@ const api = {
         
         console.log('İstatistikler başarıyla alındı');
         
-          return {
+          return { 
             success: true,
             data: response.data.data
           };
@@ -1011,8 +1011,8 @@ const api = {
           const totalIssues = demoData.issues.length;
           const resolvedIssues = demoData.issues.filter(issue => issue.status === 'resolved').length;
           
-          return {
-            success: true,
+          return { 
+            success: true, 
             data: {
               totalIssues,
               resolvedIssues,
@@ -1020,7 +1020,7 @@ const api = {
               activeUsers: 82,
               averageResolveTime: 3
             },
-            isDemoMode: true 
+            isDemoMode: true
           };
         }
         
@@ -1032,11 +1032,11 @@ const api = {
     getMyIssues: async () => {
       try {
         await checkAndPingApi();
-        const token = await AsyncStorage.getItem('token');
+          const token = await AsyncStorage.getItem('token');
         
         if (!token) {
-          return {
-            success: false,
+            return { 
+              success: false, 
             message: 'Oturum açmanız gerekiyor'
           };
         }
@@ -1048,8 +1048,8 @@ const api = {
         // Worker rolü kontrolü
         if (user && user.role === 'worker') {
           console.log('Worker rolü için getMyIssues fonksiyonu kullanılamaz');
-          return {
-            success: true,
+          return { 
+            success: true, 
             data: [],       // Boş liste döndür
             workerRole: true // Worker rolü olduğunu belirt
           };
@@ -1069,8 +1069,8 @@ const api = {
         let myIssuesData = response.data.data || [];
         console.log(`API yanıtı: ${myIssuesData.length} sorun bulundu`);
         
-        return {
-          success: true,
+          return { 
+            success: true, 
           data: myIssuesData
         };
       } catch (error) {
@@ -1108,8 +1108,8 @@ const api = {
         
         console.log('Sorun detayları başarıyla alındı');
         
-        return {
-          success: true,
+          return {
+            success: true,
           data: response.data.data
         };
       } catch (error) {
@@ -1134,10 +1134,10 @@ const api = {
         
         console.log('Sorun detayları başarıyla alındı');
         
-        return {
-          success: true,
-          data: response.data.data
-        };
+          return {
+            success: true,
+            data: response.data.data
+          };
       } catch (error) {
         return handleApiError(error, 'Sorun detayları alınırken bir hata oluştu');
       }
@@ -1167,8 +1167,8 @@ const api = {
         
         console.log('Sorun başarıyla oluşturuldu:', response.data);
         
-        return {
-          success: true,
+          return {
+            success: true,
           data: response.data.data,
           message: 'Sorun başarıyla bildirildi'
         };
@@ -1184,8 +1184,8 @@ const api = {
         const token = await AsyncStorage.getItem('token');
         
         if (!token) {
-          return {
-            success: false,
+        return { 
+          success: false, 
             message: 'Oturum açmanız gerekiyor'
           };
         }
@@ -1202,7 +1202,7 @@ const api = {
         
         console.log('Sorun durumu başarıyla güncellendi');
         
-        return {
+          return {
           success: true,
           data: response.data.data,
           message: 'Sorun durumu güncellendi'
@@ -1294,7 +1294,7 @@ const api = {
         });
 
         console.log('Admin sorunları başarıyla alındı');
-
+        
         return {
           success: true,
           data: {
@@ -1334,14 +1334,14 @@ const api = {
             message: 'Oturum açmanız gerekiyor'
           };
         }
-
+        
         const response = await client.put(`/admin/issues/${issueId}/assign`, 
           { workerId }, 
           { headers: { Authorization: `Bearer ${token}` } }
         );
-
+        
         console.log('Sorun başarıyla atandı');
-
+        
         return {
           success: true,
           data: response.data.data || response.data
@@ -1371,7 +1371,7 @@ const api = {
         );
 
         console.log('Sorun durumu başarıyla güncellendi');
-
+        
         return {
           success: true,
           data: response.data.data || response.data
@@ -1381,7 +1381,7 @@ const api = {
         return handleApiError(error, 'Durum güncellenemedi');
       }
     },
-
+    
     // Çalışanları getir
     getWorkers: async () => {
       try {
@@ -1394,13 +1394,13 @@ const api = {
             message: 'Oturum açmanız gerekiyor'
           };
         }
-
+        
         const response = await client.get('/admin/workers', {
           headers: { Authorization: `Bearer ${token}` }
         });
-
+        
         console.log('Çalışanlar başarıyla alındı');
-
+        
         return {
           success: true,
           data: response.data.data || response.data
@@ -1430,7 +1430,7 @@ const api = {
         );
 
         console.log('Resmi yanıt başarıyla eklendi');
-
+        
         return {
           success: true,
           data: response.data.data || response.data
@@ -1459,7 +1459,7 @@ const api = {
         });
 
         console.log('Admin sorun detayı başarıyla alındı');
-
+        
         return {
           success: true,
           data: response.data.data || response.data
@@ -1469,7 +1469,7 @@ const api = {
         return handleApiError(error, 'Sorun detayları alınamadı');
       }
     },
-
+    
     // Admin istatistikleri getir
     getStats: async (timeRange = 'last30days') => {
       try {
@@ -1522,7 +1522,7 @@ const api = {
 
         // Toplam sayısını hesapla
         const total = byStatus.reduce((sum, item) => sum + item.count, 0);
-
+        
         return {
           success: true,
           data: {
@@ -1539,7 +1539,7 @@ const api = {
         return handleApiError(error, 'İstatistikler alınamadı');
       }
     },
-
+    
     // Sorun güncelle (kapsamlı güncelleme)
     updateIssue: async (issueId, updateData) => {
       try {
@@ -1604,13 +1604,13 @@ const api = {
           } else {
             // Güncel veriyi al
             response = await client.get(`/admin/issues/${issueId}`, {
-              headers: { Authorization: `Bearer ${token}` }
-            });
+          headers: { Authorization: `Bearer ${token}` }
+        });
           }
         }
 
         console.log('Sorun başarıyla güncellendi');
-
+        
         return {
           success: true,
           data: response.data.data || response.data
@@ -2027,6 +2027,96 @@ const api = {
   comments: {
     // ... existing code ...
   },
+
+  // AI işlemleri
+  ai: {
+    // Chatbot ile sohbet
+    chat: async (message, conversationHistory = []) => {
+      try {
+        console.log('AI Chat isteği gönderiliyor:', message.substring(0, 50) + '...');
+        
+        const response = await client.post('/ai/chat', {
+          message,
+          conversationHistory
+        });
+        
+        console.log('AI Chat yanıtı alındı');
+        return {
+          success: true,
+          data: response.data.data
+        };
+      } catch (error) {
+        console.error('AI Chat hatası:', error);
+        return handleApiError(error, 'Chatbot ile iletişim kurulamadı');
+      }
+    },
+
+    // Kategori önerisi
+    suggestCategory: async (description) => {
+      try {
+        console.log('Kategori önerisi isteniyor...');
+        const token = await AsyncStorage.getItem('token');
+        
+        const response = await client.post('/ai/suggest-category', 
+          { description },
+          {
+            headers: { Authorization: `Bearer ${token}` }
+          }
+        );
+        
+        console.log('Kategori önerisi alındı:', response.data.data.suggestedCategory);
+        return {
+          success: true,
+          data: response.data.data
+        };
+      } catch (error) {
+        console.error('Kategori önerisi hatası:', error);
+        return handleApiError(error, 'Kategori önerisi alınamadı');
+      }
+    },
+
+    // Öncelik önerisi
+    suggestPriority: async (description, category) => {
+      try {
+        console.log('Öncelik önerisi isteniyor...');
+        const token = await AsyncStorage.getItem('token');
+        
+        const response = await client.post('/ai/suggest-priority', 
+          { description, category },
+          {
+            headers: { Authorization: `Bearer ${token}` }
+          }
+        );
+        
+        console.log('Öncelik önerisi alındı:', response.data.data.suggestedPriority);
+        return {
+          success: true,
+          data: response.data.data
+        };
+      } catch (error) {
+        console.error('Öncelik önerisi hatası:', error);
+        return handleApiError(error, 'Öncelik önerisi alınamadı');
+      }
+    },
+
+    // AI sistem durumu
+    getStatus: async () => {
+      try {
+        console.log('AI sistem durumu kontrol ediliyor...');
+        
+        const response = await client.get('/ai/status');
+        
+        console.log('AI sistem durumu alındı:', response.data.data.chatbotStatus);
+        return {
+          success: true,
+          data: response.data.data
+        };
+      } catch (error) {
+        console.error('AI sistem durumu hatası:', error);
+        return handleApiError(error, 'AI sistem durumu alınamadı');
+      }
+    }
+  }
 };
 
 // Yardımcı fonksiyonlar

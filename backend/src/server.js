@@ -63,6 +63,7 @@ const issueRoutes = require('./routes/issue');
 const adminRoutes = require('./routes/admin');
 const workerRoutes = require('./routes/worker');
 const municipalRoutes = require('./routes/municipal');
+const aiRoutes = require('./routes/ai');
 
 // Mount routes
 app.use('/api/auth', authRoutes);
@@ -70,6 +71,7 @@ app.use('/api/issues', issueRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/worker', workerRoutes);
 app.use('/api/municipal', municipalRoutes);
+app.use('/api/ai', aiRoutes);
 
 // Temel rota
 app.get('/', (req, res) => {
