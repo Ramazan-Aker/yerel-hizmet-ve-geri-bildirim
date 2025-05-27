@@ -92,6 +92,43 @@ const AdminIssuesListScreen = ({ route, navigation }) => {
           setRefreshing(false);
           return;
         }
+      } 
+      // Municipal worker için özel kontrol
+      else if (user?.role === 'municipal_worker' && filter === 'assigned') {
+        console.log('Municipal worker için atanan görevler getiriliyor...');
+        console.log('Municipal worker bilgileri:', {
+          id: user.id,
+          name: user.name,
+          role: user.role,
+          city: user.city
+        });
+        // Municipal worker kendi atadığı sorunları görmek istiyorsa admin API'sini kullan
+        response = await api.admin.getAdminIssues();
+        
+        if (response.success && response.data) {
+          let allIssues = response.data.issues || response.data || [];
+          
+          // Municipal worker'ın atadığı sorunları filtrele (assignedTo veya assignedWorker alanı dolu olanlar)
+          const assignedIssues = allIssues.filter(issue => 
+            issue.assignedTo || issue.assignedWorker
+          );
+          
+          console.log(`Municipal worker için ${assignedIssues.length} atanmış sorun bulundu`);
+          console.log('Atanmış sorunlar:', assignedIssues.map(issue => ({
+            id: issue._id,
+            title: issue.title,
+            assignedWorker: issue.assignedWorker,
+            assignedTo: issue.assignedTo,
+            status: issue.status
+          })));
+          setIssues(assignedIssues);
+          setFilteredIssues(assignedIssues);
+          setLoading(false);
+          setRefreshing(false);
+          return;
+        } else {
+          console.warn('Municipal worker için atanmış sorunlar alınamadı');
+        }
       } else {
         // Admin ve municipal_worker için admin API'sini kullan
         response = await api.admin.getAdminIssues();
@@ -157,16 +194,16 @@ const AdminIssuesListScreen = ({ route, navigation }) => {
       );
     }
     
-    // Durum filtresine göre filtrele
-    if (statusFilter !== 'all') {
+    // Durum filtresine göre filtrele (sadece admin için)
+    if (user?.role === 'admin' && statusFilter !== 'all') {
       result = result.filter(issue => {
         const statusText = getStatusText(issue.status);
         return statusText === statusFilter;
       });
     }
     
-    // Kategori filtresine göre filtrele
-    if (categoryFilter !== 'all') {
+    // Kategori filtresine göre filtrele (sadece admin için)
+    if (user?.role === 'admin' && categoryFilter !== 'all') {
       result = result.filter(issue => issue.category === categoryFilter);
     }
     
@@ -180,7 +217,7 @@ const AdminIssuesListScreen = ({ route, navigation }) => {
       result.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     } else if (sortBy === 'oldest') {
       result.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-    } else if (sortBy === 'priority') {
+    } else if (sortBy === 'priority' && user?.role === 'admin') {
       const priorityOrder = { 'Kritik': 0, 'Yüksek': 1, 'Orta': 2, 'Düşük': 3 };
       result.sort((a, b) => priorityOrder[a.severity] - priorityOrder[b.severity]);
     }
@@ -308,8 +345,8 @@ const AdminIssuesListScreen = ({ route, navigation }) => {
   // Filtreler için ayrı bir component
   const renderFilters = () => (
     <View style={styles.filtersContainer}>
-      {/* Filtreler - Sadece admin ve municipal_worker için göster */}
-      {user?.role !== 'worker' && (
+      {/* Filtreler - Sadece admin için göster, municipal_worker için gizle */}
+      {user?.role === 'admin' && (
         <>
       <View style={styles.filterRow}>
         <View style={styles.filterItem}>
@@ -398,14 +435,17 @@ const AdminIssuesListScreen = ({ route, navigation }) => {
             </Text>
           </TouchableOpacity>
           
-          <TouchableOpacity
-            style={[styles.sortButton, sortBy === 'priority' && styles.sortButtonActive]}
-            onPress={() => setSortBy('priority')}
-          >
-            <Text style={[styles.sortButtonText, sortBy === 'priority' && styles.sortButtonTextActive]}>
-              Öncelik
-            </Text>
-          </TouchableOpacity>
+          {/* Öncelik sıralaması sadece admin için */}
+          {user?.role === 'admin' && (
+            <TouchableOpacity
+              style={[styles.sortButton, sortBy === 'priority' && styles.sortButtonActive]}
+              onPress={() => setSortBy('priority')}
+            >
+              <Text style={[styles.sortButtonText, sortBy === 'priority' && styles.sortButtonTextActive]}>
+                Öncelik
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
       
@@ -424,7 +464,9 @@ const AdminIssuesListScreen = ({ route, navigation }) => {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Sorunlar</Text>
         {user?.role === 'municipal_worker' && user?.city && (
-          <Text style={styles.headerCity}>{user.city}</Text>
+          <Text style={styles.headerCity}>
+            {filter === 'assigned' ? 'Atanmış Sorunlar' : user.city}
+          </Text>
         )}
         {user?.role === 'worker' && (
           <Text style={styles.headerCity}>Atanan Görevler</Text>

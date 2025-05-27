@@ -597,6 +597,13 @@ exports.addOfficialResponse = async (req, res) => {
 exports.assignWorker = async (req, res) => {
   try {
     const { workerId } = req.body;
+    
+    console.log('assignWorker çağrıldı:', {
+      issueId: req.params.id,
+      workerId: workerId,
+      adminUser: req.user.name,
+      adminRole: req.user.role
+    });
 
     if (!workerId) {
       return res.status(400).json({
@@ -607,6 +614,13 @@ exports.assignWorker = async (req, res) => {
 
     // Çalışanın varlığını kontrol et
     const worker = await User.findById(workerId);
+    console.log('Bulunan worker:', worker ? {
+      id: worker._id,
+      name: worker.name,
+      role: worker.role,
+      city: worker.city
+    } : 'Worker bulunamadı');
+    
     if (!worker || (worker.role !== 'municipal_worker' && worker.role !== 'worker')) {
       return res.status(404).json({
         success: false,
@@ -622,6 +636,13 @@ exports.assignWorker = async (req, res) => {
         message: 'Sorun bulunamadı'
       });
     }
+
+    console.log('Atama öncesi sorun durumu:', {
+      issueId: issue._id,
+      title: issue.title,
+      currentStatus: issue.status,
+      currentAssignedWorker: issue.assignedWorker
+    });
 
     // Çalışan ata
     issue.assignedWorker = workerId;
@@ -641,6 +662,13 @@ exports.assignWorker = async (req, res) => {
 
     await issue.save();
     
+    console.log('Atama sonrası sorun durumu:', {
+      issueId: issue._id,
+      newStatus: issue.status,
+      newAssignedWorker: issue.assignedWorker,
+      updatesCount: issue.updates.length
+    });
+
     // Güncel veriyi döndür
     const updatedIssue = await Issue.findById(req.params.id)
       .populate('user', 'name email phone')

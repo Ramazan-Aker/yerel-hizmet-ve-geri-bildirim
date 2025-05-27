@@ -30,7 +30,7 @@ import moment from 'moment';
 const { width } = Dimensions.get('window');
 
 const IssuesScreen = ({ navigation }) => {
-  const { user, isOffline, checkConnection } = useAuth();
+  const { user, isOffline, checkConnection, loading: authLoading } = useAuth();
   const [issues, setIssues] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -362,8 +362,17 @@ const IssuesScreen = ({ navigation }) => {
       } else {
         setLoading(true);
       }
-
-      console.log('Sorunlar getiriliyor...');
+      
+      console.log('fetchIssues çağrıldı:', {
+        shouldRefresh,
+        forceShowAllCities,
+        currentUser: user ? {
+          id: user.id,
+          city: user.city,
+          name: user.name
+        } : 'null',
+        showAllCities
+      });
       
       // API'den sorunları al
       const params = {};
@@ -375,16 +384,14 @@ const IssuesScreen = ({ navigation }) => {
       // showAllCities false ise ve kullanıcının şehri varsa
       if (!shouldShowAllCities && user?.city) {
         params.city = user.city;
-        console.log(`Sadece ${user.city} şehrine ait sorunlar getiriliyor...`);
+        console.log('Şehir filtresi uygulandı:', params.city);
       } else {
-        console.log('Tüm şehirlere ait sorunlar getiriliyor...');
+        console.log('Tüm şehirler gösteriliyor veya kullanıcı şehri yok');
       }
       
       const response = await api.issues.getAll(params);
       
       if (response.success) {
-        console.log(`${response.data.data?.length || 0} sorun bulundu`);
-        
         // API yanıt yapısı kontrol et
         if (response.data && response.data.data) {
           setIssues(response.data.data);
@@ -398,12 +405,11 @@ const IssuesScreen = ({ navigation }) => {
           setIsDemoMode(false);
         }
       } else {
-        console.error('API hata döndürdü:', response.message);
         setIssues([]);
         setIsDemoMode(true);
       }
     } catch (error) {
-      console.error('Sorunlar getirilirken hata oluştu:', error);
+      setIssues([]);
       setIsDemoMode(true);
     } finally {
       setLoading(false);
@@ -414,12 +420,10 @@ const IssuesScreen = ({ navigation }) => {
   // Ekran odaklandığında çalışır
   useFocusEffect(
     useCallback(() => {
-      console.log('IssuesScreen odaklandı, sorunlar yenileniyor...');
       fetchIssues();
       
       return () => {
         // Ekran odaktan çıktığında yapılacak temizlik işlemleri
-        console.log('IssuesScreen odaktan çıktı');
       };
     }, [fetchIssues])
   );
@@ -433,14 +437,25 @@ const IssuesScreen = ({ navigation }) => {
   useEffect(() => {
     if (user?.city) {
       // Kullanıcının şehri tespit edildiğinde, varsayılan olarak sadece kendi şehrini göster
-      console.log(`Kullanıcının şehri tespit edildi (${user.city}), kendi şehri varsayılan olarak seçildi`);
       // showAllCities zaten false olarak başlatıldı, bu yüzden bir değişiklik yapmaya gerek yok
     }
   }, [user?.city]);
 
+  // Auth durumu değiştiğinde sorunları yeniden yükle
+  useEffect(() => {
+    if (!authLoading && user) {
+      console.log('Auth yüklendi, kullanıcı bilgileri:', {
+        id: user.id,
+        name: user.name,
+        city: user.city,
+        email: user.email
+      });
+      fetchIssues();
+    }
+  }, [authLoading, user, fetchIssues]);
+
   // Şehir filtresi değiştiğinde sorunları yeniden getir
   useEffect(() => {
-    console.log('Şehir filtresi değişti, sorunlar yeniden yükleniyor...');
     fetchIssues(false, showAllCities);
   }, [showAllCities, fetchIssues]);
 
@@ -723,10 +738,18 @@ const IssuesScreen = ({ navigation }) => {
               'Tüm şehirlerdeki sorunlar gösteriliyor' : 
               (user?.city ? 
                 `${user.city} şehrindeki sorunlar gösteriliyor` : 
-                'Şehir bilgisi bulunamadı'
+                'Şehir bilgisi bulunamadı - Profilinizi güncelleyin'
               )
             }
           </Text>
+          {!showAllCities && !user?.city && (
+            <TouchableOpacity 
+              style={styles.updateProfileButton}
+              onPress={() => navigation.navigate('Profile')}
+            >
+              <Text style={styles.updateProfileButtonText}>Profili Güncelle</Text>
+            </TouchableOpacity>
+          )}
         </View>
         
         <ScrollView
@@ -744,7 +767,6 @@ const IssuesScreen = ({ navigation }) => {
                   showAllCities ? styles.toggleActive : styles.toggleInactive
                 ]}
                 onPress={() => {
-                  console.log('Şehir filtresi toggle:', !showAllCities ? 'Tüm şehirler' : (user?.city ? user.city : 'Kendi şehir'));
                   setShowAllCities(!showAllCities);
                   // fetchIssues useEffect ile otomatik çalışacak
                 }}
@@ -856,10 +878,12 @@ const IssuesScreen = ({ navigation }) => {
       
       {/* Liste Görünümü */}
       {viewMode === 'list' && (
-        loading ? (
+        (loading || authLoading) ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#3b82f6" />
-            <Text style={styles.loadingText}>Sorunlar yükleniyor...</Text>
+            <Text style={styles.loadingText}>
+              {authLoading ? 'Kullanıcı bilgileri yükleniyor...' : 'Sorunlar yükleniyor...'}
+            </Text>
           </View>
         ) : (
           <FlatList
@@ -907,10 +931,12 @@ const IssuesScreen = ({ navigation }) => {
       
       {/* Harita Görünümü */}
       {viewMode === 'map' && (
-        loading ? (
+        (loading || authLoading) ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#3b82f6" />
-            <Text style={styles.loadingText}>Harita yükleniyor...</Text>
+            <Text style={styles.loadingText}>
+              {authLoading ? 'Kullanıcı bilgileri yükleniyor...' : 'Harita yükleniyor...'}
+            </Text>
           </View>
         ) : (
           <View style={styles.mapContainer}>
@@ -1443,6 +1469,17 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     flex: 1,
     marginLeft: 4,
+  },
+  updateProfileButton: {
+    padding: 8,
+    backgroundColor: '#3b82f6',
+    borderRadius: 4,
+    marginLeft: 8,
+  },
+  updateProfileButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
   modalOverlay: {
     flex: 1,

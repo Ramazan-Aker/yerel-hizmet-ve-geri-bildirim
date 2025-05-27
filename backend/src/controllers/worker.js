@@ -5,9 +5,24 @@ const fs = require('fs');
 // Çalışana atanmış tüm sorunları getir
 exports.getAssignedIssues = async (req, res) => {
   try {
+    console.log('getAssignedIssues çağrıldı. Kullanıcı bilgileri:', {
+      id: req.user.id,
+      name: req.user.name,
+      role: req.user.role,
+      city: req.user.city
+    });
+    
     const issues = await Issue.find({ assignedWorker: req.user.id })
       .populate('user', 'name')
       .sort({ createdAt: -1 });
+
+    console.log(`Kullanıcı ${req.user.id} için ${issues.length} atanmış sorun bulundu`);
+    console.log('Bulunan sorunlar:', issues.map(issue => ({
+      id: issue._id,
+      title: issue.title,
+      assignedWorker: issue.assignedWorker,
+      status: issue.status
+    })));
 
     res.status(200).json({
       success: true,

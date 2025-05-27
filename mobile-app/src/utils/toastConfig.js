@@ -1,154 +1,391 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import Toast, { BaseToast } from 'react-native-toast-message';
+import { View, Text, TouchableOpacity } from 'react-native';
+import Toast from 'react-native-toast-message';
 
-// Özel toast yapılandırması
+// Custom toast konfigürasyonu
 export const toastConfig = {
-  // Başarı mesajları
-  success: ({ text1, text2, ...props }) => (
-    <BaseToast
-      {...props}
-      style={{ 
-        borderLeftColor: '#00C851',
-        backgroundColor: '#f0fff0',
+  // Başarılı işlemler için yeşil toast
+  success: ({ text1, text2, onPress, props }) => (
+    <TouchableOpacity 
+      onPress={onPress}
+      style={{
+        height: 80,
         width: '90%',
-        height: text2 ? 'auto' : 60,
-        minHeight: 60,
-        paddingVertical: 10,
-        borderRadius: 8
+        backgroundColor: '#22c55e',
+        borderRadius: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 20,
+        marginTop: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+        elevation: 8,
       }}
-      contentContainerStyle={{ paddingHorizontal: 15 }}
-      text1Style={{
-        fontSize: 15,
-        fontWeight: 'bold',
-        color: '#006400'
-      }}
-      text2Style={{
-        fontSize: 13,
-        color: '#00C851'
-      }}
-      text1={text1}
-      text2={text2}
-      leadingIcon={
-        <View style={styles.iconContainer}>
-          <Ionicons name="checkmark-circle" size={24} color="#00C851" />
-        </View>
-      }
-    />
+    >
+      <View style={{ 
+        width: 40, 
+        height: 40, 
+        backgroundColor: 'rgba(255,255,255,0.2)', 
+        borderRadius: 20, 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        marginRight: 15
+      }}>
+        <Text style={{ fontSize: 20, color: '#fff' }}>✓</Text>
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={{
+          fontSize: 16,
+          fontWeight: 'bold',
+          color: '#fff',
+          marginBottom: 4
+        }}>
+          {text1}
+        </Text>
+        {text2 && (
+          <Text style={{
+            fontSize: 14,
+            color: 'rgba(255,255,255,0.9)',
+            lineHeight: 18
+          }}>
+            {text2}
+          </Text>
+        )}
+      </View>
+    </TouchableOpacity>
   ),
 
-  // Hata mesajları
-  error: ({ text1, text2, ...props }) => (
-    <BaseToast
-      {...props}
-      style={{ 
-        borderLeftColor: '#ff4444',
-        backgroundColor: '#fff0f0',
+  // Hata mesajları için kırmızı toast
+  error: ({ text1, text2, onPress, props }) => (
+    <TouchableOpacity 
+      onPress={onPress}
+      style={{
+        height: 80,
         width: '90%',
-        height: text2 ? 'auto' : 60,
-        minHeight: 60,
-        paddingVertical: 10,
-        borderRadius: 8
+        backgroundColor: '#ef4444',
+        borderRadius: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 20,
+        marginTop: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+        elevation: 8,
       }}
-      contentContainerStyle={{ paddingHorizontal: 15 }}
-      text1Style={{
-        fontSize: 15,
-        fontWeight: 'bold',
-        color: '#8B0000'
-      }}
-      text2Style={{
-        fontSize: 13,
-        color: '#ff4444'
-      }}
-      text1={text1}
-      text2={text2}
-      leadingIcon={
-        <View style={styles.iconContainer}>
-          <Ionicons name="alert-circle" size={24} color="#ff4444" />
-        </View>
-      }
-    />
+    >
+      <View style={{ 
+        width: 40, 
+        height: 40, 
+        backgroundColor: 'rgba(255,255,255,0.2)', 
+        borderRadius: 20, 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        marginRight: 15
+      }}>
+        <Text style={{ fontSize: 20, color: '#fff' }}>✕</Text>
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={{
+          fontSize: 16,
+          fontWeight: 'bold',
+          color: '#fff',
+          marginBottom: 4
+        }}>
+          {text1}
+        </Text>
+        {text2 && (
+          <Text style={{
+            fontSize: 14,
+            color: 'rgba(255,255,255,0.9)',
+            lineHeight: 18
+          }}>
+            {text2}
+          </Text>
+        )}
+      </View>
+    </TouchableOpacity>
   ),
 
-  // Bilgi mesajları
-  info: ({ text1, text2, ...props }) => (
-    <BaseToast
-      {...props}
-      style={{ 
-        borderLeftColor: '#33b5e5',
-        backgroundColor: '#f0f8ff',
+  // Bilgi mesajları için mavi toast
+  info: ({ text1, text2, onPress, props }) => (
+    <TouchableOpacity 
+      onPress={onPress}
+      style={{
+        height: 80,
         width: '90%',
-        height: text2 ? 'auto' : 60,
-        minHeight: 60,
-        paddingVertical: 10,
-        borderRadius: 8
+        backgroundColor: '#3b82f6',
+        borderRadius: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 20,
+        marginTop: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+        elevation: 8,
       }}
-      contentContainerStyle={{ paddingHorizontal: 15 }}
-      text1Style={{
-        fontSize: 15,
-        fontWeight: 'bold',
-        color: '#00008B'
-      }}
-      text2Style={{
-        fontSize: 13,
-        color: '#33b5e5'
-      }}
-      text1={text1}
-      text2={text2}
-      leadingIcon={
-        <View style={styles.iconContainer}>
-          <Ionicons name="information-circle" size={24} color="#33b5e5" />
-        </View>
-      }
-    />
+    >
+      <View style={{ 
+        width: 40, 
+        height: 40, 
+        backgroundColor: 'rgba(255,255,255,0.2)', 
+        borderRadius: 20, 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        marginRight: 15
+      }}>
+        <Text style={{ fontSize: 20, color: '#fff' }}>ℹ</Text>
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={{
+          fontSize: 16,
+          fontWeight: 'bold',
+          color: '#fff',
+          marginBottom: 4
+        }}>
+          {text1}
+        </Text>
+        {text2 && (
+          <Text style={{
+            fontSize: 14,
+            color: 'rgba(255,255,255,0.9)',
+            lineHeight: 18
+          }}>
+            {text2}
+          </Text>
+        )}
+      </View>
+    </TouchableOpacity>
   ),
 
-  // Uyarı mesajları
-  warning: ({ text1, text2, ...props }) => (
-    <BaseToast
-      {...props}
-      style={{ 
-        borderLeftColor: '#ffbb33',
-        backgroundColor: '#fffcf0',
+  // Uyarı mesajları için turuncu toast
+  warning: ({ text1, text2, onPress, props }) => (
+    <TouchableOpacity 
+      onPress={onPress}
+      style={{
+        height: 80,
         width: '90%',
-        height: text2 ? 'auto' : 60,
-        minHeight: 60,
-        paddingVertical: 10,
-        borderRadius: 8
+        backgroundColor: '#f59e0b',
+        borderRadius: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 20,
+        marginTop: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+        elevation: 8,
       }}
-      contentContainerStyle={{ paddingHorizontal: 15 }}
-      text1Style={{
-        fontSize: 15,
-        fontWeight: 'bold',
-        color: '#8B4513'
+    >
+      <View style={{ 
+        width: 40, 
+        height: 40, 
+        backgroundColor: 'rgba(255,255,255,0.2)', 
+        borderRadius: 20, 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        marginRight: 15
+      }}>
+        <Text style={{ fontSize: 20, color: '#fff' }}>⚠</Text>
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={{
+          fontSize: 16,
+          fontWeight: 'bold',
+          color: '#fff',
+          marginBottom: 4
+        }}>
+          {text1}
+        </Text>
+        {text2 && (
+          <Text style={{
+            fontSize: 14,
+            color: 'rgba(255,255,255,0.9)',
+            lineHeight: 18
+          }}>
+            {text2}
+          </Text>
+        )}
+      </View>
+    </TouchableOpacity>
+  ),
+
+  // Hoş geldin mesajı için özel toast
+  welcome: ({ text1, text2, onPress, props }) => (
+    <TouchableOpacity 
+      onPress={onPress}
+      style={{
+        height: 80,
+        width: '90%',
+        backgroundColor: '#8b5cf6',
+        borderRadius: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 20,
+        marginTop: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+        elevation: 8,
       }}
-      text2Style={{
-        fontSize: 13,
-        color: '#ffbb33'
+    >
+      <View style={{ 
+        width: 40, 
+        height: 40, 
+        backgroundColor: 'rgba(255,255,255,0.2)', 
+        borderRadius: 20, 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        marginRight: 15
+      }}>
+        <Text style={{ fontSize: 20, color: '#fff' }}>👋</Text>
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={{
+          fontSize: 16,
+          fontWeight: 'bold',
+          color: '#fff',
+          marginBottom: 4
+        }}>
+          {text1}
+        </Text>
+        {text2 && (
+          <Text style={{
+            fontSize: 14,
+            color: 'rgba(255,255,255,0.9)',
+            lineHeight: 18
+          }}>
+            {text2}
+          </Text>
+        )}
+      </View>
+    </TouchableOpacity>
+  ),
+
+  // Kayıt başarılı mesajı için özel toast
+  register: ({ text1, text2, onPress, props }) => (
+    <TouchableOpacity 
+      onPress={onPress}
+      style={{
+        height: 80,
+        width: '90%',
+        backgroundColor: '#10b981',
+        borderRadius: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 20,
+        marginTop: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+        elevation: 8,
       }}
-      text1={text1}
-      text2={text2}
-      leadingIcon={
-        <View style={styles.iconContainer}>
-          <Ionicons name="warning" size={24} color="#ffbb33" />
-        </View>
-      }
-    />
+    >
+      <View style={{ 
+        width: 40, 
+        height: 40, 
+        backgroundColor: 'rgba(255,255,255,0.2)', 
+        borderRadius: 20, 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        marginRight: 15
+      }}>
+        <Text style={{ fontSize: 20, color: '#fff' }}>🎉</Text>
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={{
+          fontSize: 16,
+          fontWeight: 'bold',
+          color: '#fff',
+          marginBottom: 4
+        }}>
+          {text1}
+        </Text>
+        {text2 && (
+          <Text style={{
+            fontSize: 14,
+            color: 'rgba(255,255,255,0.9)',
+            lineHeight: 18
+          }}>
+            {text2}
+          </Text>
+        )}
+      </View>
+    </TouchableOpacity>
   )
 };
 
-const styles = StyleSheet.create({
-  iconContainer: {
-    paddingHorizontal: 10,
-    justifyContent: 'center',
-    alignItems: 'center'
-  }
-});
-
-// Export a function to register the toast config
-export const registerToastConfig = () => {
-  Toast.setConfig(toastConfig);
+// Toast gösterme yardımcı fonksiyonları
+export const showSuccessToast = (title, message, duration = 3000) => {
+  Toast.show({
+    type: 'success',
+    text1: title,
+    text2: message,
+    visibilityTime: duration,
+    topOffset: 60,
+    onPress: () => Toast.hide()
+  });
 };
 
-export default toastConfig; 
+export const showErrorToast = (title, message, duration = 4000) => {
+  Toast.show({
+    type: 'error',
+    text1: title,
+    text2: message,
+    visibilityTime: duration,
+    topOffset: 60,
+    onPress: () => Toast.hide()
+  });
+};
+
+export const showInfoToast = (title, message, duration = 3000) => {
+  Toast.show({
+    type: 'info',
+    text1: title,
+    text2: message,
+    visibilityTime: duration,
+    topOffset: 60,
+    onPress: () => Toast.hide()
+  });
+};
+
+export const showWarningToast = (title, message, duration = 3000) => {
+  Toast.show({
+    type: 'warning',
+    text1: title,
+    text2: message,
+    visibilityTime: duration,
+    topOffset: 60,
+    onPress: () => Toast.hide()
+  });
+};
+
+export const showWelcomeToast = (title, message, duration = 4000) => {
+  Toast.show({
+    type: 'welcome',
+    text1: title,
+    text2: message,
+    visibilityTime: duration,
+    topOffset: 60,
+    onPress: () => Toast.hide()
+  });
+};
+
+export const showRegisterToast = (title, message, duration = 4000) => {
+  Toast.show({
+    type: 'register',
+    text1: title,
+    text2: message,
+    visibilityTime: duration,
+    topOffset: 60,
+    onPress: () => Toast.hide()
+  });
+}; 

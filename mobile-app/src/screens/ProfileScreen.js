@@ -47,6 +47,9 @@ const ProfileScreen = ({ navigation }) => {
   useEffect(() => {
     if (user) {
       console.log('ProfileScreen: Kullanıcı verileri değişti, state güncelleniyor:', user);
+      console.log('ProfileScreen: Telefon değeri:', user.phone);
+      console.log('ProfileScreen: Şehir değeri:', user.city);
+      console.log('ProfileScreen: İlçe değeri:', user.district);
       setName(user.name || '');
       setEmail(user.email || '');
       setPhone(user.phone || '');
@@ -55,6 +58,8 @@ const ProfileScreen = ({ navigation }) => {
       setProfileImage(user.profileImage || null);
       setNotifications(user.notifications || true);
       setDistrict(user.district || '');
+    } else {
+      console.log('ProfileScreen: Kullanıcı verisi null veya undefined');
     }
   }, [user]);
 
@@ -166,10 +171,13 @@ const ProfileScreen = ({ navigation }) => {
       
       if (response.success && response.data) {
         // API'den dönen veri yapısını kontrol et
-        const userData = response.data.data;
+        const userData = response.data;
         
         if (userData) {
           console.log('Yeni kullanıcı bilgileri alındı:', userData);
+          console.log('API\'den gelen telefon:', userData.phone);
+          console.log('API\'den gelen şehir:', userData.city);
+          console.log('API\'den gelen ilçe:', userData.district);
           
           // Güncel verileri local state'e kaydet
           setName(userData.name || '');
@@ -470,13 +478,19 @@ const ProfileScreen = ({ navigation }) => {
             <Text style={styles.infoLabel}>Şehir</Text>
             {isEditing ? (
               <TextInput
-                style={styles.input}
+                style={[styles.input, isEditing ? styles.editableInput : styles.readOnlyInput]}
                 value={city}
                 onChangeText={setCity}
-                placeholder="Şehir"
+                placeholder="Şehir seçiniz"
+                editable={isEditing}
               />
             ) : (
               <Text style={styles.infoValue}>{city || 'Belirtilmemiş'}</Text>
+            )}
+            {!city && !isEditing && (
+              <Text style={styles.warningText}>
+                ⚠️ Şehir bilgisi eksik. Şehir bilgisi olmadan size özel sorunları göremezsiniz.
+              </Text>
             )}
           </View>
           
@@ -919,6 +933,17 @@ const styles = StyleSheet.create({
   statLabel: {
     fontSize: 16,
     color: '#666',
+  },
+  warningText: {
+    color: '#f44336',
+    fontSize: 12,
+    marginTop: 5,
+  },
+  editableInput: {
+    // Add any necessary styles for editable input
+  },
+  readOnlyInput: {
+    // Add any necessary styles for read-only input
   },
 });
 

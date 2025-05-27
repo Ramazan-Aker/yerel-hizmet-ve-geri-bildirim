@@ -774,12 +774,29 @@ const api = {
     
     register: async (data) => {
       console.log('Register isteği gönderiliyor:', data);
+      console.log('Register isteği full verileri:', JSON.stringify(data, null, 2));
+      
       try {
+        // API base URL'ini kontrol et
+        console.log('API base URL:', client.defaults.baseURL);
+        
         const response = await client.post('/auth/register', data);
         console.log('Register yanıtı:', response.data);
         return response;
       } catch (error) {
         console.error('Register hatası:', error);
+        
+        // Detaylı hata bilgilerini logla
+        if (error.response) {
+          console.error('Register API Hata Kodu:', error.response.status);
+          console.error('Register API Hata Detayı:', JSON.stringify(error.response.data, null, 2));
+          console.error('Register API Hata Headers:', error.response.headers);
+        } else if (error.request) {
+          console.error('Register API yanıt vermedi:', error.request);
+        } else {
+          console.error('Register Genel Hata:', error.message);
+        }
+        
         throw error;
       }
     },

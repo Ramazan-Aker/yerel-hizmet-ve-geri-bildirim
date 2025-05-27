@@ -97,10 +97,10 @@ exports.authorizeMunicipalWorker = (req, res, next) => {
 
 // Saha çalışanı yetkisi kontrolü
 exports.authorizeWorker = (req, res, next) => {
-  if (req.user.role !== 'worker') {
+  if (req.user.role !== 'worker' && req.user.role !== 'municipal_worker') {
     return res.status(403).json({
       success: false,
-      message: 'Sadece saha çalışanları bu işlemi yapabilir'
+      message: 'Sadece saha çalışanları ve belediye personeli bu işlemi yapabilir'
     });
   }
   next();

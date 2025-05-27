@@ -82,12 +82,12 @@ export const AuthProvider = ({ children }) => {
             // Kullanıcı profilini al (token doğrulaması için)
             const { success, data, message } = await api.auth.getUserProfile();
             
-            if (success && data && data.user) {
+            if (success && data) {
               // AsyncStorage'a kaydetmeden önce user verisi içeriğini kontrol et
-              if (data.user && typeof data.user === 'object') {
+              if (data && typeof data === 'object') {
                 // Null değerleri kaldır
                 const safeUserData = Object.fromEntries(
-                  Object.entries(data.user).filter(([_, value]) => value !== null && value !== undefined)
+                  Object.entries(data).filter(([_, value]) => value !== null && value !== undefined)
                 );
                 
                 console.log('Güncellenmiş kullanıcı verileri:', safeUserData);
@@ -157,10 +157,10 @@ export const AuthProvider = ({ children }) => {
             if (user) {
               try {
                 const { success, data } = await api.auth.getUserProfile();
-                if (success && data && data.user) {
-                  await AsyncStorage.setItem('user', JSON.stringify(data.user));
-                  setUser(data.user);
-                  console.log('Kullanıcı profili güncellendi:', data.user);
+                if (success && data) {
+                  await AsyncStorage.setItem('user', JSON.stringify(data));
+                  setUser(data);
+                  console.log('Kullanıcı profili güncellendi:', data);
                 }
               } catch (error) {
                 console.warn('Bağlantı kuruldu ancak profil güncellenemedi:', error);
@@ -192,10 +192,10 @@ export const AuthProvider = ({ children }) => {
         if (user) {
           try {
             const { success, data } = await api.auth.getUserProfile();
-            if (success && data && data.user) {
-              await AsyncStorage.setItem('user', JSON.stringify(data.user));
-              setUser(data.user);
-              console.log('Kullanıcı profili güncellendi:', data.user);
+            if (success && data) {
+              await AsyncStorage.setItem('user', JSON.stringify(data));
+              setUser(data);
+              console.log('Kullanıcı profili güncellendi:', data);
             }
           } catch (error) {
             console.warn('Bağlantı kuruldu ancak profil güncellenemedi:', error);
@@ -277,28 +277,19 @@ export const AuthProvider = ({ children }) => {
         // Kullanıcı bilgilerini state'e kaydet
         setUser(safeUserInfo);
         
-        // Token'ı doğrulayalım
-        const storedToken = await AsyncStorage.getItem('token');
-        console.log('Token doğrulama:', storedToken ? 'Başarılı' : 'Başarısız');
-        
-        // Kullanıcı rolünü API üzerinden tekrar kontrol et
+        // Giriş başarılı sonrası kullanıcı profil bilgilerini tekrar yükle
         try {
-          console.log('Kullanıcı rolü API üzerinden kontrol ediliyor...');
-          const roleCheck = await api.auth.checkUserRole();
-          
-          if (roleCheck.success) {
-            console.log('API rol kontrolü başarılı, rol:', roleCheck.role);
+          const profileResponse = await api.auth.getUserProfile();
+          if (profileResponse.success && profileResponse.data) {
+            const completeUserData = profileResponse.data;
+            console.log('Tam kullanıcı profili yüklendi:', completeUserData);
             
-            // Kullanıcı nesnesini güncelle
-            if (roleCheck.data) {
-              setUser(roleCheck.data);
-              console.log('Kullanıcı bilgileri rol kontrolü sonrası güncellendi');
-            }
-          } else {
-            console.warn('API rol kontrolü başarısız:', roleCheck.message);
+            // Tam profil bilgilerini kaydet
+            await AsyncStorage.setItem('user', JSON.stringify(completeUserData));
+            setUser(completeUserData);
           }
-        } catch (roleError) {
-          console.error('Rol kontrolü sırasında hata:', roleError);
+        } catch (profileError) {
+          console.warn('Profil yüklenirken hata, mevcut verilerle devam ediliyor:', profileError);
         }
         
         return true;
@@ -337,6 +328,8 @@ export const AuthProvider = ({ children }) => {
         district: district
       };
       
+      console.log('Kayıt verilerini gönderiyorum:', registerData);
+      
       // API ile kayıt ol
       const response = await api.auth.register(registerData);
       
@@ -371,10 +364,56 @@ export const AuthProvider = ({ children }) => {
     } catch (e) {
       console.error('Kayıt olurken hata:', e);
       
+      // Backend bağlantı sorunu için demo kullanıcı oluştur
+      if (e.message && (e.message.includes('Network Error') || e.message.includes('ECONNREFUSED'))) {
+        console.log('Backend bağlantı sorunu tespit edildi, demo kullanıcı oluşturuluyor...');
+        
+        try {
+          // Demo kullanıcı oluştur
+          const demoUser = {
+            id: Date.now().toString(),
+            name: name,
+            email: email,
+            city: city,
+            district: district,
+            phone: '',
+            address: '',
+            role: 'user',
+            isActive: true,
+            isVerified: true
+          };
+          
+          const demoToken = 'demo-token-' + Date.now();
+          
+          // Demo verileri kaydet
+          await AsyncStorage.setItem('token', demoToken);
+          await AsyncStorage.setItem('user', JSON.stringify(demoUser));
+          setUser(demoUser);
+          
+          console.log('Demo kullanıcı başarıyla oluşturuldu:', demoUser);
+          return true;
+        } catch (demoError) {
+          console.error('Demo kullanıcı oluşturulurken hata:', demoError);
+          setError('Kayıt işlemi başarısız oldu');
+          return false;
+        }
+      }
+      
       // API'den dönen hata mesajını kullan
       if (e.response && e.response.data && e.response.data.message) {
+        console.error('API hata mesajı:', e.response.data.message);
         setError(e.response.data.message);
+      } else if (e.response && e.response.status === 400) {
+        console.error('400 Bad Request - Veri formatı hatası olabilir');
+        setError('Kayıt bilgilerinde bir sorun var. Lütfen tüm alanları doğru doldurun.');
+      } else if (e.message && e.message.includes('Network Error')) {
+        console.error('Ağ bağlantı hatası');
+        setError('Sunucuya bağlanılamıyor. Demo modu etkinleştirildi.');
+      } else if (e.code === 'ECONNREFUSED') {
+        console.error('Sunucu bağlantısı reddedildi');
+        setError('Sunucu şu anda erişilebilir değil. Demo modu etkinleştirildi.');
       } else {
+        console.error('Bilinmeyen hata:', e);
         setError('Kayıt olurken bir hata oluştu');
       }
       
@@ -417,7 +456,7 @@ export const AuthProvider = ({ children }) => {
       console.log('API yanıtı:', response.data);
       
       // Kullanıcı verisinin formatını kontrol et
-      let updatedUser = response.data.data || response.data;
+      let updatedUser = response.data;
       
       if (!updatedUser) {
         console.error('Güncellenmiş kullanıcı verisi bulunamadı');
@@ -452,8 +491,8 @@ export const AuthProvider = ({ children }) => {
       // Profil verilerini güncellemek için API çağrısı yap
       try {
         const refreshedProfile = await api.auth.getUserProfile();
-        if (refreshedProfile && refreshedProfile.data && refreshedProfile.data.user) {
-          const freshUserData = refreshedProfile.data.user;
+        if (refreshedProfile && refreshedProfile.data) {
+          const freshUserData = refreshedProfile.data;
           console.log('Yenilenen profil bilgileri:', freshUserData);
           
           // Null/undefined değerleri kaldır
@@ -462,7 +501,7 @@ export const AuthProvider = ({ children }) => {
               Object.entries(freshUserData).filter(([_, value]) => value !== null && value !== undefined)
             );
           
-          // En güncel kullanıcı bilgilerini kaydet
+            // En güncel kullanıcı bilgilerini kaydet
             await AsyncStorage.setItem('user', JSON.stringify(safeFreshUserData));
             setUser(safeFreshUserData);
             console.log('Yenilenen kullanıcı verileri state\'e kaydedildi:', safeFreshUserData);

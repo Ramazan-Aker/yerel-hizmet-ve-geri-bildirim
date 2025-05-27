@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { Dropdown } from 'react-native-element-dropdown';
 import { useAuth } from '../hooks/useAuth';
+import { showRegisterToast, showErrorToast, showSuccessToast } from '../utils/toastConfig';
 
 const RegisterScreen = ({ navigation }) => {
   const [name, setName] = useState('');
@@ -253,31 +254,31 @@ const RegisterScreen = ({ navigation }) => {
   const handleRegister = async () => {
     // Form validasyonu
     if (!name.trim()) {
-      Alert.alert('Hata', 'Lütfen adınızı girin');
+      showErrorToast('Hata', 'Lütfen adınızı girin');
       return;
     }
     if (!email.trim()) {
-      Alert.alert('Hata', 'Lütfen e-posta adresinizi girin');
+      showErrorToast('Hata', 'Lütfen e-posta adresinizi girin');
       return;
     }
     if (!validateEmail(email)) {
-      Alert.alert('Hata', 'Lütfen geçerli bir e-posta adresi girin');
+      showErrorToast('Hata', 'Lütfen geçerli bir e-posta adresi girin');
       return;
     }
     if (!password || password.length < 6) {
-      Alert.alert('Hata', 'Şifre en az 6 karakter olmalı');
+      showErrorToast('Hata', 'Şifre en az 6 karakter olmalı');
       return;
     }
     if (password !== confirmPassword) {
-      Alert.alert('Hata', 'Şifreler eşleşmiyor');
+      showErrorToast('Hata', 'Şifreler eşleşmiyor');
       return;
     }
     if (!city) {
-      Alert.alert('Hata', 'Lütfen şehir seçin');
+      showErrorToast('Hata', 'Lütfen şehir seçin');
       return;
     }
     if (!district) {
-      Alert.alert('Hata', 'Lütfen ilçe seçin');
+      showErrorToast('Hata', 'Lütfen ilçe seçin');
       return;
     }
 
@@ -290,13 +291,42 @@ const RegisterScreen = ({ navigation }) => {
       // Register fonksiyonunu çağırırken doğru veri formatını sağla
       const success = await register(name, email, password, cityLabel, districtLabel);
       
-      if (!success && error) {
-        Alert.alert('Kayıt Başarısız', error);
+      if (success) {
+        // Başarılı kayıt mesajı
+        showRegisterToast(
+          'Kayıt Başarılı! 🎉', 
+          `Hoş geldiniz ${name}! Hesabınız başarıyla oluşturuldu.`
+        );
+      } else if (error) {
+        // Hata mesajı - daha kullanıcı dostu hale getir
+        let errorTitle = 'Kayıt Başarısız';
+        let errorMessage = error;
+        
+        if (error.toLowerCase().includes('email') || error.toLowerCase().includes('e-posta')) {
+          errorTitle = 'E-posta Zaten Kayıtlı';
+          errorMessage = 'Bu e-posta adresi ile zaten bir hesap mevcut.';
+        } else if (error.toLowerCase().includes('network') || error.toLowerCase().includes('bağlantı')) {
+          errorTitle = 'Bağlantı Sorunu';
+          errorMessage = 'İnternet bağlantınızı kontrol edin ve tekrar deneyin.';
+        } else if (error.toLowerCase().includes('demo')) {
+          errorTitle = 'Demo Hesap Oluşturuldu';
+          errorMessage = 'Sunucu bağlantısı kurulamadığı için demo hesap oluşturuldu.';
+        }
+        
+        if (error.toLowerCase().includes('demo')) {
+          showSuccessToast(errorTitle, errorMessage);
+        } else {
+          showErrorToast(errorTitle, errorMessage);
+        }
+        
         setError(null);
       }
     } catch (err) {
       console.error('Kayıt hatası:', err);
-      Alert.alert('Kayıt Başarısız', 'Bir hata oluştu, lütfen tekrar deneyin.');
+      showErrorToast(
+        'Beklenmeyen Hata', 
+        'Bir hata oluştu, lütfen tekrar deneyin.'
+      );
     }
   };
 

@@ -237,7 +237,8 @@ exports.getIssues = async (req, res) => {
     
     // Şehir filtresi - artık opsiyonel
     if (req.query.city && req.query.city !== '') {
-      filter['location.city'] = req.query.city;
+      // Case-insensitive şehir filtrelemesi
+      filter['location.city'] = new RegExp(req.query.city, 'i');
     }
     
     // Önem derecesi filtresi
@@ -280,28 +281,22 @@ exports.getIssues = async (req, res) => {
       ];
     }
 
-    console.log('Uygulanan filtreler:', filter);
+    console.log('Uygulanan filtreler:', JSON.stringify(filter, null, 2));
 
     // Sıralama seçenekleri
     const sortOption = req.query.sort || 'newest';
     
     // En çok yorumlanan filtresi için özel işlem yapıyoruz
     if (sortOption === 'most_comments') {
-      try {
-        console.log('En çok yorumlanan filtresine göre sıralama yapılıyor...');
-        
+      try {        
         // Tüm sorunları normal şekilde, yorumlarıyla birlikte getir
-        // Sayfalama burada yapmıyoruz, manuel yapacağız
         const allIssues = await Issue.find(filter)
           .populate('user', 'name')
-          .lean(); // Daha hızlı işlem için lean() kullanıyoruz
+          .lean();
         
         // Her soruna yorum sayısı alanı ekle
         const issuesWithCommentCount = allIssues.map(issue => {
-          // Yorumların sayısını hesapla (eğer varsa)
           const commentCount = issue.comments ? issue.comments.length : 0;
-          
-          // Yeni bir commentCount alanı ekle
           return {
             ...issue,
             commentCount
@@ -314,13 +309,6 @@ exports.getIssues = async (req, res) => {
         // Sayfalama uygula
         const paginatedIssues = issuesWithCommentCount.slice(startIndex, startIndex + limit);
         
-        // Debug: Yorum sayılarını kontrol et
-        console.log('Sıralama sonrası ilk 5 sorun:');
-        for (let i = 0; i < Math.min(5, paginatedIssues.length); i++) {
-          const issue = paginatedIssues[i];
-          console.log(`  ID: ${issue._id}, Başlık: "${issue.title}", Yorum sayısı: ${issue.commentCount}`);
-        }
-        
         // Toplam sayı hesaplama
         const total = allIssues.length;
         
@@ -331,8 +319,6 @@ exports.getIssues = async (req, res) => {
           count: paginatedIssues.length
         };
         
-        console.log(`Toplam ${total} sorundan, ${paginatedIssues.length} sorun döndürülüyor (yorum sayısına göre sıralı).`);
-        
         return res.status(200).json({
           success: true,
           pagination,
@@ -340,18 +326,14 @@ exports.getIssues = async (req, res) => {
         });
       } catch (error) {
         console.error('En çok yorumlanan sıralaması yapılırken hata:', error);
-        
         // Hatada standart sıralamaya dön
-        console.log('Hata nedeniyle varsayılan sıralamaya (en yeni) dönülüyor.');
         sortOption = 'newest';
       }
     }
     
     // Diğer sıralama seçenekleri için normal akış
-    // Toplam sayı hesaplama
     const total = await Issue.countDocuments(filter);
     
-    // Standart sorgu ve sıralama
     let issuesQuery = Issue.find(filter)
       .populate('user', 'name')
       .skip(startIndex)
@@ -369,7 +351,6 @@ exports.getIssues = async (req, res) => {
         issuesQuery = issuesQuery.sort({ upvotes: -1 });
         break;
       case 'severity':
-        // Önem derecesi alfabetik olarak sıralanır - özel bir sıralama gerekebilir
         issuesQuery = issuesQuery.sort({ severity: -1 });
         break;
       default:
@@ -377,8 +358,6 @@ exports.getIssues = async (req, res) => {
     }
     
     const issues = await issuesQuery.exec();
-
-    console.log(`${issues.length} sorun bulundu.`);
 
     // Sayfalama bilgisi
     const pagination = {

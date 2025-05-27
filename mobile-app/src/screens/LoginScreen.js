@@ -13,19 +13,20 @@ import {
   Platform
 } from 'react-native';
 import { useAuth } from '../hooks/useAuth';
+import { showWelcomeToast, showErrorToast, showSuccessToast } from '../utils/toastConfig';
 
 const LoginScreen = ({ navigation }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const { login, loginWithDemo, loading, error, setError } = useAuth();
+  const { login, loginWithDemo, loading, error, setError, user } = useAuth();
 
   const handleLogin = async () => {
     if (!email.trim()) {
-      Alert.alert('Hata', 'Lütfen e-posta adresinizi girin');
+      showErrorToast('Hata', 'Lütfen e-posta adresinizi girin');
       return;
     }
     if (!password) {
-      Alert.alert('Hata', 'Lütfen şifrenizi girin');
+      showErrorToast('Hata', 'Lütfen şifrenizi girin');
       return;
     }
 
@@ -34,32 +35,71 @@ const LoginScreen = ({ navigation }) => {
     try {
       const success = await login(email, password);
       
-      if (!success && error) {
-        Alert.alert('Giriş Başarısız', error);
+      if (success) {
+        // Başarılı giriş mesajı
+        showWelcomeToast(
+          'Hoş Geldiniz! 👋', 
+          'Uygulamaya başarıyla giriş yaptınız. İyi günler!'
+        );
+      } else if (error) {
+        // Hata mesajı - daha net ve kullanıcı dostu
+        let errorTitle = 'Giriş Başarısız';
+        let errorMessage = error;
+        
+        // Yaygın hata mesajlarını daha kullanıcı dostu hale getir
+        if (error.toLowerCase().includes('şifre') || error.toLowerCase().includes('password')) {
+          errorTitle = 'Şifre Hatalı';
+          errorMessage = 'Lütfen şifrenizi kontrol edin ve tekrar deneyin.';
+        } else if (error.toLowerCase().includes('email') || error.toLowerCase().includes('e-posta') || error.toLowerCase().includes('kullanıcı bulunamadı')) {
+          errorTitle = 'E-posta Hatalı';
+          errorMessage = 'Bu e-posta adresi ile kayıtlı kullanıcı bulunamadı.';
+        } else if (error.toLowerCase().includes('network') || error.toLowerCase().includes('bağlantı')) {
+          errorTitle = 'Bağlantı Sorunu';
+          errorMessage = 'İnternet bağlantınızı kontrol edin ve tekrar deneyin.';
+        }
+        
+        showErrorToast(errorTitle, errorMessage);
         setError(null);
       }
     } catch (err) {
       console.error('Login hatası:', err);
-      Alert.alert('Giriş Başarısız', 'Bir hata oluştu, lütfen tekrar deneyin.');
+      showErrorToast(
+        'Beklenmeyen Hata', 
+        'Bir hata oluştu, lütfen tekrar deneyin.'
+      );
     }
   };
 
   const handleDemoLogin = async () => {
     try {
       const success = await loginWithDemo();
-      if (!success && error) {
-        Alert.alert('Demo Giriş Başarısız', error);
+      
+      if (success) {
+        // Demo giriş başarılı mesajı
+        showSuccessToast(
+          'Demo Giriş Başarılı! 🎯', 
+          'Demo hesabı ile uygulamayı keşfedebilirsiniz.'
+        );
+      } else if (error) {
+        showErrorToast('Demo Giriş Başarısız', error);
         setError(null);
       }
     } catch (err) {
       console.error('Demo login hatası:', err);
-      Alert.alert('Demo Giriş Başarısız', 'Bir hata oluştu, lütfen tekrar deneyin.');
+      showErrorToast(
+        'Demo Giriş Başarısız', 
+        'Bir hata oluştu, lütfen tekrar deneyin.'
+      );
     }
   };
 
   const fillDemoCredentials = () => {
     setEmail('demo@example.com');
     setPassword('password');
+    showSuccessToast(
+      'Demo Bilgileri Dolduruldu', 
+      'Artık "Giriş Yap" butonuna tıklayabilirsiniz.'
+    );
   };
 
   return (

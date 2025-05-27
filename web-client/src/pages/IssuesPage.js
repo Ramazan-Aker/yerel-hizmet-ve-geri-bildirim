@@ -348,7 +348,7 @@ const IssuesPage = () => {
     // Gereksiz render'ları önlemek için mevcut durum kontrolü yapılır
     // Eğer zaten filtre uygulama durumundaysak tekrar tetiklenmesini önler
     if (!isApplyingFilters) {
-      setIsApplyingFilters(true);
+    setIsApplyingFilters(true);
     }
   };
 
@@ -438,11 +438,11 @@ const IssuesPage = () => {
         </Link>
       </div>
 
-      <FilterPanel
-        filters={filters}
-        setFilters={setFilters}
-        sortBy={sortBy}
-        setSortBy={setSortBy}
+      <FilterPanel 
+        filters={filters} 
+        setFilters={setFilters} 
+        sortBy={sortBy} 
+        setSortBy={setSortBy} 
         districts={districts}
         applyFilters={applyFilters}
         resetFilters={resetFilters}
