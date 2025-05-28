@@ -42,9 +42,9 @@ const Footer = () => {
           <div>
             <h3 className="text-xl font-bold mb-4">İletişim</h3>
             <ul className="space-y-2 text-gray-300">
-              <li>Email: iletisim@sehirsoruntakip.com</li>
-              <li>Telefon: +90 (212) 123 45 67</li>
-              <li>Adres: Sorun Takip Plaza, İstanbul</li>
+              <li>Email: yeni-email@sehirsoruntakip.com</li>
+              <li>Telefon: +90 (212) 987 65 43</li>
+              <li>Adres: Yeni Adres Bilgisi, İstanbul</li>
             </ul>
           </div>
         </div>

@@ -31,7 +31,7 @@ const Debug = () => {
 
   return (
     <div className="p-4 bg-white rounded shadow">
-      <h2 className="text-xl font-bold mb-4">Debug: Worker Listesi</h2>
+      <h2 className="text-xl font-bold mb-4">Çalışanlar</h2>
       
       {loading && (
         <div className="text-center p-4">
